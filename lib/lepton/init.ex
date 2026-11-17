@@ -70,6 +70,7 @@ defmodule Lepton.Init do
       wait_for_data_partition()
       verbose("storage: #{Lepton.Persist.mount()}")
       Lepton.Pkg.load_installed()
+      Lepton.Power.start()
       Lepton.Net.start_background()
       wait_for_consoles()
       ms = System.monotonic_time(:millisecond) - t0

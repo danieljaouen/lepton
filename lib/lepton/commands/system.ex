@@ -427,13 +427,14 @@ defmodule Lepton.Commands.System do
     0
   end
 
-  defcmd "poweroff", "power off the machine", aliases: ["halt", "shutdown"] do
-    IO.puts(ctx, "Powering off...")
-    Process.sleep(200)
-
-    case Sys.poweroff() do
-      :ok -> Process.sleep(:infinity)
-      _ -> IO.err(ctx, "poweroff: not running as the system init"); 1
+  defcmd "poweroff", "power off the machine (flushes the disk first)", aliases: ["halt", "shutdown"] do
+    if Sys.native?() do
+      # Same path as the power button: announce, flush, remount read-only, off.
+      Lepton.Power.shutdown("poweroff")
+      Process.sleep(:infinity)
+    else
+      IO.err(ctx, "poweroff: not running as the system init")
+      1
     end
   end
 

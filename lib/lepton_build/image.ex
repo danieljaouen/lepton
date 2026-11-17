@@ -23,6 +23,7 @@ defmodule LeptonBuild.Image do
     virtio_net af_packet virtio_rng
     virtio_blk virtio_scsi sr_mod isofs
     usb-storage uas sd_mod nvme ext4
+    gpio-pl061 button
   )
 
   @lib_dir "/usr/lib/aarch64-linux-gnu"

@@ -99,6 +99,13 @@ ISO), and an ext2 data partition named `LEPTON-DATA`
 are bind-mounted from the data partition. On the first boot, `/root` is
 seeded from the image, including your dotfiles.
 
+**Shutting down.** Use UTM's power button → **Request power down** (or
+type `poweroff`). Lepton listens for the virtual power button (ACPI
+through the `gpio-pl061` and `button` drivers, read in `Lepton.Power`),
+warns the consoles, flushes the data partition, remounts it read-only and
+powers off, so the next start is a clean boot through GRUB. "Force shut
+down" and closing the VM window pull the plug and can't be intercepted.
+
 With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
 `mix lepton.qemu --disk disk.qcow2` to install and
 `mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system.
