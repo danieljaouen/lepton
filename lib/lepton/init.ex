@@ -72,6 +72,7 @@ defmodule Lepton.Init do
       Lepton.Pkg.load_installed()
       Lepton.Power.start()
       Lepton.Net.start_background()
+      Lepton.Services.boot()
       wait_for_consoles()
       ms = System.monotonic_time(:millisecond) - t0
       say("userland up in #{ms} ms")

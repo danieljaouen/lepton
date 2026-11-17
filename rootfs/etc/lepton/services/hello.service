@@ -1,0 +1,8 @@
+# An example service, used by `lepton-tutorial`. Try:
+#   svc start hello; svc logs hello -f; svc stop hello
+[Unit]
+Description=Says hello every two seconds (example)
+
+[Service]
+ExecStart=n=1; while true; do echo "hello #$n from a Lepton service"; n=$((n + 1)); sleep 2; done
+Restart=on-failure

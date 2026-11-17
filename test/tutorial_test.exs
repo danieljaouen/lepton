@@ -7,6 +7,9 @@ defmodule Lepton.TutorialTest do
   @tag :dotfiles
   test "every suggested command runs successfully" do
     home = scratch_home()
+    # Service logs and state go somewhere disposable.
+    System.put_env("LEPTON_STATE_DIR", tmp_dir("tutorial-state"))
+    on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
 
     for {title, _text, cmd} <- Lepton.Tutorial.lessons(home), cmd != nil, runnable?(cmd) do
       {out, status} =

@@ -144,7 +144,8 @@ defmodule Lepton.Commands do
     Lepton.Commands.System,
     Lepton.Commands.Network,
     Lepton.Commands.Dev,
-    Lepton.Commands.Admin
+    Lepton.Commands.Admin,
+    Lepton.Commands.Services
   ]
 
   def all, do: Map.merge(builtins(), runtime())

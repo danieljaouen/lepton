@@ -10,7 +10,7 @@ starship prompt are read from the files themselves, not re-typed.
 ```
  ┌──────────────────────────────────────────────────────────────────────┐
  │  Elixir (this repo)                                                  │
- │   lsh shell · coreutils · le (Spacemacs) · tmux · git · gh · www     │
+ │   lsh · coreutils · le (Spacemacs) · tmux · git · gh · www · svc     │
  │   TTY/line discipline · VT emulator · netlink + DHCP · init (PID 1)  │
  ├──────────────────────────────────────────────────────────────────────┤
  │  Erlang/OTP 29 runtime (ERTS, kernel, stdlib, ssl, crypto, inets)    │
@@ -135,8 +135,8 @@ With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
   ethernet, which DHCP configures automatically. The saved credentials are
   meant for a future kernel with Wi-Fi support.
 - **Tutorial.** On the first boot after installation, Lepton offers a
-  10-lesson tour (once). It covers files, pipes, jobs, the editor, tmux,
-  git/GitHub, packages, networking and help, using the key bindings from
+  11-lesson tour (once). It covers files, pipes, jobs, services, the
+  editor, tmux, git/GitHub, packages, networking and help, using the key bindings from
   your dotfiles. Each lesson suggests a command that you can run for
   real. `lepton-tutorial` runs it any time.
 
@@ -237,6 +237,57 @@ On a machine without a Keychain, set `LEPTON_SIGNING_KEY` to a key file.
 Keep the Keychain backed up (iCloud Keychain or Time Machine): losing
 the signing key means a new key and a new ISO.
 
+### Services: `svc` (like systemd)
+
+`svc` (also `systemctl`) starts, stops and restarts long-running apps,
+restarts them when they fail, starts enabled ones at boot and keeps
+their logs:
+
+```sh
+svc                         # every service: state, PID, uptime
+svc start hello             # an example service that ships with Lepton
+svc status hello            # state, PID, restarts and the last log lines
+svc logs hello -f           # follow its output (also: journalctl -u hello -f)
+svc stop hello              # stops it and every process it started
+svc new clock 'while true; do date; sleep 60; done'
+svc enable --now clock      # start now and at every boot
+```
+
+A service is a unit file in systemd syntax, in
+`~/.config/lepton/services/` (yours, persistent) or
+`/etc/lepton/services/` (shipped; yours override them). `ExecStart` is
+any `lsh` command line:
+
+```ini
+[Unit]
+Description=Static web server for ~/public (port 8080)
+
+[Service]
+ExecStart=mkdir -p ~/public && httpd -p 8080 ~/public
+Restart=on-failure      # no (default) | on-failure | always
+RestartSec=2
+Environment=GREETING=hi "NAME=a b"
+WorkingDirectory=~
+TimeoutStopSec=5
+```
+
+How it behaves:
+
+- Each run is a Lepton process tree under PID 1, so it shows in `ps`.
+  Stopping a service ends the whole tree.
+- A clean exit leaves the service `inactive`; a non-zero exit or a kill
+  marks it `failed`, and `Restart=` decides whether it comes back. The
+  restarts stop after 5 starts in 10 seconds, as in systemd.
+- Logs go to `/var/lib/lepton/log/NAME.log` (rotated at 1 MiB), so on an
+  installed system they survive reboots. The enabled list is kept in
+  `/var/lib/lepton/services`.
+- Every service is stopped cleanly before power-off.
+
+`svc cat`, `svc edit` (opens `le`; editing a shipped unit makes your own
+copy), `svc is-active` / `svc is-enabled` and `svc enable|disable
+[--now]` round it out. `httpd [-p PORT] [DIR]` is a static file server
+built on OTP's `inets`, which makes a good first service.
+
 ## Your dotfiles, applied
 
 The build installs your dotfiles repo into `/root` following its own
@@ -298,7 +349,9 @@ not executed: `alias` lines (`l`, `gc`, `m`, `mc`, …), simple `export`s
 macOS-only `if` branches are skipped and the Linux branch used, and
 `EDITOR=vim` makes `vim` an alias of `le`. oh-my-zsh `git`-plugin aliases
 come from `/etc/lshrc`, and yours override them (`gp`, `gc`). History is
-appended per command (`inc_append_history`).
+appended per command (`inc_append_history`). Scripting covers pipelines,
+`if`/`for`/`while`/`until`, `break`/`continue [N]`, `$(…)` and `$((…))`
+integer arithmetic.
 
 **Prompt**: a starship engine reads `~/.config/starship.toml` (format
 language, styles, `username show_always`, `hostname ssh_only = false`,
@@ -331,6 +384,7 @@ list|view|create`, `gh pr list|view`, `gh browse`, `gh api`. In the editor,
 - **text**: `grep head tail wc sort uniq cut tr sed awk diff xargs nl rev tac less/more base64 md5sum sha1sum sha256sum sha512sum strings hexdump/xxd`
 - **shell utils**: `echo printf true false yes seq test/[ expr env printenv time watch sleep date cal clear reset resize stty tty`
 - **system**: `ps kill pgrep pkill top free uptime uname hostname whoami id mount umount dmesg lsmod modprobe rmmod sync reboot poweroff neofetch keys`
+- **services**: `svc/systemctl journalctl httpd`
 - **network**: `ip ifconfig dhclient ping nslookup/host curl/wget www`
 - **dev**: `le tmux git gh iex elixir mix erl lsh lepton-test`
 - **admin**: `lepton-install lepton-tutorial lpm wifi credits`
@@ -352,6 +406,12 @@ runtime with `Lepton.Commands.register/2` (for example from `iex`).
 - **Processes** (`Lepton.Proc`): every program is a BEAM process with a
   Unix-style PID, parent, tty and state. `C-c` kills the foreground job,
   `C-z` suspends it (`:erlang.suspend_process`), and `fg`/`bg`/`jobs` work.
+- **Services** (`Lepton.Services`): a supervised manager that runs each
+  service's `ExecStart` in its own process tree and watches it. It
+  applies the restart policy and start limit, and collects output through
+  an I/O server into per-service logs. `Lepton.Init` starts enabled
+  services after the data partition is mounted, and `poweroff`/`reboot`
+  stop them first.
 - **I/O**: TTYs (`Lepton.TTY`) and pipes (`Lepton.Pipe`) are Erlang I/O
   servers, so `IO.puts` works anywhere. Pipes apply back-pressure, and
   writing to a closed pipe exits the writer (SIGPIPE). The TTY has a cooked
@@ -377,8 +437,8 @@ dotfiles); `:network` needs internet access (DHCP, DNS, and cloning
 network is up; `:dotfiles` needs your dotfiles. Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 96 tests, 0 failures inside the VM (none excluded; run
-from the live ISO), and 88 passing plus 8 excluded (native/network) on
+Current results: 105 tests, 0 failures inside the VM (none excluded; run
+from the live ISO), and 97 passing plus 8 excluded (native/network) on
 the host.
 
 ## Limitations
@@ -388,6 +448,9 @@ the host.
   `/etc`) reset at boot.
 - Wi-Fi credentials can be saved but not used: see "First-run setup".
 - Single user (`root`), no permissions model beyond the kernel's.
+- `svc` covers `Type=simple` services only: no dependencies (`After=`,
+  `Requires=`), timers, socket activation or resource limits. Unsupported
+  unit keys are listed by `svc status`.
 - git: no three-way merge (pulls fast-forward only), no rebase, and no SSH
   transport (HTTPS only).
 - `le` is a Spacemacs work-alike, not Emacs: no Elisp *evaluation*, so
@@ -447,11 +510,13 @@ lib/lepton/            the operating system
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
-  setup.ex tutorial.ex pkg.ex     first-run setup (Wi-Fi prompt off), tutorial, lpm
+  setup.ex tutorial.ex            first-run setup (Wi-Fi prompt off), tutorial
+  pkg.ex official.ex              lpm, signed official updates
+  services.ex power.ex            svc service manager, power button
   selftest.ex                     lepton-test
 lib/lepton_build/      image build tooling (not shipped in the image)
-lib/mix/tasks/         mix lepton.iso | lepton.qemu | lepton.shell
-rootfs/etc/            /etc files (lshrc, motd, hostname, ...)
+lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official
+rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ...)
 test/                  ExUnit suite (host + in-OS)
 dotfiles/              your dotfiles repo (input to the build)
 site/                  the showcase website (submodule: danieljaouen.github.io)

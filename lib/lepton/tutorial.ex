@@ -61,6 +61,16 @@ defmodule Lepton.Tutorial do
        `fg`/`bg`/`jobs` manage them, and `ps`, `kill` and `top` work on the
        process table.
        """, "sleep 2 & jobs; ps"},
+      {"Services: long-running apps",
+       """
+       `svc` (also `systemctl`) runs apps in the background for you, like
+       systemd: `svc start NAME`, `svc stop NAME`, `svc restart NAME`,
+       `svc status NAME` and `svc logs NAME` (-f follows). A crashed service
+       is restarted, and `svc enable NAME` starts it at every boot.
+       A service is a small unit file; `svc new NAME COMMAND` writes one to
+       ~/.config/lepton/services, and `svc` lists them all. Two come with
+       Lepton: hello (an example) and httpd, a web server for ~/public.
+       """, "svc start hello && sleep 5 && svc status hello && svc stop hello"},
       {"The editor: le",
        """
        `le FILE` (also vim/nvim/emacs/e) is Spacemacs-style: SPC opens the

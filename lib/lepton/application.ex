@@ -6,6 +6,7 @@ defmodule Lepton.Application do
   def start(_type, _args) do
     children = [
       Lepton.Proc,
+      Lepton.Services,
       Lepton.Clipboard,
       Lepton.Net,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},

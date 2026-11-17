@@ -1,0 +1,10 @@
+# Serves ~/public over HTTP on port 8080. Try:
+#   mkdir -p ~/public && echo hi > ~/public/index.html
+#   svc start httpd; curl http://localhost:8080/
+[Unit]
+Description=Static web server for ~/public (port 8080)
+
+[Service]
+ExecStart=mkdir -p ~/public && httpd -p 8080 ~/public
+Restart=on-failure
+RestartSec=2
