@@ -77,20 +77,20 @@ defmodule Lepton.Commands.System do
   defp signal(s) when s in ["18", "CONT", "SIGCONT"], do: :cont
   defp signal(_), do: :term
 
-  defcmd "pgrep", "look up processes by name" do
+  defcmd "pgrep", "look up processes by name", usage: "pgrep PATTERN" do
     pattern = List.first(args) || ""
     matches = for p <- Proc.list(), String.contains?(p.cmd, pattern), do: p
     Enum.each(matches, &IO.puts(ctx, to_string(&1.pid)))
     if matches == [], do: 1, else: 0
   end
 
-  defcmd "pkill", "signal processes by name" do
+  defcmd "pkill", "signal processes by name", usage: "pkill PATTERN" do
     pattern = List.first(args) || ""
     killed = for p <- Proc.list(), p.pid != 1, String.contains?(p.cmd, pattern), p.beam != self(), do: Proc.signal(p.pid, :term)
     if killed == [], do: 1, else: 0
   end
 
-  defcmd "top", "display Lepton processes (q to quit)" do
+  defcmd "top", "display Lepton processes (q to quit)", usage: "top" do
     Lepton.Top.run(ctx)
   end
 
@@ -116,7 +116,7 @@ defmodule Lepton.Commands.System do
     0
   end
 
-  defcmd "uptime", "tell how long the system has been running" do
+  defcmd "uptime", "tell how long the system has been running", usage: "uptime" do
     secs = trunc(Sys.uptime_seconds())
     days = div(secs, 86_400)
     hm = "#{div(rem(secs, 86_400), 3600)}:#{String.pad_leading(to_string(div(rem(secs, 3600), 60)), 2, "0")}"
@@ -152,7 +152,7 @@ defmodule Lepton.Commands.System do
     0
   end
 
-  defcmd "hostname", "show or set the system's host name" do
+  defcmd "hostname", "show or set the system's host name", usage: "hostname [NAME]" do
     case args do
       [] -> IO.puts(ctx, Sys.hostname()); 0
       [name | _] ->
@@ -163,12 +163,12 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "whoami", "print effective user name" do
+  defcmd "whoami", "print effective user name", usage: "whoami" do
     IO.puts(ctx, Ctx.get_env(ctx, "USER", "root"))
     0
   end
 
-  defcmd "id", "print user and group information" do
+  defcmd "id", "print user and group information", usage: "id" do
     IO.puts(ctx, "uid=0(root) gid=0(root) groups=0(root)")
     0
   end
@@ -221,7 +221,7 @@ defmodule Lepton.Commands.System do
     end)
   end
 
-  defcmd "cal", "display a calendar" do
+  defcmd "cal", "display a calendar", usage: "cal" do
     today = Date.utc_today()
     first = Date.new!(today.year, today.month, 1)
     IO.puts(ctx, String.pad_leading("#{Enum.at(~w(January February March April May June July August September October November December), today.month - 1)} #{today.year}", 15))
@@ -242,7 +242,7 @@ defmodule Lepton.Commands.System do
     0
   end
 
-  defcmd "env", "print the environment, or run a command in a modified one" do
+  defcmd "env", "print the environment, or run a command in a modified one", usage: "env [NAME=VALUE...] [COMMAND [ARG...]]" do
     {assigns, cmd} = Enum.split_while(args, &String.contains?(&1, "="))
     env = Enum.reduce(assigns, ctx.env, fn a, env -> [k, v] = String.split(a, "=", parts: 2); Map.put(env, k, v) end)
 
@@ -257,7 +257,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "printenv", "print environment variables" do
+  defcmd "printenv", "print environment variables", usage: "printenv [NAME...]" do
     case args do
       [] -> for {k, v} <- Enum.sort(ctx.env), do: IO.puts(ctx, "#{k}=#{v}")
       names -> for n <- names, v = ctx.env[n], do: IO.puts(ctx, v)
@@ -320,7 +320,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "umount", "unmount a filesystem" do
+  defcmd "umount", "unmount a filesystem", usage: "umount DIR..." do
     Enum.reduce(args, 0, fn dir, st ->
       case Sys.umount(Ctx.path(ctx, dir)) do
         :ok -> st
@@ -329,7 +329,7 @@ defmodule Lepton.Commands.System do
     end)
   end
 
-  defcmd "dmesg", "print the kernel ring buffer" do
+  defcmd "dmesg", "print the kernel ring buffer", usage: "dmesg" do
     case File.open("/dev/kmsg", [:read, :binary, :raw]) do
       {:ok, _fd} ->
         # /dev/kmsg reads block at the end; read the snapshot via a helper process.
@@ -386,7 +386,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "lsmod", "show the status of modules in the Linux kernel" do
+  defcmd "lsmod", "show the status of modules in the Linux kernel", usage: "lsmod" do
     IO.puts(ctx, "Module                  Size  Used by")
 
     for m <- Lepton.Kmod.loaded() do
@@ -411,7 +411,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "rmmod", "remove a module from the kernel" do
+  defcmd "rmmod", "remove a module from the kernel", usage: "rmmod MODULE..." do
     Enum.reduce(args, 0, fn m, st -> max(st, rmmod(ctx, m)) end)
   end
 
@@ -422,12 +422,12 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "sync", "flush filesystem buffers" do
+  defcmd "sync", "flush filesystem buffers", usage: "sync" do
     Sys.sync()
     0
   end
 
-  defcmd "poweroff", "power off the machine (flushes the disk first)", aliases: ["halt", "shutdown"] do
+  defcmd "poweroff", "power off the machine (flushes the disk first)", usage: "poweroff", aliases: ["halt", "shutdown"] do
     if Sys.native?() do
       # Same path as the power button: announce, flush, remount read-only, off.
       Lepton.Power.shutdown("poweroff")
@@ -438,7 +438,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "reboot", "reboot the machine" do
+  defcmd "reboot", "reboot the machine", usage: "reboot" do
     IO.puts(ctx, "Rebooting...")
     Process.sleep(200)
 
@@ -450,17 +450,17 @@ defmodule Lepton.Commands.System do
 
   # -- terminal -------------------------------------------------------------------------------
 
-  defcmd "clear", "clear the terminal screen", aliases: ["cls"] do
+  defcmd "clear", "clear the terminal screen", usage: "clear", aliases: ["cls"] do
     IO.write(ctx, "\e[H\e[2J\e[3J")
     0
   end
 
-  defcmd "reset", "reset the terminal" do
+  defcmd "reset", "reset the terminal", usage: "reset" do
     IO.write(ctx, "\ec\e[?25h\e[0m")
     0
   end
 
-  defcmd "resize", "set the terminal size from the terminal emulator's window" do
+  defcmd "resize", "set the terminal size from the terminal emulator's window", usage: "resize" do
     if ctx.tty do
       case Lepton.TTY.probe_size(ctx.tty, 500) do
         {:ok, {rows, cols}} ->
@@ -487,13 +487,13 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "tty", "print the file name of the terminal" do
+  defcmd "tty", "print the file name of the terminal", usage: "tty" do
     if ctx.tty, do: (IO.puts(ctx, Lepton.TTY.name(ctx.tty)); 0), else: (IO.puts(ctx, "not a tty"); 1)
   end
 
   # -- clipboard (pbcopy/pbpaste on macOS, xclip on Linux - both from the dotfiles) ------------
 
-  defcmd "pbcopy", "copy standard input to the clipboard", aliases: ["xclip", "xsel", "wl-copy"] do
+  defcmd "pbcopy", "copy standard input to the clipboard", usage: "pbcopy [-o]", aliases: ["xclip", "xsel", "wl-copy"] do
     if "-o" in args do
       IO.write(ctx, Lepton.Clipboard.get())
     else
@@ -506,14 +506,14 @@ defmodule Lepton.Commands.System do
     0
   end
 
-  defcmd "pbpaste", "paste the clipboard to standard output", aliases: ["wl-paste"] do
+  defcmd "pbpaste", "paste the clipboard to standard output", usage: "pbpaste", aliases: ["wl-paste"] do
     IO.write(ctx, Lepton.Clipboard.get())
     0
   end
 
   # -- help ------------------------------------------------------------------------------------
 
-  defcmd "help", "list available commands" do
+  defcmd "help", "list available commands", usage: "help [COMMAND]" do
     case args do
       [name | _] -> man(ctx, name)
       [] ->
@@ -522,11 +522,12 @@ defmodule Lepton.Commands.System do
         for c <- cmds, do: IO.puts(ctx, "  " <> String.pad_trailing(c.name, 14) <> c.summary)
         IO.puts(ctx, "\nShell builtins: " <> Enum.join(Lepton.Shell.Builtins.names(), " "))
         IO.puts(ctx, "Keybindings: `keys` shows the bindings loaded from your dotfiles.")
+        IO.puts(ctx, "Documentation: https://trylepton.app/docs/")
         0
     end
   end
 
-  defcmd "man", "show the manual for a command" do
+  defcmd "man", "show the manual for a command", usage: "man COMMAND" do
     case args do
       [name | _] -> man(ctx, name)
       [] -> IO.err(ctx, "What manual page do you want?"); 1
@@ -556,7 +557,7 @@ defmodule Lepton.Commands.System do
     Lepton.Dotfiles.describe(ctx, List.first(args))
   end
 
-  defcmd "neofetch", "show system information", aliases: ["fetch", "about"] do
+  defcmd "neofetch", "show system information", usage: "neofetch", aliases: ["fetch", "about"] do
     mem = Sys.meminfo()
     logo = [
       "    __     ",

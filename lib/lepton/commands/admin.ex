@@ -7,11 +7,11 @@ defmodule Lepton.Commands.Admin do
     Lepton.Installer.run(args, ctx)
   end
 
-  defcmd "lepton-tutorial", "an interactive tour of Lepton", aliases: ["tutorial"] do
+  defcmd "lepton-tutorial", "an interactive tour of Lepton", usage: "lepton-tutorial", aliases: ["tutorial"] do
     Lepton.Tutorial.run(ctx)
   end
 
-  defcmd "lpm", "Lepton package manager (packages from hex.pm)", usage: "lpm search|info|install|list|remove|update ..." do
+  defcmd "lpm", "Lepton package manager (packages from hex.pm)", usage: "lpm search|info|install|list|remove|update|official|upgrade|revert ..." do
     Lepton.Pkg.cli(args, ctx)
   end
 
@@ -33,7 +33,7 @@ defmodule Lepton.Commands.Admin do
     end
   end
 
-  defcmd "credits", "who made Lepton" do
+  defcmd "credits", "who made Lepton", usage: "credits" do
     IO.puts(ctx, Lepton.credits())
     0
   end

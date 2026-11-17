@@ -26,7 +26,7 @@ defmodule Lepton.Commands.Dev do
 
   # -- shells ---------------------------------------------------------------------------------
 
-  defcmd "lsh", "the Lepton shell", aliases: ["sh", "zsh", "bash"] do
+  defcmd "lsh", "the Lepton shell", usage: "lsh [-c COMMANDS | SCRIPT [ARG...]]", aliases: ["sh", "zsh", "bash"] do
     case args do
       ["-c", src | rest] ->
         Lepton.Shell.run_string(src, cwd: ctx.cwd, env: ctx.env, stdin: ctx.stdin, stdout: ctx.stdout, stderr: ctx.stderr, tty: ctx.tty, args: rest)
@@ -42,7 +42,7 @@ defmodule Lepton.Commands.Dev do
 
   # -- Elixir ---------------------------------------------------------------------------------
 
-  defcmd "iex", "interactive Elixir (loads ~/.iex.exs)" do
+  defcmd "iex", "interactive Elixir (loads ~/.iex.exs)", usage: "iex" do
     Lepton.IEx.run(ctx)
   end
 
@@ -74,7 +74,7 @@ defmodule Lepton.Commands.Dev do
     Lepton.IEx.mix(args, ctx)
   end
 
-  defcmd "erl", "Erlang version information" do
+  defcmd "erl", "Erlang version information", usage: "erl" do
     IO.puts(ctx, "Erlang/OTP #{System.otp_release()} [erts-#{:erlang.system_info(:version)}] [#{:erlang.system_info(:system_architecture)}] [smp:#{System.schedulers_online()}]")
     0
   end
@@ -87,7 +87,7 @@ defmodule Lepton.Commands.Dev do
 
   # -- GitHub CLI -----------------------------------------------------------------------------
 
-  defcmd "gh", "GitHub CLI (repos, issues, PRs, auth)" do
+  defcmd "gh", "GitHub CLI (repos, issues, PRs, auth)", usage: "gh auth login|status|token|logout | repo view|list|clone|create | issue list|view|create | pr list|view | browse | api PATH" do
     Lepton.GH.run(args, ctx)
   end
 

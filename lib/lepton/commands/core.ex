@@ -27,10 +27,10 @@ defmodule Lepton.Commands.Core do
     end
   end
 
-  defcmd "true", "do nothing, successfully", do: 0
-  defcmd "false", "do nothing, unsuccessfully", do: 1
+  defcmd "true", "do nothing, successfully", usage: "true", do: 0
+  defcmd "false", "do nothing, unsuccessfully", usage: "false", do: 1
 
-  defcmd "yes", "output a string repeatedly until killed" do
+  defcmd "yes", "output a string repeatedly until killed", usage: "yes [STRING...]" do
     line = if args == [], do: "y\n", else: Enum.join(args, " ") <> "\n"
     chunk = String.duplicate(line, 256)
     Stream.repeatedly(fn -> IO.write(ctx, chunk) end) |> Stream.run()
@@ -545,7 +545,7 @@ defmodule Lepton.Commands.Core do
     end
   end
 
-  defcmd "chown", "change file owner (single-user system: accepted, no-op)", do: 0
+  defcmd "chown", "change file owner (single-user system: accepted, no-op)", usage: "chown OWNER FILE...", do: 0
 
   defcmd "stat", "display file status", usage: "stat FILE..." do
     Enum.reduce(args, 0, fn f, status ->
@@ -579,7 +579,7 @@ defmodule Lepton.Commands.Core do
     0
   end
 
-  defcmd "realpath", "print the resolved absolute file name" do
+  defcmd "realpath", "print the resolved absolute file name", usage: "realpath PATH..." do
     for a <- args, do: IO.puts(ctx, resolve(Ctx.path(ctx, a)))
     0
   end
@@ -755,7 +755,7 @@ defmodule Lepton.Commands.Core do
     0
   end
 
-  defcmd "test", "check file types and compare values", aliases: ["["] do
+  defcmd "test", "check file types and compare values", usage: "test EXPRESSION   (also [ EXPRESSION ]: -e -f -d -L -s -x -z -n, = != -eq -ne -lt -le -gt -ge, !, -a)", aliases: ["["] do
     args = if List.last(args) == "]", do: Enum.drop(args, -1), else: args
     if test(args, ctx), do: 0, else: 1
   end
@@ -793,7 +793,7 @@ defmodule Lepton.Commands.Core do
   defp test([s], _), do: s != ""
   defp test(_, _), do: false
 
-  defcmd "expr", "evaluate expressions" do
+  defcmd "expr", "evaluate expressions", usage: "expr INT +|-|*|/|% INT" do
     case args do
       [a, op, b] when op in ~w(+ - * / %) ->
         {x, y} = {String.to_integer(a), String.to_integer(b)}

@@ -31,7 +31,15 @@ defmodule Lepton.Command do
     end
   end
 
-  defmacro defcmd(name, summary, opts \\ [], do: block) do
+  # `do:` may come as its own argument (`defcmd "x", "s", usage: "u" do ... end`)
+  # or inside the options (`defcmd "x", "s", usage: "u", do: 0`).
+  defmacro defcmd(name, summary, opts \\ [], block \\ nil) do
+    {block, opts} =
+      case block do
+        [do: body] -> {body, opts}
+        nil -> Keyword.pop!(opts, :do)
+      end
+
     fun = String.to_atom("cmd_" <> String.replace(name, ~r/[^A-Za-z0-9_]/, "_"))
 
     quote do
@@ -149,6 +157,9 @@ defmodule Lepton.Commands do
   ]
 
   def all, do: Map.merge(builtins(), runtime())
+
+  @doc "The modules that define the built-in commands, in display order."
+  def sets, do: @sets
 
   @doc "The commands shipped with the OS image, by name."
   def builtins do

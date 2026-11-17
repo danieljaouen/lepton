@@ -12,7 +12,7 @@ defmodule Lepton.Commands.Network do
     end
   end
 
-  defcmd "ifconfig", "show network interfaces" do
+  defcmd "ifconfig", "show network interfaces", usage: "ifconfig" do
     links(ctx, true)
   end
 
@@ -79,7 +79,7 @@ defmodule Lepton.Commands.Network do
     end)
   end
 
-  defcmd "nslookup", "query DNS", aliases: ["host"] do
+  defcmd "nslookup", "query DNS", usage: "nslookup NAME", aliases: ["host"] do
     case args do
       [name | _] ->
         case :inet.getaddrs(String.to_charlist(name), :inet) do

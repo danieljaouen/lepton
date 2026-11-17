@@ -377,17 +377,17 @@ defmodule Lepton.Commands.Text do
     end)
   end
 
-  defcmd "rev", "reverse lines characterwise" do
+  defcmd "rev", "reverse lines characterwise", usage: "rev [FILE...]" do
     each_input(ctx, "rev", args, fn _f, lines -> Enum.each(lines, &IO.puts(ctx, &1 |> chomp() |> String.reverse())) end)
   end
 
-  defcmd "tac", "concatenate and print files in reverse" do
+  defcmd "tac", "concatenate and print files in reverse", usage: "tac [FILE...]" do
     {lines, status} = all_lines(ctx, "tac", args)
     lines |> Enum.reverse() |> Enum.each(&IO.puts(ctx, chomp(&1)))
     status
   end
 
-  defcmd "nl", "number lines of files" do
+  defcmd "nl", "number lines of files", usage: "nl [FILE...]" do
     each_input(ctx, "nl", args, fn _f, lines ->
       Enum.reduce(lines, 1, fn l, n ->
         if String.trim(l) == "" do
@@ -607,10 +607,10 @@ defmodule Lepton.Commands.Text do
 
   # -- checksums / encodings ---------------------------------------------------------------------
 
-  defcmd "md5sum", "compute MD5 message digest", do: digest(ctx, args, "md5sum", :md5)
-  defcmd "sha1sum", "compute SHA1 message digest", do: digest(ctx, args, "sha1sum", :sha)
-  defcmd "sha256sum", "compute SHA256 message digest", do: digest(ctx, args, "sha256sum", :sha256)
-  defcmd "sha512sum", "compute SHA512 message digest", do: digest(ctx, args, "sha512sum", :sha512)
+  defcmd "md5sum", "compute MD5 message digest", usage: "md5sum [FILE...]", do: digest(ctx, args, "md5sum", :md5)
+  defcmd "sha1sum", "compute SHA1 message digest", usage: "sha1sum [FILE...]", do: digest(ctx, args, "sha1sum", :sha)
+  defcmd "sha256sum", "compute SHA256 message digest", usage: "sha256sum [FILE...]", do: digest(ctx, args, "sha256sum", :sha256)
+  defcmd "sha512sum", "compute SHA512 message digest", usage: "sha512sum [FILE...]", do: digest(ctx, args, "sha512sum", :sha512)
 
   defp digest(ctx, args, name, algo) do
     files = if args == [], do: ["-"], else: args
@@ -648,14 +648,14 @@ defmodule Lepton.Commands.Text do
     end
   end
 
-  defcmd "strings", "print printable character sequences in files" do
+  defcmd "strings", "print printable character sequences in files", usage: "strings [FILE...]" do
     each_input(ctx, "strings", args, fn _f, lines ->
       data = Enum.join(lines)
       for [s] <- Regex.scan(~r/[\x20-\x7e]{4,}/, data), do: IO.puts(ctx, s)
     end)
   end
 
-  defcmd "hexdump", "display file contents in hexadecimal", aliases: ["xxd"] do
+  defcmd "hexdump", "display file contents in hexadecimal", usage: "hexdump [FILE]", aliases: ["xxd"] do
     data = case args do
       [f | _] -> File.read!(Ctx.path(ctx, f))
       [] -> IO.read_all(ctx.stdin)
@@ -672,7 +672,7 @@ defmodule Lepton.Commands.Text do
 
   # -- pager -----------------------------------------------------------------------------------
 
-  defcmd "less", "view text one screen at a time (vi keys)", aliases: ["more"] do
+  defcmd "less", "view text one screen at a time (vi keys)", usage: "less [FILE]", aliases: ["more"] do
     text =
       case args do
         [f | _] ->
