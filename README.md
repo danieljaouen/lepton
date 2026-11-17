@@ -128,6 +128,12 @@ mix test                       # host-side test run
   drivers through `Lepton.Kmod` (which resolves `modules.dep` itself), starts
   the application, configures the network in the background, and opens a
   login session on each console.
+- **Users** (`Lepton.Users`): accounts (`passwd`/`group`/`shadow` with
+  PBKDF2 hashes) live in `/var/lib/lepton`; the installer creates one, and
+  consoles then log in. Identity is a field of each process's context, so
+  `root: true` commands, file-write checks and `sudo` (password, 5-minute
+  timestamp per terminal) apply to it. This is enforced by Lepton's
+  commands, not the kernel: the userland is one Erlang VM running as root.
 - **Processes** (`Lepton.Proc`): every program is a BEAM process with a
   Unix-style PID, parent, tty and state. `C-c` kills the foreground job,
   `C-z` suspends it (`:erlang.suspend_process`), and `fg`/`bg`/`jobs` work.
@@ -188,9 +194,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 120 tests, 0 failures inside the VM (run from the live
+Current results: 125 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-123 passing plus 10 excluded (native/network) on the host.
+128 passing plus 10 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -246,6 +252,7 @@ lib/lepton/            the operating system
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
   wifi.ex                         Wi-Fi: saved networks, wpa_supplicant manager
+  users.ex                        accounts, login, sudo and permission checks
   setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates
   services.ex power.ex            svc service manager, power button

@@ -73,6 +73,7 @@ defmodule Lepton.Init do
     if Sys.pid1?() do
       wait_for_data_partition()
       verbose("storage: #{Lepton.Persist.mount()}")
+      Lepton.Users.sync_etc()
       Lepton.Pkg.load_installed()
       Lepton.Power.start()
       Lepton.Net.start_background()

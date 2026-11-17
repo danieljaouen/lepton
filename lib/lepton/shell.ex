@@ -213,7 +213,8 @@ defmodule Lepton.Shell do
       stdout: stdout,
       stderr: opts[:stderr] || stdout,
       tty: opts[:tty],
-      pid: Lepton.Proc.current()
+      pid: Lepton.Proc.current(),
+      user: opts[:user] || "root"
     }
 
     shell = new(ctx, args: opts[:args] || [], name: opts[:name] || "lsh")

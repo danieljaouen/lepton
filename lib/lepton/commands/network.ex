@@ -66,7 +66,7 @@ defmodule Lepton.Commands.Network do
     {a, b, c, d}
   end
 
-  defcmd "dhclient", "configure an interface with DHCP", aliases: ["udhcpc", "dhcpcd"], usage: "dhclient [IFACE]" do
+  defcmd "dhclient", "configure an interface with DHCP", aliases: ["udhcpc", "dhcpcd"], usage: "dhclient [IFACE]", root: true do
     ifaces = if args == [], do: Net.ethernet_interfaces(), else: Enum.reject(args, &String.starts_with?(&1, "-"))
 
     Enum.reduce(ifaces, 0, fn iface, st ->

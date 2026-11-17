@@ -45,17 +45,18 @@ and `wpa_supplicant`:
 
 ```sh
 wifi scan                       # networks in range: signal, security, band
-wifi connect MyNetwork          # asks for the passphrase, joins, then DHCP
-wifi connect Cafe ""            # an open network
+sudo wifi connect MyNetwork     # asks for the passphrase, joins, then DHCP
+sudo wifi connect Cafe ""       # an open network
 wifi                            # status: connected network and address
-wifi forget MyNetwork           # (or `wifi forget` for all)
+sudo wifi forget MyNetwork      # (or `sudo wifi forget` for all)
 ```
 
 Saved networks are kept in `/var/lib/lepton/wpa_supplicant.conf` (in
 wpa_supplicant's format) with each passphrase stored only as its WPA PSK.
 An installed system keeps them and reconnects at boot. With Wi-Fi hardware
-and nothing saved, Lepton asks for a network at startup (`wifi setup` asks
-again).
+and nothing saved, Lepton asks for a network at startup (`sudo wifi setup`
+asks again). Saved networks are system settings: changing them takes
+[sudo](users.html).
 
 ### Hardware
 

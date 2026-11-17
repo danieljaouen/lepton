@@ -136,7 +136,7 @@ defmodule LeptonBuild.Docs do
       rows =
         for name <- String.split(names) do
           case Lepton.Commands.builtin_lookup(name) do
-            {:ok, c} -> "| [`#{name}`](commands.html##{anchor(c.name)}) | #{cell(c.summary)} | `#{cell(c.usage)}` |"
+            {:ok, c} -> "| [`#{name}`](commands.html##{anchor(c.name)}) | #{cell(summary(c))} | `#{cell(c.usage)}` |"
             :error -> raise "#{path}: <!-- commands: --> names #{name}, which is not a command"
           end
         end
@@ -157,7 +157,7 @@ defmodule LeptonBuild.Docs do
           |> Enum.sort_by(& &1.name)
           |> Enum.map_join("\n", fn c ->
             also = if c.aliases == [], do: "", else: " · also " <> Enum.map_join(c.aliases, ", ", &"`#{cell(&1)}`")
-            "| {##{anchor(c.name)}}`#{cell(c.name)}`#{also} | #{cell(c.summary)} | `#{cell(c.usage)}` |"
+            "| {##{anchor(c.name)}}`#{cell(c.name)}`#{also} | #{cell(summary(c))} | `#{cell(c.usage)}` |"
           end)
 
         "## #{title}\n\n| Command | What it does | Usage |\n|---|---|---|\n#{rows}\n"
@@ -313,6 +313,10 @@ defmodule LeptonBuild.Docs do
   end
 
   defp anchor(name), do: "cmd-" <> String.replace(name, ~r/[^A-Za-z0-9_-]/, fn c -> "_#{:binary.first(c)}" end)
+  # Commands only root may run say so (see Users and sudo).
+  defp summary(%{root: true} = c), do: c.summary <> " (needs [sudo](users.html))"
+  defp summary(c), do: c.summary
+
   defp cell(nil), do: ""
   defp cell(text), do: text |> String.replace("|", "\\|") |> String.replace("\n", " ")
 

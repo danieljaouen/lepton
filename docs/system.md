@@ -1,6 +1,6 @@
 ---
 title: System
-order: 10
+order: 11
 summary: Processes and jobs, storage and persistence, power, the clipboard, Elixir and the self-tests.
 ---
 
@@ -24,17 +24,19 @@ fail, use [services](services.html).
 ## Storage and persistence
 
 The live ISO runs entirely from RAM: nothing you do is kept. An
-[installed](getting-started.html#install-to-a-disk) system keeps `/root`
-(your home) and `/var/lib/lepton` (packages, services, logs and settings)
-on its data partition; everything else, including `/etc`, resets at boot.
+[installed](getting-started.html#install-to-a-disk) system keeps `/home`
+(your files), `/root` and `/var/lib/lepton` (accounts, packages, services,
+logs and settings) on its data partition; everything else, including
+`/etc`, resets at boot.
 
 `df`, `du`, `free` and `mount` show filesystems and memory.
 
 ## Power
 
 `poweroff` (also `halt`, `shutdown`) and `reboot` stop services, flush the
-data partition and remount it read-only first. UTM's **Request power
-down** does the same through the virtual power button.
+data partition and remount it read-only first. They need root: `sudo
+poweroff`. UTM's **Request power down** does the same through the virtual
+power button.
 
 ## Terminals
 

@@ -13,15 +13,18 @@ against the registry's SHA-256 checksum, and compiles them *inside
 Lepton* with the compilers in the image. Installed packages are loaded at
 every boot.
 
+Packages are system-wide, so installing, removing and upgrading them takes
+[sudo](users.html); searching and listing don't.
+
 ```sh
 lpm search json
 lpm info jason
-lpm install jason           # or jason@~>1.4, several at once
+sudo lpm install jason      # or jason@~>1.4, several at once
 elixir -e 'IO.puts Jason.encode!(%{hello: "lepton"})'
-lpm install ./my_tool       # a local Mix project
+sudo lpm install ./my_tool  # a local Mix project
 lpm list
-lpm remove jason
-lpm update                  # reinstall your packages at their latest version
+sudo lpm remove jason
+sudo lpm update             # reinstall the packages at their latest version
 ```
 
 ## Packages that add commands
@@ -68,10 +71,10 @@ Built-in apps can be updated from hex.pm without a new ISO, but only by
 **official updates**.
 
 ```sh
-lpm official          # what's available, and what's installed
-lpm upgrade grep      # install the official update for grep
-lpm upgrade           # refresh all of them (withdrawn ones are reverted)
-lpm revert grep       # back to the built-in grep
+lpm official               # what's available, and what's installed
+sudo lpm upgrade grep      # install the official update for grep
+sudo lpm upgrade           # refresh all of them (withdrawn ones are reverted)
+sudo lpm revert grep       # back to the built-in grep
 builtin grep ...      # always runs the built-in, even when replaced
 ```
 

@@ -169,14 +169,15 @@ defmodule Lepton.TestHelpers do
 
   @doc """
   Run a shell command line; returns {stdout, status}. Colour is off unless
-  `color: true` (colour paths differ, so test them too).
+  `color: true` (colour paths differ, so test them too). `user:` runs it as
+  that account (default root).
   """
   def sh(src, opts \\ []) do
     env = Map.merge(%{"HOME" => opts[:home] || dotfiles_home(), "NO_COLOR" => "1", "PATH" => "/bin"}, Map.new(opts[:env] || %{}))
     env = if opts[:color], do: Map.delete(env, "NO_COLOR"), else: env
     # stderr is discarded unless LEPTON_TEST_STDERR is set (debugging).
     sink = if System.get_env("LEPTON_TEST_STDERR"), do: Process.group_leader(), else: elem(StringIO.open(""), 1)
-    Lepton.Shell.run_capture(src, cwd: opts[:cwd] || tmp_dir("sh"), env: env, stdin: opts[:stdin], stderr: opts[:stderr] || sink)
+    Lepton.Shell.run_capture(src, cwd: opts[:cwd] || tmp_dir("sh"), env: env, stdin: opts[:stdin], stderr: opts[:stderr] || sink, user: opts[:user])
   end
 
   @doc "The dotfiles repository on a development machine: `$LEPTON_DOTFILES`, else `~/.dotfiles`."

@@ -6,8 +6,9 @@ defmodule Lepton.Persist do
   partition named `LEPTON-DATA` (ext2). At boot it is mounted on
   `/persist` and bind-mounted over:
 
-    * `/root`            <- `/persist/root`   (home, dotfiles, git repos)
-    * `/var/lib/lepton`  <- `/persist/lepton` (Wi-Fi config, packages, flags)
+    * `/root`            <- `/persist/root`   (root's home)
+    * `/home`            <- `/persist/home`   (users' homes, from the installer)
+    * `/var/lib/lepton`  <- `/persist/lepton` (accounts, Wi-Fi, packages, flags)
 
   On the first boot after installation `/persist/root` is seeded from the
   image's `/root`.
@@ -46,7 +47,9 @@ defmodule Lepton.Persist do
             first = not File.dir?("/persist/root")
             if first, do: File.cp_r!("/root", "/persist/root")
             File.mkdir_p!("/persist/lepton")
+            File.mkdir_p!("/persist/home")
             bind("/persist/root", "/root")
+            bind("/persist/home", "/home")
             bind("/persist/lepton", @state)
             :persistent_term.put({__MODULE__, :installed}, true)
             :persistent_term.put({__MODULE__, :first_boot}, first or not flag?("booted"))
@@ -114,12 +117,15 @@ defmodule Lepton.Installer do
   @media "/run/install/media"
 
   def run(args, ctx) do
-    {opts, rest} = Lepton.Args.getopt(args, "y")
+    {opts, rest} = Lepton.Args.getopt(args, "yu:")
 
     with {:ok, media} <- mount_media(ctx),
          {:ok, disk} <- choose_disk(ctx, rest),
-         :ok <- confirm(ctx, disk, opts["y"] == true || opts["yes"] == true) do
+         :ok <- confirm(ctx, disk, opts["y"] == true || opts["yes"] == true),
+         {:ok, account} <- account(ctx, opts) do
       install(ctx, disk, media)
+      create_account(ctx, disk, account)
+
       IO.puts(ctx, """
 
       \e[1;32mLepton is installed on #{disk.path}.\e[0m
@@ -128,7 +134,8 @@ defmodule Lepton.Installer do
         1. poweroff
         2. In UTM: remove the ISO (CD/DVD -> Clear), then start the VM again.
            With QEMU: boot without -cdrom.
-        3. On first boot you'll be offered a short tutorial.
+        3. Log in as #{account.name}. Use sudo for administration (sudo poweroff).
+           On first boot you'll be offered a short tutorial.
       """)
 
       0
@@ -228,6 +235,85 @@ defmodule Lepton.Installer do
       :eof -> nil
       line -> String.trim(line)
     end
+  end
+
+  # -- your account ----------------------------------------------------------------------------
+
+  # The account the installed system logs in with (it may use sudo):
+  # asked for, or `-u NAME --password-stdin` for unattended installs.
+  defp account(ctx, opts) do
+    name = opts["u"] || opts["user"]
+
+    cond do
+      is_binary(name) and opts["password-stdin"] ->
+        password = case IO.read_line(ctx.stdin) do
+          line when is_binary(line) -> String.trim_trailing(line, "\n")
+          _ -> ""
+        end
+
+        check_account(name, password, name)
+
+      ctx.tty ->
+        IO.puts(ctx, "\n\e[1mCreate your user account\e[0m (it can run administrative commands with sudo)")
+        ask_account(ctx)
+
+      true ->
+        {:error, "a user account is needed: run interactively, or pass -u NAME --password-stdin"}
+    end
+  end
+
+  defp ask_account(ctx) do
+    with name when is_binary(name) and name != "" <- ask(ctx, "User name: "),
+         gecos when is_binary(gecos) <- ask(ctx, "Full name (optional): "),
+         pass when is_binary(pass) <- Lepton.Setup.read_secret(ctx, "Password: "),
+         again when is_binary(again) <- Lepton.Setup.read_secret(ctx, "Password again: ") do
+      cond do
+        pass != again -> IO.puts(ctx, "The passwords don't match. Try again."); ask_account(ctx)
+        true ->
+          case check_account(name, pass, if(gecos == "", do: name, else: gecos)) do
+            {:error, msg} -> IO.puts(ctx, msg <> ". Try again."); ask_account(ctx)
+            ok -> ok
+          end
+      end
+    else
+      _ -> :cancelled
+    end
+  end
+
+  defp check_account(name, password, gecos) do
+    cond do
+      not Lepton.Users.valid_name?(name) -> {:error, "'#{name}' can't be a user name (lowercase letters, digits, - and _; not a system name)"}
+      String.length(password) < 4 -> {:error, "Use a password of at least 4 characters"}
+      true -> {:ok, %{name: name, password: password, gecos: gecos}}
+    end
+  end
+
+  # Mount the new data partition and create the account and its home there.
+  defp create_account(ctx, disk, account) do
+    step(ctx, "Creating user #{account.name}")
+    Lepton.Sys.shim("blockdev", ["--rereadpt", disk.path])
+    dev = wait_for_partition(Path.basename(disk.path), 40) || raise "the new data partition did not appear"
+    Lepton.Kmod.modprobe("ext2")
+    target = "/run/install/data"
+    File.mkdir_p!(target)
+    :ok = Lepton.Sys.mount("ext2", dev, target)
+
+    try do
+      {:ok, _} = Lepton.Users.create(account.name, account.password, gecos: account.gecos, state_dir: Path.join(target, "lepton"), home_root: Path.join(target, "home"))
+    after
+      Lepton.Sys.umount(target)
+    end
+  end
+
+  defp wait_for_partition(_disk, 0), do: nil
+
+  defp wait_for_partition(disk, tries) do
+    found =
+      Enum.find_value(Path.wildcard("/sys/class/block/#{disk}/#{disk}*/uevent"), fn uevent ->
+        if File.read!(uevent) =~ ~r/^PARTNAME=LEPTON-DATA$/m, do: "/dev/" <> Path.basename(Path.dirname(uevent))
+      end)
+
+    found || (Process.sleep(100); wait_for_partition(disk, tries - 1))
   end
 
   # -- writing ------------------------------------------------------------------------------

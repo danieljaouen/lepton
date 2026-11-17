@@ -63,32 +63,41 @@ The live ISO keeps everything in RAM. To keep your files, install it:
 
 1. With the VM stopped, add a disk: **Drives → New → VirtIO** (or NVMe),
    4 GB or more.
-2. Boot the ISO and run `lepton-install`. It asks which disk and asks you
-   to confirm; `lepton-install -y /dev/vda` skips both.
+2. Boot the ISO and run `lepton-install`. It asks which disk, asks you to
+   confirm, and asks you to **create your user account**: a user name and
+   a password. That account can run administrative commands with
+   [sudo](users.html).
 3. `poweroff`, then **CD/DVD → Clear** to eject the ISO, and start the VM.
+4. Log in with your user name and password.
+
+For an unattended install, `echo PASSWORD | lepton-install -y -u NAME
+--password-stdin /dev/vda` skips every question.
 
 The installer writes a GPT partition table, a FAT16 EFI system partition
 (GRUB, kernel and initramfs) and an ext2 data partition named
 `LEPTON-DATA`, all from Elixir. The installed system still boots into
-RAM, but `/root` and `/var/lib/lepton` (packages, services, logs,
-settings) live on the data partition. On the first boot, `/root` is
-seeded from the image, including the dotfiles.
+RAM, but `/home` (your files), `/root` and `/var/lib/lepton` (accounts,
+packages, services, logs, settings) live on the data partition. Your home
+starts with the image's dotfiles.
 
 With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
 `mix lepton.qemu --disk disk.qcow2` to install and
-`mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system.
+`mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system
+(add `--login NAME:PASSWORD` with `--run` to script it).
 
 <!-- commands: lepton-install -->
 
 ## Shut down
 
-Type `poweroff`, or use UTM's power button → **Request power down**.
+Type `sudo poweroff` (just `poweroff` on the live ISO, where you are
+root), or use UTM's power button → **Request power down**.
 Lepton hears the virtual power button, warns the consoles, stops running
 services, flushes the data partition and remounts it read-only, so the
 next start is a clean boot through GRUB. "Force shut down" and closing the
 VM window pull the plug and can't be intercepted.
 
-Logging out with `C-d` just logs the console back in; it reminds you that
+Logging out with `C-d` returns an installed system to its login prompt.
+On the live ISO the console logs straight back in, with a reminder that
 `poweroff` is the way to shut down.
 
 <!-- commands: poweroff reboot -->

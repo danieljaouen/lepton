@@ -172,7 +172,7 @@ defmodule Lepton.Editor.Ex do
   end
 
   defp shell(st, command) do
-    {out, status} = Lepton.Shell.run_capture(command, cwd: Editor.api(st, :dir, nil), env: st.ctx.env)
+    {out, status} = Lepton.Shell.run_capture(command, cwd: Editor.api(st, :dir, nil), env: st.ctx.env, user: st.ctx.user)
     text = String.trim(out)
     if String.contains?(text, "\n"),
       do: Editor.special_buffer(st, "*Shell Command Output*", :help, text),
@@ -180,7 +180,7 @@ defmodule Lepton.Editor.Ex do
   end
 
   defp read_command(st, command) do
-    {out, _} = Lepton.Shell.run_capture(command, cwd: Editor.api(st, :dir, nil), env: st.ctx.env)
+    {out, _} = Lepton.Shell.run_capture(command, cwd: Editor.api(st, :dir, nil), env: st.ctx.env, user: st.ctx.user)
     {l, _} = Editor.api(st, :cursor, nil)
     st = Editor.api(st, :snapshot, nil)
     lines = out |> String.trim_trailing("\n") |> String.split("\n")

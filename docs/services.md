@@ -10,14 +10,18 @@ summary: Start, stop and restart long-running apps, like systemd.
 restarts them when they fail, starts enabled ones at boot and keeps their
 logs.
 
+Services are system-wide and run as root, so starting, stopping,
+enabling, creating and editing them takes [sudo](users.html). Anyone can
+list them, see their status and read their logs.
+
 ```sh
-svc                         # every service: state, PID, uptime
-svc start hello             # an example service that ships with Lepton
-svc status hello            # state, PID, restarts and the last log lines
-svc logs hello -f           # follow its output (also: journalctl -u hello -f)
-svc stop hello              # stops it and every process it started
-svc new clock 'while true; do date; sleep 60; done'
-svc enable --now clock      # start now and at every boot
+svc                              # every service: state, PID, uptime
+sudo svc start hello             # an example service that ships with Lepton
+svc status hello                 # state, PID, restarts and the last log lines
+svc logs hello -f                # follow its output (also: journalctl -u hello -f)
+sudo svc stop hello              # stops it and every process it started
+sudo svc new clock 'while true; do date; sleep 60; done'
+sudo svc enable --now clock      # start now and at every boot
 ```
 
 ## Commands
@@ -30,7 +34,7 @@ svc enable --now clock      # start now and at every boot
 | `svc enable / disable [--now] NAME` | start at boot (`--now` also starts or stops it) |
 | `svc logs NAME [-n N] [-f]` | the log; `-f` follows it until `C-c` |
 | `svc cat NAME` | show the unit file |
-| `svc new NAME COMMAND…` | create `~/.config/lepton/services/NAME.service` |
+| `svc new NAME COMMAND…` | create `~/.config/lepton/services/NAME.service` (root's: `/root/.config/…`) |
 | `svc edit NAME` | edit a unit in `le`; editing a shipped unit makes your own copy |
 | `svc is-active / is-enabled NAME` | for scripts: exit status 0 means yes |
 | `journalctl -u NAME [-n N] [-f]` | the same log, systemd-style |
@@ -84,8 +88,8 @@ using the web server built into Erlang/OTP. It makes a good first
 service:
 
 ```sh
-mkdir -p ~/public && echo 'hello' > ~/public/index.html
-svc start httpd
+sudo mkdir -p /root/public && echo 'hello' | sudo tee /root/public/index.html
+sudo svc start httpd
 curl http://localhost:8080/
 ```
 

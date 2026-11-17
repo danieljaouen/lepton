@@ -85,6 +85,10 @@ defmodule Lepton.Pkg do
 
   # -- CLI --------------------------------------------------------------------------------
 
+  # Packages are system-wide: changing them is for root.
+  def cli([cmd | _], ctx) when cmd in ~w(install remove uninstall rm update upgrade revert) and ctx.user != "root",
+    do: Lepton.Users.denied(ctx, "lpm #{cmd}")
+
   def cli(args, ctx) do
     case args do
       ["search" | q] -> search(ctx, Enum.join(q, " "))

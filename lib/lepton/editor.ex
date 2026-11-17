@@ -1043,7 +1043,10 @@ defmodule Lepton.Editor do
     # editing.el: (add-hook 'before-save-hook 'delete-trailing-whitespace)
     b = if st.vars["delete-trailing-whitespace-on-save"], do: Buffer.delete_trailing_whitespace(b), else: b
 
-    case Buffer.save(b) do
+    allowed = if b.path, do: Lepton.Users.check_write(st.ctx, Path.expand(b.path)), else: :ok
+    result = if allowed == :ok, do: Buffer.save(b), else: {:error, "permission denied (to edit system files, run sudo le FILE)"}
+
+    case result do
       {:ok, b} ->
         st = put_buf(st, b)
         st = if b.kind == :commit, do: Magit.commit_saved(st, b), else: st

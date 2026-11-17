@@ -250,7 +250,7 @@ defmodule Lepton.Mux.Client do
 
         case rest do
           [test, yes | no] ->
-            ok = Lepton.Shell.run_string(test, cwd: st.ctx.cwd, env: st.ctx.env, stdout: elem(StringIO.open(""), 1)) == 0
+            ok = Lepton.Shell.run_string(test, cwd: st.ctx.cwd, env: st.ctx.env, stdout: elem(StringIO.open(""), 1), user: st.ctx.user) == 0
             branch = if ok, do: yes, else: List.first(no)
             if branch, do: exec_string(st, branch), else: st
 
@@ -259,7 +259,7 @@ defmodule Lepton.Mux.Client do
         end
 
       c when c in ["run-shell", "run"] ->
-        {out, _} = Lepton.Shell.run_capture(Enum.join(args, " "), cwd: st.ctx.cwd, env: st.ctx.env)
+        {out, _} = Lepton.Shell.run_capture(Enum.join(args, " "), cwd: st.ctx.cwd, env: st.ctx.env, user: st.ctx.user)
         if String.trim(out) == "", do: st, else: message(st, String.trim(out))
 
       "kill-server" ->

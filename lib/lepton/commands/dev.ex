@@ -29,14 +29,14 @@ defmodule Lepton.Commands.Dev do
   defcmd "lsh", "the Lepton shell", usage: "lsh [-c COMMANDS | SCRIPT [ARG...]]", aliases: ["sh", "zsh", "bash"] do
     case args do
       ["-c", src | rest] ->
-        Lepton.Shell.run_string(src, cwd: ctx.cwd, env: ctx.env, stdin: ctx.stdin, stdout: ctx.stdout, stderr: ctx.stderr, tty: ctx.tty, args: rest)
+        Lepton.Shell.run_string(src, cwd: ctx.cwd, env: ctx.env, stdin: ctx.stdin, stdout: ctx.stdout, stderr: ctx.stderr, tty: ctx.tty, args: rest, user: ctx.user)
 
       [file | rest] ->
         shell = Lepton.Shell.new(ctx, args: rest, name: file)
         Lepton.Shell.run_file(Ctx.path(ctx, file), rest, shell)
 
       [] ->
-        if ctx.tty, do: Lepton.Shell.interactive(ctx), else: Lepton.Shell.run_string(IO.read_all(ctx.stdin), cwd: ctx.cwd, env: ctx.env, stdout: ctx.stdout)
+        if ctx.tty, do: Lepton.Shell.interactive(ctx), else: Lepton.Shell.run_string(IO.read_all(ctx.stdin), cwd: ctx.cwd, env: ctx.env, stdout: ctx.stdout, user: ctx.user)
     end
   end
 
@@ -108,7 +108,7 @@ defmodule Lepton.Commands.Dev do
 
         case Map.fetch(aliases, cmd) do
           {:ok, "!" <> shell} ->
-            Lepton.Shell.run_string(shell <> " " <> Enum.join(rest, " "), cwd: ctx.cwd, env: ctx.env, stdout: ctx.stdout, stderr: ctx.stderr)
+            Lepton.Shell.run_string(shell <> " " <> Enum.join(rest, " "), cwd: ctx.cwd, env: ctx.env, stdout: ctx.stdout, stderr: ctx.stderr, user: ctx.user)
 
           {:ok, expansion} ->
             git(split_alias(expansion) ++ rest, ctx)

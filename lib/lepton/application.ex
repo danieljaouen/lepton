@@ -10,6 +10,7 @@ defmodule Lepton.Application do
       Lepton.Clipboard,
       Lepton.Net,
       Lepton.Wifi,
+      Lepton.Users,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},
       {DynamicSupervisor, name: Lepton.SessionSupervisor, strategy: :one_for_one}
     ]
@@ -45,7 +46,10 @@ end
 defmodule Lepton.Session do
   @moduledoc """
   A login session: a TTY plus a login shell that is respawned when it exits
-  (the job `getty` + `login` do on Unix). Lepton auto-logs-in `root`.
+  (the job `getty` + `login` do on Unix). Once user accounts exist
+  (`Lepton.Users`, created by the installer), each console asks for a user
+  name and password; until then (the live ISO) it logs `root` in
+  automatically.
   """
 
   alias Lepton.{Ctx, TTY}
@@ -78,18 +82,44 @@ defmodule Lepton.Session do
   end
 
   defp loop(tty, name, mode) do
+    accounts? = mode == :forever and Lepton.Sys.native?() and Lepton.Users.any?()
     ctx = login_ctx(tty, name)
-    # First-run setup (Wi-Fi prompt, post-install tutorial) before login.
+    ctx = if accounts?, do: login(ctx, name), else: ctx
+    # First-run setup (Wi-Fi prompt, post-install tutorial).
     if mode == :forever, do: Lepton.Setup.run(ctx)
     motd(ctx)
     shell = Task.async(fn -> Lepton.Shell.login(ctx) end)
     Task.await(shell, :infinity)
 
     if mode == :forever do
-      # C-d / exit end the login shell, but a console session is always
-      # logged back in: point people at the real way to switch off.
-      Lepton.IO.write(tty, logout_message())
+      # C-d / exit end the login shell. With accounts, the console asks for
+      # a login again; without, it logs root straight back in, so point
+      # people at the real way to switch off.
+      Lepton.IO.write(tty, if(accounts?, do: "\r\nlogout\r\n", else: logout_message()))
       loop(tty, name, mode)
+    end
+  end
+
+  # getty + login: ask until a user name and password match.
+  defp login(ctx, name) do
+    Lepton.IO.write(ctx, "\r\nLepton OS #{Lepton.Init.version()} (#{name})\r\n\r\n")
+    Lepton.IO.write(ctx, "#{Lepton.Sys.hostname()} login: ")
+
+    user =
+      case Lepton.IO.read_line(ctx) do
+        line when is_binary(line) -> String.trim(line)
+        _ -> ""
+      end
+
+    password = if user == "", do: nil, else: Lepton.Setup.read_secret(ctx, "Password: ")
+
+    case user != "" and password != nil and Lepton.Users.verify(user, password) && Lepton.Users.get(user) do
+      %Lepton.Users{} = account ->
+        Lepton.Users.as(ctx, account, login: true)
+
+      _ ->
+        if user != "", do: (Process.sleep(1500); Lepton.IO.write(ctx, "\r\nLogin incorrect\r\n"))
+        login(ctx, name)
     end
   end
 

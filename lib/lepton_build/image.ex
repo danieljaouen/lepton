@@ -180,7 +180,7 @@ defmodule LeptonBuild.Image do
 
   defp base_layout do
     dirs =
-      ~w(/bin /dev /etc /etc/ssl /etc/ssl/certs /home /mnt /proc /root /run /sbin /sys /tmp /usr /usr/bin
+      ~w(/bin /dev /etc /etc/skel /etc/ssl /etc/ssl/certs /home /mnt /proc /root /run /sbin /sys /tmp /usr /usr/bin
          /usr/lib /usr/share /usr/share/lepton /var /var/log /var/tmp)
 
     Enum.map(dirs, &{:dir, &1, if(&1 in ["/tmp", "/var/tmp"], do: 0o1777, else: 0o755)}) ++
@@ -490,10 +490,11 @@ defmodule LeptonBuild.Image do
 
   defp home(dotfiles) do
     if dotfiles && File.dir?(dotfiles) do
-      for {rel, contents} <- Dotfiles.entries(dotfiles) do
+      # root's home, and /etc/skel: the starting point of every user's home.
+      for base <- ["/root/", "/etc/skel/"], {rel, contents} <- Dotfiles.entries(dotfiles) do
         case contents do
-          :dir -> {:dir, "/root/" <> rel, 0o755}
-          bin -> {:file, "/root/" <> rel, 0o644, {:data, bin}}
+          :dir -> {:dir, base <> rel, 0o755}
+          bin -> {:file, base <> rel, 0o644, {:data, bin}}
         end
       end ++ [{:file, "/root/.dotfiles-source", 0o644, {:data, Path.expand(dotfiles) <> "\n"}}]
     else

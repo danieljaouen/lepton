@@ -154,7 +154,7 @@ defmodule Lepton.Mux.CopyMode do
         IO.binwrite(input, text)
         Lepton.Pipe.close_write(input)
         {:ok, sink} = StringIO.open("")
-        Lepton.Shell.run_string(cmd, stdin: input, stdout: sink, stderr: sink, cwd: st.ctx.cwd, env: st.ctx.env, tty: st.tty)
+        Lepton.Shell.run_string(cmd, stdin: input, stdout: sink, stderr: sink, cwd: st.ctx.cwd, env: st.ctx.env, tty: st.tty, user: st.ctx.user)
 
       [] ->
         :ok

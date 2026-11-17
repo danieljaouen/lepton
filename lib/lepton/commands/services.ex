@@ -42,6 +42,11 @@ defmodule Lepton.Commands.Services do
 
   # -- svc ------------------------------------------------------------------------------------
 
+  # Changing services is for root; looking at them is for everyone.
+  @svc_changes ~w(start stop restart reload enable disable new edit)
+
+  defp svc([cmd | _], ctx) when cmd in @svc_changes and ctx.user != "root", do: Lepton.Users.denied(ctx, "svc #{cmd}")
+
   defp svc(args, ctx) do
     case args do
       [] -> list(ctx)

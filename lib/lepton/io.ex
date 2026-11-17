@@ -14,7 +14,9 @@ defmodule Lepton.Ctx do
             stderr: nil,
             tty: nil,
             shell: nil,
-            pid: nil
+            pid: nil,
+            # Who this process runs as (Lepton.Users); not the USER variable.
+            user: "root"
 
   def path(%__MODULE__{cwd: cwd, env: env}, p) do
     home = Map.get(env, "HOME", "/root")

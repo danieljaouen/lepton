@@ -155,6 +155,7 @@ defmodule Lepton.Commands.System do
   defcmd "hostname", "show or set the system's host name", usage: "hostname [NAME]" do
     case args do
       [] -> IO.puts(ctx, Sys.hostname()); 0
+      [_ | _] when ctx.user != "root" -> Lepton.Users.denied(ctx, "hostname")
       [name | _] ->
         case Sys.set_hostname(name) do
           :ok -> 0
@@ -164,13 +165,24 @@ defmodule Lepton.Commands.System do
   end
 
   defcmd "whoami", "print effective user name", usage: "whoami" do
-    IO.puts(ctx, Ctx.get_env(ctx, "USER", "root"))
+    IO.puts(ctx, ctx.user)
     0
   end
 
-  defcmd "id", "print user and group information", usage: "id" do
-    IO.puts(ctx, "uid=0(root) gid=0(root) groups=0(root)")
-    0
+  defcmd "id", "print user and group information", usage: "id [USER]" do
+    name = List.first(args) || ctx.user
+
+    case Lepton.Users.get(name) do
+      nil ->
+        IO.err(ctx, "id: '#{name}': no such user")
+        1
+
+      u ->
+        groups = [{u.name, u.gid} | Lepton.Users.groups_of(u.name)] |> Enum.uniq_by(&elem(&1, 1))
+        groups = if u.name == "root", do: [{"root", 0}], else: groups
+        IO.puts(ctx, "uid=#{u.uid}(#{u.name}) gid=#{u.gid}(#{u.name}) groups=" <> Enum.map_join(groups, ",", fn {g, gid} -> "#{gid}(#{g})" end))
+        0
+    end
   end
 
   defcmd "date", "print the system date and time", usage: "date [+FORMAT] [-u]" do
@@ -286,7 +298,7 @@ defmodule Lepton.Commands.System do
 
     try do
       Stream.repeatedly(fn ->
-        {out, _} = Lepton.Shell.run_capture(src, cwd: ctx.cwd, env: ctx.env)
+        {out, _} = Lepton.Shell.run_capture(src, cwd: ctx.cwd, env: ctx.env, user: ctx.user)
         IO.write(ctx, "\e[H\e[2JEvery #{interval}s: #{src}\n\n" <> out)
         Lepton.TTY.read_key(ctx.tty, interval * 1000)
       end)
@@ -308,6 +320,9 @@ defmodule Lepton.Commands.System do
         for m <- Sys.mounts(), do: IO.puts(ctx, "#{m.device} on #{m.dir} type #{m.type} (#{m.options})")
         0
 
+      [_src, _dir] when ctx.user != "root" ->
+        Lepton.Users.denied(ctx, "mount")
+
       [src, dir] ->
         case Sys.mount(opts["t"] || "auto", src, Ctx.path(ctx, dir), opts["o"]) do
           :ok -> 0
@@ -320,7 +335,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "umount", "unmount a filesystem", usage: "umount DIR..." do
+  defcmd "umount", "unmount a filesystem", usage: "umount DIR...", root: true do
     Enum.reduce(args, 0, fn dir, st ->
       case Sys.umount(Ctx.path(ctx, dir)) do
         :ok -> st
@@ -396,7 +411,7 @@ defmodule Lepton.Commands.System do
     0
   end
 
-  defcmd "modprobe", "add a module (and its dependencies) to the kernel", usage: "modprobe MODULE [PARAM=VALUE...]" do
+  defcmd "modprobe", "add a module (and its dependencies) to the kernel", usage: "modprobe MODULE [PARAM=VALUE...]", root: true do
     case args do
       ["-r", mod] -> rmmod(ctx, mod)
       [mod | params] ->
@@ -411,7 +426,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "rmmod", "remove a module from the kernel", usage: "rmmod MODULE..." do
+  defcmd "rmmod", "remove a module from the kernel", usage: "rmmod MODULE...", root: true do
     Enum.reduce(args, 0, fn m, st -> max(st, rmmod(ctx, m)) end)
   end
 
@@ -427,7 +442,7 @@ defmodule Lepton.Commands.System do
     0
   end
 
-  defcmd "poweroff", "power off the machine (flushes the disk first)", usage: "poweroff", aliases: ["halt", "shutdown"] do
+  defcmd "poweroff", "power off the machine (flushes the disk first)", usage: "poweroff", aliases: ["halt", "shutdown"], root: true do
     if Sys.native?() do
       # Same path as the power button: announce, flush, remount read-only, off.
       Lepton.Power.shutdown("poweroff")
@@ -438,7 +453,7 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "reboot", "reboot the machine", usage: "reboot" do
+  defcmd "reboot", "reboot the machine", usage: "reboot", root: true do
     IO.puts(ctx, "Rebooting...")
     Process.sleep(200)
 

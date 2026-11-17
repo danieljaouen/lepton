@@ -67,10 +67,10 @@ defmodule Lepton.Tutorial do
        systemd: `svc start NAME`, `svc stop NAME`, `svc restart NAME`,
        `svc status NAME` and `svc logs NAME` (-f follows). A crashed service
        is restarted, and `svc enable NAME` starts it at every boot.
-       A service is a small unit file; `svc new NAME COMMAND` writes one to
-       ~/.config/lepton/services, and `svc` lists them all. Two come with
-       Lepton: hello (an example) and httpd, a web server for ~/public.
-       """, "svc start hello && sleep 5 && svc status hello && svc stop hello"},
+       Services run as root, so changing them takes sudo (it asks for your
+       password); `svc` lists them. Two come with Lepton: hello (an
+       example) and httpd, a web server.
+       """, "sudo svc start hello && sleep 5 && svc status hello && sudo svc stop hello"},
       {"The editor: le",
        """
        `le FILE` (also vim/nvim/emacs/e) is Spacemacs-style: SPC opens the
@@ -97,16 +97,16 @@ defmodule Lepton.Tutorial do
        """
        lpm installs Elixir/Erlang packages straight from hex.pm, compiles
        them inside Lepton and loads them (and any Lepton commands they
-       define). Try: lpm search json   /   lpm install jason
+       define). Try: lpm search json   /   sudo lpm install jason
        Built-in apps get updates only from the signed official list:
-       `lpm official` shows them, `lpm upgrade grep` installs one and
-       `lpm revert grep` goes back. A package can't take over a built-in.
+       `lpm official` shows them, `sudo lpm upgrade grep` installs one and
+       `sudo lpm revert grep` goes back. A package can't take over a built-in.
        """, "lpm list"},
       {"Network",
        """
        The network comes up with DHCP. `ip addr`, `ping`, `curl` and the
        text browser `www` are available. With a Wi-Fi adapter, `wifi scan`
-       lists networks and `wifi connect NAME` joins one.
+       lists networks and `sudo wifi connect NAME` joins one.
        """, "ip addr"},
       {"Help",
        """
@@ -145,6 +145,6 @@ defmodule Lepton.Tutorial do
   end
 
   defp exec(ctx, src) do
-    Lepton.Shell.run_string(src, cwd: ctx.cwd, env: ctx.env, stdin: ctx.stdin, stdout: ctx.stdout, stderr: ctx.stderr, tty: ctx.tty, rc: true)
+    Lepton.Shell.run_string(src, cwd: ctx.cwd, env: ctx.env, stdin: ctx.stdin, stdout: ctx.stdout, stderr: ctx.stderr, tty: ctx.tty, rc: true, user: ctx.user)
   end
 end

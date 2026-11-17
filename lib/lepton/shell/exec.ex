@@ -484,7 +484,10 @@ defmodule Lepton.Shell.Exec do
           k when k in [:append, :append_both] -> [:append, :binary]
         end
 
-      case File.open(Ctx.path(ctx, path), modes) do
+      full = Ctx.path(ctx, path)
+      allowed = if kind == :in, do: Lepton.Users.check_read(ctx, full), else: Lepton.Users.check_write(ctx, full)
+
+      case with(:ok <- allowed, do: File.open(full, modes)) do
         {:ok, dev} ->
           ctx = put_fd(ctx, fd, dev)
           ctx = if kind in [:out_both, :append_both], do: put_fd(ctx, 2, dev), else: ctx

@@ -48,12 +48,19 @@ defmodule Lepton.Command do
         summary: unquote(summary),
         usage: unquote(opts[:usage]),
         aliases: unquote(opts[:aliases] || []),
+        root: unquote(opts[:root] == true),
         fun: {__MODULE__, unquote(fun)}
       }
       def unquote(fun)(var!(args), var!(ctx)) do
         _ = var!(args)
         _ = var!(ctx)
-        unquote(block)
+
+        # `root: true`: only root (or `sudo`) may run it.
+        if unquote(opts[:root] == true) and not Lepton.Users.root?(var!(ctx)) do
+          Lepton.Users.denied(var!(ctx), unquote(name))
+        else
+          unquote(block)
+        end
       end
     end
   end

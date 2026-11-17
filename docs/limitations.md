@@ -1,6 +1,6 @@
 ---
 title: Limitations
-order: 12
+order: 13
 summary: What Lepton doesn't do yet.
 ---
 
@@ -12,7 +12,9 @@ summary: What Lepton doesn't do yet.
 - Wi-Fi needs a supported adapter: virtual machines have no wireless
   hardware (pass a USB adapter through). WPA2 and WPA2/WPA3 networks
   work; WPA3-only and enterprise (802.1X) networks don't.
-- Single user (`root`), with no permissions model beyond the kernel's.
+- [Users and sudo](users.html) are enforced by Lepton's commands, not the
+  kernel: everything runs in one Erlang VM as root, so `iex`, `elixir` and
+  `mix` can bypass them. Services all run as root.
 - Services are simple ones only: no dependencies (`After=`,
   `Requires=`), timers, socket activation or resource limits.
 - git: no three-way merge (pulls fast-forward only) and no rebase.

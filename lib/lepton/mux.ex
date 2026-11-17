@@ -393,7 +393,7 @@ defmodule Lepton.Mux.Server do
         pane_ctx = %{pane_ctx | pid: pid}
 
         if command do
-          Lepton.Shell.run_string(command, cwd: pane_ctx.cwd, env: env, stdin: tty, stdout: tty, stderr: tty, tty: tty, rc: true)
+          Lepton.Shell.run_string(command, cwd: pane_ctx.cwd, env: env, stdin: tty, stdout: tty, stderr: tty, tty: tty, rc: true, user: pane_ctx.user)
         else
           Lepton.Shell.interactive(pane_ctx)
         end

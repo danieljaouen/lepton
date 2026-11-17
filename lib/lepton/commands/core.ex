@@ -58,7 +58,7 @@ defmodule Lepton.Commands.Core do
         end
       end)
 
-    if files != [], do: print_entries(ctx, files, opts, colors, color?)
+    if files != [], do: print_entries(ctx, files, Map.put(opts, :no_total, true), colors, color?)
     multiple = length(dirs) + length(files) > 1 || opts["R"]
 
     dirs
@@ -110,10 +110,17 @@ defmodule Lepton.Commands.Core do
     sorted = if opts["r"], do: Enum.reverse(sorted), else: sorted
 
     if opts["l"] do
-      total = stats |> Enum.map(fn {_, _, s} -> if s, do: div(s.size + 1023, 1024), else: 0 end) |> Enum.sum()
-      IO.puts(ctx, "total #{total}")
+      # "total" belongs to directory listings, not to files named on the command line.
+      unless opts[:no_total] do
+        total = stats |> Enum.map(fn {_, _, s} -> if s, do: div(s.size + 1023, 1024), else: 0 end) |> Enum.sum()
+        IO.puts(ctx, "total #{total}")
+      end
 
       size_w = sorted |> Enum.map(fn {_, _, s} -> String.length(fmt_size(s, opts)) end) |> Enum.max(fn -> 1 end)
+      users = Lepton.Users.names_by_id()
+      owner = fn s -> {Map.get(users.users, s.uid, to_string(s.uid)), Map.get(users.groups, s.gid, to_string(s.gid))} end
+      owner_w = sorted |> Enum.map(fn {_, _, s} -> if s, do: String.length(elem(owner.(s), 0)), else: 0 end) |> Enum.max(fn -> 4 end)
+      group_w = sorted |> Enum.map(fn {_, _, s} -> if s, do: String.length(elem(owner.(s), 1)), else: 0 end) |> Enum.max(fn -> 4 end)
 
       for {name, path, s} <- sorted, s do
         link = if s.type == :symlink, do: " -> " <> (case File.read_link(path) do
@@ -122,7 +129,8 @@ defmodule Lepton.Commands.Core do
         end), else: ""
 
         IO.puts(ctx, [
-          mode_string(s), " ", String.pad_leading(to_string(s.links), 2), " root root ",
+          mode_string(s), " ", String.pad_leading(to_string(s.links), 2), " ",
+          String.pad_trailing(elem(owner.(s), 0), owner_w), " ", String.pad_trailing(elem(owner.(s), 1), group_w), " ",
           String.pad_leading(fmt_size(s, opts), size_w), " ", fmt_time(s.mtime), " ",
           colorize(name, s, colors, color?), classify(s, opts), link
         ])
@@ -279,7 +287,8 @@ defmodule Lepton.Commands.Core do
   defcmd "tee", "read from standard input and write to standard output and files", usage: "tee [-a] [FILE...]" do
     {opts, files} = getopt(args, "a")
     mode = if opts["a"], do: :append, else: :write
-    devs = for f <- files, {:ok, d} <- [File.open(Ctx.path(ctx, f), [mode, :binary])], do: d
+    devs =
+      for f <- files, path = Ctx.path(ctx, f), {:ok, d} <- [with(:ok <- Lepton.Users.check_write(ctx, path), do: File.open(path, [mode, :binary]))], do: d
 
     for line <- IO.lines(ctx) do
       IO.write(ctx, line)
@@ -299,7 +308,7 @@ defmodule Lepton.Commands.Core do
     cond do
       File.dir?(full) -> {:error, "#{path}: Is a directory"}
       true ->
-        case File.open(full, [:read, :binary]) do
+        case with(:ok <- Lepton.Users.check_read(ctx, full), do: File.open(full, [:read, :binary])) do
           {:ok, dev} -> {:ok, dev, fn -> File.close(dev) end}
           {:error, reason} -> {:error, "#{path}: #{:file.format_error(reason)}"}
         end
@@ -321,7 +330,7 @@ defmodule Lepton.Commands.Core do
     Enum.reduce(args, 0, fn f, status ->
       path = Ctx.path(ctx, f)
 
-      case File.touch(path) do
+      case with(:ok <- Lepton.Users.check_write(ctx, path), do: File.touch(path)) do
         :ok -> status
         {:error, r} ->
           IO.err(ctx, "touch: cannot touch '#{f}': #{:file.format_error(r)}")
@@ -335,7 +344,7 @@ defmodule Lepton.Commands.Core do
 
     Enum.reduce(dirs, 0, fn d, status ->
       path = Ctx.path(ctx, d)
-      result = if opts["p"], do: File.mkdir_p(path), else: File.mkdir(path)
+      result = with :ok <- Lepton.Users.check_write(ctx, path), do: if(opts["p"], do: File.mkdir_p(path), else: File.mkdir(path))
 
       case result do
         :ok ->
@@ -351,7 +360,9 @@ defmodule Lepton.Commands.Core do
 
   defcmd "rmdir", "remove empty directories", usage: "rmdir DIR..." do
     Enum.reduce(args, 0, fn d, status ->
-      case File.rmdir(Ctx.path(ctx, d)) do
+      path = Ctx.path(ctx, d)
+
+      case with(:ok <- Lepton.Users.check_write(ctx, path), do: File.rmdir(path)) do
         :ok -> status
         {:error, r} ->
           IO.err(ctx, "rmdir: failed to remove '#{d}': #{:file.format_error(r)}")
@@ -376,6 +387,10 @@ defmodule Lepton.Commands.Core do
 
         File.dir?(path) && not symlink?(path) && !(opts["r"] || opts["R"]) ->
           IO.err(ctx, "rm: cannot remove '#{f}': Is a directory")
+          1
+
+        Lepton.Users.check_write(ctx, path) != :ok ->
+          IO.err(ctx, "rm: cannot remove '#{f}': permission denied")
           1
 
         true ->
@@ -431,7 +446,13 @@ defmodule Lepton.Commands.Core do
         src_path = Ctx.path(ctx, src)
         target = if into_dir?, do: Path.join(dest_path, Path.basename(src_path)), else: dest_path
 
-        case fun.(src_path, target) do
+        # mv changes the source's directory too; cp only the target.
+        checks = if name == "mv", do: [src_path, target], else: [target]
+
+        result =
+          if Enum.all?(checks, &(Lepton.Users.check_write(ctx, &1) == :ok)), do: fun.(src_path, target), else: {:error, :eacces}
+
+        case result do
           :ok ->
             if opts["v"], do: IO.puts(ctx, "'#{src}' -> '#{Ctx.tildify(ctx, target)}'")
             status
@@ -455,8 +476,12 @@ defmodule Lepton.Commands.Core do
     case operands do
       [target, link] ->
         link_path = Ctx.path(ctx, link)
-        if opts["f"], do: File.rm(link_path)
-        result = if opts["s"], do: File.ln_s(target, link_path), else: File.ln(Ctx.path(ctx, target), link_path)
+
+        result =
+          with :ok <- Lepton.Users.check_write(ctx, link_path) do
+            if opts["f"], do: File.rm(link_path)
+            if opts["s"], do: File.ln_s(target, link_path), else: File.ln(Ctx.path(ctx, target), link_path)
+          end
 
         case result do
           :ok -> 0
@@ -502,7 +527,8 @@ defmodule Lepton.Commands.Core do
         Enum.reduce(files, 0, fn f, status ->
           path = Ctx.path(ctx, f)
 
-          with {:ok, st} <- File.stat(path),
+          with :ok <- Lepton.Users.check_write(ctx, path),
+               {:ok, st} <- File.stat(path),
                {:ok, new} <- parse_mode(mode, st.mode &&& 0o7777),
                :ok <- File.chmod(path, new) do
             status
@@ -545,7 +571,30 @@ defmodule Lepton.Commands.Core do
     end
   end
 
-  defcmd "chown", "change file owner (single-user system: accepted, no-op)", usage: "chown OWNER FILE...", do: 0
+  defcmd "chown", "change file owner", usage: "chown [-R] USER[:GROUP] FILE...", root: true do
+    {opts, operands} = getopt(args, "R")
+
+    with [spec | files] when files != [] <- operands,
+         [name | group] = String.split(spec, ":", parts: 2),
+         %Lepton.Users{} = u <- Lepton.Users.get(name) do
+      gid = case group do
+        [g] when g != "" -> (Lepton.Users.groups()[g] || {u.gid, []}) |> elem(0)
+        _ -> u.gid
+      end
+
+      Enum.reduce(files, 0, fn f, status ->
+        path = Ctx.path(ctx, f)
+        paths = if opts["R"], do: [path | Path.wildcard(Path.join(path, "**"), match_dot: true)], else: [path]
+
+        if Enum.all?(paths, &(File.chown(&1, u.uid) == :ok and File.chgrp(&1, gid) == :ok)),
+          do: status,
+          else: (IO.err(ctx, "chown: cannot change owner of '#{f}'"); 1)
+      end)
+    else
+      nil -> IO.err(ctx, "chown: invalid user"); 1
+      _ -> IO.err(ctx, "usage: chown [-R] USER[:GROUP] FILE..."); 2
+    end
+  end
 
   defcmd "stat", "display file status", usage: "stat FILE..." do
     Enum.reduce(args, 0, fn f, status ->

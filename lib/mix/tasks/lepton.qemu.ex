@@ -7,6 +7,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
       mix lepton.qemu --print      # print a command line for a serial-console session
       mix lepton.qemu --test       # headless: boot, run `lepton-test`, report
       mix lepton.qemu --run "cmd"  # headless: boot, run shell commands, print output
+      mix lepton.qemu --no-cd --disk DISK --login USER:PASS --run "cmd"  # an installed system
 
   The machine matches UTM's defaults for ARM64 Linux guests: `virt`,
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
@@ -20,11 +21,13 @@ defmodule Mix.Tasks.Lepton.Qemu do
   def run(args) do
     {opts, _} =
       OptionParser.parse!(args,
-        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean]
+        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string]
       )
 
     iso = opts[:iso] || @iso
     unless File.exists?(iso) or opts[:no_cd], do: Mix.raise("#{iso} not found; run `mix lepton.iso` first")
+
+    login = if l = opts[:login], do: l |> String.split(":", parts: 2) |> List.to_tuple()
 
     cond do
       opts[:print] ->
@@ -32,12 +35,12 @@ defmodule Mix.Tasks.Lepton.Qemu do
 
       opts[:test] ->
         commands = ["lepton-test"]
-        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts), commands, opts[:timeout] || 300_000)
+        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts), commands, opts[:timeout] || 300_000, login)
         IO.write(output)
         unless output =~ ~r/\d+ tests?, 0 failures/, do: Mix.raise("in-OS test suite failed")
 
       cmds = Keyword.get_values(opts, :run) |> then(&if(&1 == [], do: nil, else: &1)) ->
-        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts), cmds, opts[:timeout] || 120_000)
+        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts), cmds, opts[:timeout] || 120_000, login)
         IO.write(output)
 
       true ->
@@ -112,14 +115,15 @@ defmodule LeptonBuild.QemuHarness do
 
   @prompt_marker "LEPTON-HARNESS-READY"
 
-  def session(qemu, args, commands, timeout) do
+  # `login`: {user, password} for an installed system's login prompt.
+  def session(qemu, args, commands, timeout, login \\ nil) do
     args = args ++ ["-display", "none", "-serial", "stdio", "-monitor", "none"]
     port = Port.open({:spawn_executable, qemu}, [:binary, :exit_status, :stderr_to_stdout, args: args])
     deadline = System.monotonic_time(:millisecond) + timeout
 
     try do
-      boot_log = wait_for(port, ~r/\$ |# |❯ |SSID[^:]*: $|\[Y\/n\] $/, "", deadline)
-
+      boot_log = wait_for(port, ~r/\$ |# |❯ |SSID[^:]*: $|\[Y\/n\] $|login: $/, "", deadline)
+      boot_log = log_in(port, boot_log, login, deadline)
       boot_log = answer_setup(port, boot_log, deadline)
       # Plain line-oriented terminal (TERM=dumb disables the line editor)
       # and a prompt marker that never appears literally in typed input.
@@ -134,11 +138,25 @@ defmodule LeptonBuild.QemuHarness do
           "$ #{cmd}\n" <> clean(out, cmd)
         end
 
-      send_line(port, "poweroff")
+      # A user powers off with sudo.
+      send_line(port, if(login, do: "echo #{elem(login, 1)} | sudo -S poweroff", else: "poweroff"))
       wait_exit(port, 10_000)
       Enum.join([summarize_boot(boot_log) | outputs], "\n")
     after
       if Port.info(port), do: Port.close(port)
+    end
+  end
+
+  defp log_in(_port, log, nil, _deadline), do: log
+
+  defp log_in(port, log, {user, password}, deadline) do
+    if Regex.match?(~r/login: $/, strip_ansi(log)) do
+      send_line(port, user)
+      log = log <> wait_for(port, ~r/Password: $/, "", deadline)
+      send_line(port, password)
+      log <> wait_for(port, ~r/\$ |# |❯ |SSID[^:]*: $|\[Y\/n\] $|Login incorrect/, "", deadline)
+    else
+      log
     end
   end
 
