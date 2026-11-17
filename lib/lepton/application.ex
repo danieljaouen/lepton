@@ -84,9 +84,18 @@ defmodule Lepton.Session do
     Task.await(shell, :infinity)
 
     if mode == :forever do
-      Lepton.IO.write(tty, "\r\nlogout\r\n\r\n")
+      # C-d / exit end the login shell, but a console session is always
+      # logged back in: point people at the real way to switch off.
+      Lepton.IO.write(tty, logout_message())
       loop(tty, name, mode)
     end
+  end
+
+  @doc false
+  def logout_message do
+    "\r\nlogout\r\n\r\n" <>
+      "  \e[1mLepton logs this console straight back in.\e[0m\r\n" <>
+      "  To shut down, type \e[1;36mpoweroff\e[0m (or use UTM's power button -> Request power down).\r\n\r\n"
   end
 
   def login_ctx(tty, name) do
