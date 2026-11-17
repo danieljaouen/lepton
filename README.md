@@ -372,4 +372,5 @@ lib/mix/tasks/         mix lepton.iso | lepton.qemu | lepton.shell
 rootfs/etc/            /etc files (lshrc, motd, hostname, ...)
 test/                  ExUnit suite (host + in-OS)
 dotfiles/              your dotfiles repo (input to the build)
+site/                  the showcase website (submodule: danieljaouen.github.io)
 ```
