@@ -59,7 +59,9 @@ layout); feature documentation lives in `docs/`, not in the README.
   danieljaouen.github.io, served at trylepton.app). The tooling writes,
   commits and pushes here (`LeptonBuild.Paths.site/0`); edit the site here.
 - `site/` (submodule): the same repository over HTTPS, read-only. Don't
-  edit it; `mix lepton.publish` moves it to the site checkout's commit.
+  edit it or commit its pointer by hand: the site repo's "Update Lepton's
+  site submodule" workflow moves it on every push to the site's main (and
+  `mix lepton.publish` does locally). Pull before committing here.
 - Dotfiles: not in this repository. Builds and tests use `~/.dotfiles`
   (or `$LEPTON_DOTFILES`).
 - `../lepton.iso`: ISO releases (GitHub Releases; never commit the ISO)

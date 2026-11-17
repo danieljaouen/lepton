@@ -168,9 +168,10 @@ mix test                       # host-side test run
   `lepton.official`, `lepton.publish`) writes to the *site checkout*:
   `$LEPTON_SITE`, else an SSH clone at `../danieljaouen.github.io`
   (maintainers: `git clone git@github.com:danieljaouen/danieljaouen.github.io.git
-  ../danieljaouen.github.io`), else `site/`. `mix lepton.publish` pushes the
-  site from that checkout and then moves the `site/` submodule to the same
-  commit.
+  ../danieljaouen.github.io`), else `site/`. Whenever the site's `main`
+  changes, from a push, `mix lepton.publish` or an edit on github.com, a
+  workflow in the site repository moves this repository's `site/`
+  submodule to the new commit and pushes it. Pull to pick that up.
 - **ISO releases**: `../lepton.iso`, a clone of
   [danieljaouen/lepton.iso](https://github.com/danieljaouen/lepton.iso);
   the ISOs themselves are GitHub Release assets.
