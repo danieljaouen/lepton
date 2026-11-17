@@ -1,0 +1,139 @@
+defmodule Lepton.ShellTest do
+  use ExUnit.Case
+  import Lepton.TestHelpers
+
+  alias Lepton.Shell.Parser
+
+  describe "parser" do
+    test "words, quotes and escapes" do
+      assert {:ok, {:list, [{{:pipeline, false, [{:simple, [], words, []}]}, :fg}]}} = Parser.parse(~s(echo 'a b' "c $X" d\\ e))
+      assert length(words) == 4
+    end
+
+    test "pipelines, lists and redirections" do
+      {:ok, {:list, items}} = Parser.parse("a | b && c || d; e > out 2>&1 &")
+      assert length(items) == 2
+      assert [{{:and_or, {:pipeline, false, [_, _]}, [{:and, _}, {:or, _}]}, :fg}, {{:pipeline, false, [{:simple, [], _, redirs}]}, :bg}] = items
+      assert [{:out, 1, _}, {:dup, 2, 1}] = redirs
+    end
+
+    test "incomplete input is reported" do
+      assert {:error, :incomplete} = Parser.parse("echo 'unterminated")
+      assert {:error, :incomplete} = Parser.parse("if true; then")
+      assert {:error, :incomplete} = Parser.parse("ls |")
+    end
+
+    test "alias expansion of the command word" do
+      {:ok, {:list, [{{:pipeline, false, [{:simple, [], words, []}]}, :fg}]}} = Parser.parse("l /tmp", %{"l" => "ls -lah"})
+      assert Enum.map(words, &Parser.literal/1) == ["ls", "-lah", "/tmp"]
+    end
+  end
+
+  describe "execution" do
+    test "echo, pipes and exit status" do
+      assert {"hello world\n", 0} = sh("echo hello world")
+      assert {"3\n", 0} = sh("printf 'a\\nb\\nc\\n' | wc -l | tr -d ' '")
+      assert {_, 1} = sh("false")
+      assert {"yes\n", 0} = sh("false || echo yes")
+      assert {"", 1} = sh("false && echo no")
+      assert {"1\n", 0} = sh("false; echo $?")
+    end
+
+    test "variables and expansions" do
+      assert {"bar baz\n", 0} = sh("FOO=bar; echo $FOO baz")
+      assert {"default\n", 0} = sh("echo ${UNSET:-default}")
+      assert {"3\n", 0} = sh("X=abc; echo ${#X}")
+      assert {"inner\n", 0} = sh("echo $(echo inner)")
+      assert {"a b c\n", 0} = sh("for i in a b c; do printf \"$i \"; done; echo | tr -d '\\n'; echo") |> then(fn {o, s} -> {String.trim_leading(o) |> String.replace(" \n", "\n"), s} end)
+    end
+
+    test "control flow" do
+      assert {"yes\n", 0} = sh("if test 1 -eq 1; then echo yes; else echo no; fi")
+      assert {"no\n", 0} = sh("if [ a = b ]; then echo yes; else echo no; fi")
+      assert {"0\n1\n2\n", 0} = sh("i=0; while [ $i -lt 3 ]; do echo $i; i=$(expr $i + 1); done")
+    end
+
+    test "redirections to files and here-strings" do
+      dir = tmp_dir()
+      assert {"", 0} = sh("echo one > f.txt; echo two >> f.txt", cwd: dir)
+      assert File.read!(Path.join(dir, "f.txt")) == "one\ntwo\n"
+      assert {"two\n", 0} = sh("grep tw < f.txt", cwd: dir)
+      assert {"HELLO\n", 0} = sh("tr a-z A-Z <<< hello", cwd: dir)
+      assert {"", 0} = sh("ls nonexistent 2> err.txt; true", cwd: dir)
+      assert File.read!(Path.join(dir, "err.txt")) =~ "cannot access"
+    end
+
+    test "globbing and tilde" do
+      dir = tmp_dir()
+      for f <- ~w(a.ex b.ex c.txt), do: File.write!(Path.join(dir, f), "")
+      assert {"a.ex b.ex\n", 0} = sh("echo *.ex", cwd: dir)
+      {out, 0} = sh("echo ~", cwd: dir, home: "/home/x")
+      assert out == "/home/x\n"
+    end
+
+    test "builtins change shell state" do
+      dir = tmp_dir()
+      File.mkdir_p!(Path.join(dir, "sub"))
+      assert {out, 0} = sh("cd sub && pwd", cwd: dir)
+      assert String.ends_with?(String.trim(out), "/sub")
+      assert {"hi\n", 0} = sh("alias hi='echo hi'; eval hi")
+      assert {"bar\n", 0} = sh("export FOO=bar; printenv FOO")
+    end
+
+    test "background jobs and wait" do
+      assert {out, 0} = sh("sleep 0.1 & wait; echo done")
+      assert out =~ "done"
+    end
+
+    test "a closed pipe stops the writer (SIGPIPE)" do
+      assert {"y\ny\n", 0} = sh("yes | head -n 2")
+    end
+
+    test "command not found" do
+      assert {_, 127} = sh("definitely-not-a-command")
+    end
+  end
+
+  describe "zshrc import" do
+    @tag :dotfiles
+    test "aliases from the user's zshrc, Linux branch only" do
+      entries = Lepton.Shell.Zshrc.parse(File.read!(Path.join(dotfiles_home(), ".zshrc")))
+      aliases = for {:alias, k, v} <- entries, into: %{}, do: {k, v}
+      assert aliases["l"] == "ls -lah"
+      assert aliases["gc"] == "git commit -m"
+      # Linux branch of the OS conditional, not the macOS one
+      assert aliases["open"] == "xdg-open"
+      # EDITOR=vim becomes an alias to Lepton's editor
+      assert aliases["vim"] == "le"
+      assert {:setopt, "interactive_comments", true} in entries
+    end
+
+    test "conditional blocks" do
+      text = """
+      if [[ "x$OS" == "xOSX" ]]
+      then
+          alias mac=yes
+      else
+          alias linux=yes
+      fi
+      alias always=yes
+      """
+
+      aliases = for {:alias, k, _} <- Lepton.Shell.Zshrc.parse(text), do: k
+      assert "linux" in aliases and "always" in aliases
+      refute "mac" in aliases
+    end
+  end
+
+  describe "prompt" do
+    test "starship format language" do
+      out = Lepton.Shell.Prompt.render_format("[$user]($style) on [x](bold blue) ($missing)", fn
+        "user" -> "root"
+        "style" -> "green"
+        _ -> ""
+      end, false)
+
+      assert out == "root on x "
+    end
+  end
+end
