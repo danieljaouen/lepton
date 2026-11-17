@@ -6,6 +6,11 @@ defmodule LeptonBuild.ISO9660 do
   `files` is a list of `{"/path/on/disc", {:data, bin} | {:path, host_path}}`.
   `efi_image` is the FAT image the firmware boots from (no-emulation, platform
   0xEF). It is also exposed on the disc as `/boot/grub/efi.img`.
+
+  The image is also *hybrid*: a protective MBR and GPT in the (otherwise
+  unused) system area declare an EFI System partition covering that same
+  FAT image, so firmware that attaches the ISO as a disk rather than a CD
+  (Apple Virtualization in UTM, USB sticks) can boot it too.
   """
 
   import Bitwise
@@ -83,8 +88,28 @@ defmodule LeptonBuild.ISO9660 do
       w.(if size == 0, do: :binary.copy(<<0>>, @sector), else: pad(data))
     end
 
+    bytes = write_hybrid_gpt(io, total, efi_lba, byte_size(efi_image))
     File.close(io)
-    total * @sector
+    bytes
+  end
+
+  # Room after the ISO for the backup GPT (entries + header), in 2 KiB sectors.
+  @gpt_tail_sectors 16
+
+  defp write_hybrid_gpt(io, total, efi_lba, efi_size) do
+    bytes = (total + @gpt_tail_sectors) * @sector
+    disk_sectors = div(bytes, 512)
+    first = efi_lba * div(@sector, 512)
+    last = first + div(efi_size + 511, 512) - 1
+
+    {:ok, _} = :file.position(io, bytes - 1)
+    :ok = IO.binwrite(io, <<0>>)
+
+    for {offset, data} <- Lepton.Install.GPT.build(disk_sectors, [%{type: Lepton.Install.GPT.esp_type(), name: "EFI System", first: first, last: last}]) do
+      :ok = :file.pwrite(io, offset, data)
+    end
+
+    bytes
   end
 
   # -- tree --------------------------------------------------------------------
