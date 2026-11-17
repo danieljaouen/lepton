@@ -71,7 +71,8 @@ defmodule Lepton.Setup do
   @moduledoc """
   First-run setup shown on the consoles before the login shell:
 
-    1. **Wi-Fi** - at every startup of the live ISO, and on an installed
+    1. **Wi-Fi** - currently disabled (`@wifi_prompt false`) because Lepton
+       cannot join Wi-Fi networks yet; when enabled: at every startup of the live ISO, and on an installed
        system until answered (Enter skips; it is skipped automatically
        after 30 seconds so headless boots are not blocked). `wifi setup`
        re-runs it.
@@ -85,9 +86,13 @@ defmodule Lepton.Setup do
 
   @timeout_s 30
 
+  # The automatic Wi-Fi prompt stays off until association works (the
+  # kernel has no 802.11 stack yet). `wifi setup` still saves credentials.
+  @wifi_prompt false
+
   def run(ctx) do
     if Lepton.Sys.native?() and ctx.tty do
-      wifi(ctx)
+      if @wifi_prompt, do: wifi(ctx)
       tutorial(ctx)
     end
 

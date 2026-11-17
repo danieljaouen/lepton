@@ -105,11 +105,11 @@ With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
 
 ### First-run setup: Wi-Fi and the tutorial
 
-- **Wi-Fi.** Before login, Lepton asks for a Wi-Fi network name and
-  passphrase. On the live ISO it asks at every startup; on an installed
-  system it asks until you answer or skip once. Enter skips, and the
-  prompt skips itself after 30 seconds so headless boots aren't blocked.
-  Credentials are saved in wpa_supplicant format
+- **Wi-Fi.** The automatic Wi-Fi prompt at startup and after installation
+  is **turned off for now**, because Lepton can't join Wi-Fi networks yet
+  (see the limitation below). Re-enable it with `@wifi_prompt true` in
+  `lib/lepton/setup.ex`. Credentials can still be entered manually with
+  `wifi setup`. They are saved in wpa_supplicant format
   (`/var/lib/lepton/wpa_supplicant.conf`), with the passphrase stored only
   as its WPA PSK (PBKDF2, the same value `wpa_passphrase` computes).
   `wifi` shows status, `wifi setup` asks again, and `wifi forget` clears
@@ -358,7 +358,7 @@ lib/lepton/            the operating system
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
-  setup.ex tutorial.ex pkg.ex     first-run Wi-Fi prompt, tutorial, lpm
+  setup.ex tutorial.ex pkg.ex     first-run setup (Wi-Fi prompt off), tutorial, lpm
   selftest.ex                     lepton-test
 lib/lepton_build/      image build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | lepton.qemu | lepton.shell

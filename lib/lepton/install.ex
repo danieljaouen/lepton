@@ -128,7 +128,7 @@ defmodule Lepton.Installer do
         1. poweroff
         2. In UTM: remove the ISO (CD/DVD -> Clear), then start the VM again.
            With QEMU: boot without -cdrom.
-        3. On first boot you'll be asked for Wi-Fi details and offered a short tutorial.
+        3. On first boot you'll be offered a short tutorial.
       """)
 
       0
