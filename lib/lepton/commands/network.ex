@@ -197,4 +197,20 @@ defmodule Lepton.Commands.Network do
       [] -> IO.err(ctx, "usage: www URL"); 2
     end
   end
+
+  # -- SSH ------------------------------------------------------------------------------------
+
+  defcmd "ssh", "OpenSSH-compatible client: remote shells and commands, keys from ~/.ssh",
+    usage: "ssh [-p PORT] [-i KEY] [-l USER] [-o StrictHostKeyChecking=VALUE] [-T|-t] [USER@]HOST [COMMAND...]" do
+    Lepton.SSH.CLI.ssh(args, ctx)
+  end
+
+  defcmd "ssh-keygen", "create an SSH key, show fingerprints, forget a host",
+    usage: "ssh-keygen [-t ed25519] [-f FILE] [-C COMMENT] | -l -f FILE | -y -f FILE | -R HOST" do
+    Lepton.SSH.CLI.keygen(args, ctx)
+  end
+
+  defcmd "ssh-keyscan", "print a host's SSH public keys (known_hosts lines)", usage: "ssh-keyscan [-p PORT] [-t TYPES] HOST..." do
+    Lepton.SSH.CLI.keyscan(args, ctx)
+  end
 end

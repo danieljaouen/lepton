@@ -65,6 +65,7 @@ The user documentation is at **<https://trylepton.app/docs/>**:
   [the editor](https://trylepton.app/docs/editor.html),
   [tmux](https://trylepton.app/docs/tmux.html),
   [git and GitHub](https://trylepton.app/docs/git.html),
+  [SSH](https://trylepton.app/docs/ssh.html),
   [services](https://trylepton.app/docs/services.html),
   [packages](https://trylepton.app/docs/packages.html),
   [networking](https://trylepton.app/docs/networking.html),
@@ -147,7 +148,9 @@ mix test                       # host-side test run
 - **Networking**: `Lepton.Net.Netlink` sends rtnetlink messages over
   `:socket` (AF_NETLINK) to bring links up and add addresses and routes.
   `Lepton.Net.DHCP` is a DHCPv4 client. DNS uses Erlang's resolver, and TLS
-  uses `:ssl` with the bundled CA roots.
+  uses `:ssl` with the bundled CA roots. `Lepton.SSH` is an SSH client on
+  OTP's `:ssh`, with its own key callback for keys, known hosts (GitHub's
+  built in) and `~/.ssh/config`. `ssh` and git's SSH transport use it.
 
 ## Testing
 
@@ -159,9 +162,9 @@ dotfiles); `:network` needs internet access (DHCP, DNS, and cloning
 network is up; `:dotfiles` needs your dotfiles. Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 105 tests, 0 failures inside the VM (run from the live
+Current results: 115 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-110 passing plus 8 excluded (native/network) on the host.
+119 passing plus 9 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -210,7 +213,8 @@ lib/lepton/            the operating system
   commands/                       coreutils, text, system, network, dev tools
   editor.ex editor/               le: evil engine, keymaps, render, magit, ex
   mux.ex mux/                     tmux: server, client, layout, copy mode, config
-  git.ex git/ gh.ex               git + GitHub
+  git.ex git/ gh.ex               git + GitHub (HTTPS and SSH remotes)
+  ssh.ex ssh/                     SSH client: keys, known hosts, ssh/ssh-keygen
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
@@ -221,7 +225,7 @@ lib/lepton/            the operating system
 lib/lepton_build/      image and docs build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs
 docs/                  the user guides (Markdown; published to trylepton.app/docs)
-rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ...)
+rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ssh/ssh_known_hosts, ...)
 test/                  ExUnit suite (host + in-OS)
 dotfiles/              your dotfiles repo (input to the build)
 site/                  the website and generated docs (submodule: danieljaouen.github.io)

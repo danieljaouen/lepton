@@ -1,6 +1,6 @@
 ---
 title: Services (svc)
-order: 6
+order: 7
 summary: Start, stop and restart long-running apps, like systemd.
 ---
 

@@ -87,7 +87,7 @@ defmodule Lepton.Commands.Dev do
 
   # -- GitHub CLI -----------------------------------------------------------------------------
 
-  defcmd "gh", "GitHub CLI (repos, issues, PRs, auth)", usage: "gh auth login|status|token|logout | repo view|list|clone|create | issue list|view|create | pr list|view | browse | api PATH" do
+  defcmd "gh", "GitHub CLI (repos, issues, PRs, auth)", usage: "gh auth login|status|token|logout | repo view|list|clone|create | ssh-key list|add | config get|set git_protocol | issue list|view|create | pr list|view | browse | api PATH" do
     Lepton.GH.run(args, ctx)
   end
 
@@ -545,7 +545,7 @@ defmodule Lepton.Commands.Dev do
         dest = Ctx.path(ctx, List.first(dir) || url |> Path.basename() |> String.replace_suffix(".git", ""))
         IO.puts(ctx, "Cloning into '#{Path.basename(dest)}'...")
 
-        case Remote.clone(url, dest) do
+        case Remote.clone(url, dest, home: Ctx.home(ctx)) do
           {:ok, msg} -> IO.puts(ctx, msg); 0
           {:error, e} -> IO.err(ctx, "fatal: #{e}"); 128
         end
@@ -559,7 +559,7 @@ defmodule Lepton.Commands.Dev do
   defp git_cmd("fetch", rest, ctx) do
     repo = repo!(ctx)
 
-    case Remote.fetch(repo, List.first(rest) || "origin") do
+    case Remote.fetch(repo, List.first(rest) || "origin", home: Ctx.home(ctx)) do
       {:ok, msg} -> IO.puts(ctx, msg); 0
       {:error, e} -> IO.err(ctx, "fatal: #{e}"); 128
     end
@@ -569,7 +569,7 @@ defmodule Lepton.Commands.Dev do
     repo = repo!(ctx)
     remote = List.first(rest) || "origin"
 
-    case Remote.pull(repo, remote, Enum.at(rest, 1) || Git.current_branch(repo)) do
+    case Remote.pull(repo, remote, Enum.at(rest, 1) || Git.current_branch(repo), home: Ctx.home(ctx)) do
       {:ok, msg} -> IO.puts(ctx, msg); 0
       {:error, e} -> IO.err(ctx, "fatal: #{e}"); 1
     end
@@ -581,7 +581,7 @@ defmodule Lepton.Commands.Dev do
     remote = List.first(args) || "origin"
     branch = Enum.at(args, 1) || Git.current_branch(repo)
 
-    case Remote.push(repo, remote, branch, force: opts["f"] == true || opts["force"] == true) do
+    case Remote.push(repo, remote, branch, force: opts["f"] == true || opts["force"] == true, home: Ctx.home(ctx)) do
       {:ok, msg} ->
         if opts["u"] || opts["set-upstream"] do
           Config.set(repo, "branch \"#{branch}\"", "remote", remote)
@@ -607,7 +607,10 @@ defmodule Lepton.Commands.Dev do
   end
 
   defp git_cmd("ls-remote", [url | _], ctx) do
-    case Remote.ls_remote(expand_github_shorthand(url), "git-upload-pack") do
+    home = Ctx.home(ctx)
+    url = url |> expand_github_shorthand() |> Remote.rewrite_url(Config.global(home))
+
+    case Remote.ls_remote(url, "git-upload-pack", home: home) do
       {:ok, refs, _} -> for {ref, sha} <- refs, do: IO.puts(ctx, "#{sha}\t#{ref}"); 0
       {:error, e} -> IO.err(ctx, "fatal: #{e}"); 128
     end

@@ -1,6 +1,6 @@
 ---
 title: Networking
-order: 8
+order: 9
 summary: DHCP, interfaces, DNS, HTTP clients, a text browser and a web server.
 ---
 
@@ -27,6 +27,11 @@ www https://trylepton.app/    # a text-mode web browser
 
 `dhclient` re-runs DHCP on an interface. `curl` (also `wget`) fetches
 over HTTP and HTTPS and can save to a file with `-o`.
+
+## Remote machines
+
+`ssh` logs in to other machines and runs commands on them, with keys from
+`ssh-keygen`; see [SSH](ssh.html).
 
 ## Serving
 

@@ -5,6 +5,8 @@ defmodule Lepton.GH do
       gh auth login [--with-token]     store a token (~/.config/gh/hosts.yml)
       gh auth status | token | logout
       gh repo view [OWNER/REPO] | list [OWNER] | clone OWNER/REPO [DIR] | create NAME [--private]
+      gh ssh-key list | add [KEY.pub] [-t TITLE]   your SSH keys on GitHub
+      gh config get|set git_protocol [https|ssh]   how gh repo clone clones
       gh issue list | view N | create -t TITLE [-b BODY]
       gh pr list | view N
       gh browse                        print the repository's GitHub URL
@@ -124,7 +126,7 @@ defmodule Lepton.GH do
 
       path = hosts_path(Ctx.home(ctx))
       File.mkdir_p!(Path.dirname(path))
-      File.write!(path, "github.com:\n    oauth_token: #{token}\n    user: #{user || ""}\n    git_protocol: https\n")
+      File.write!(path, "github.com:\n    oauth_token: #{token}\n    user: #{user || ""}\n    git_protocol: #{git_protocol(ctx)}\n")
       File.chmod(path, 0o600)
       IO.puts(ctx, if(user, do: "✓ Logged in to github.com as #{user}", else: "✓ Token stored (could not verify it - offline?)"))
       0
@@ -139,7 +141,7 @@ defmodule Lepton.GH do
 
       _ ->
         case request(ctx, :get, "/user") do
-          {:ok, %{"login" => login}} -> IO.puts(ctx, "github.com\n  ✓ Logged in to github.com as #{login}\n  ✓ Git operations for github.com configured to use https protocol."); 0
+          {:ok, %{"login" => login}} -> IO.puts(ctx, "github.com\n  ✓ Logged in to github.com as #{login}\n  ✓ Git operations for github.com configured to use #{git_protocol(ctx)} protocol."); 0
           {:error, e} -> IO.err(ctx, "github.com: token present but #{e}"); 1
         end
     end
@@ -197,7 +199,9 @@ defmodule Lepton.GH do
     dest = Ctx.path(ctx, List.first(rest) || Path.basename(nwo))
     IO.puts(ctx, "Cloning into '#{Ctx.tildify(ctx, dest)}'...")
 
-    case Lepton.Git.Remote.clone("https://github.com/#{nwo}.git", dest) do
+    url = if git_protocol(ctx) == "ssh", do: "git@github.com:#{nwo}.git", else: "https://github.com/#{nwo}.git"
+
+    case Lepton.Git.Remote.clone(url, dest, home: Ctx.home(ctx)) do
       {:ok, msg} -> IO.puts(ctx, msg); 0
       {:error, e} -> IO.err(ctx, "gh: #{e}"); 1
     end
@@ -229,6 +233,55 @@ defmodule Lepton.GH do
       nil -> IO.err(ctx, "usage: gh issue create -t TITLE [-b BODY] (inside a GitHub repository)"); 1
       {:error, e} -> IO.err(ctx, "gh: #{e}"); 1
     end
+  end
+
+  def run(["ssh-key", "list" | _], ctx) do
+    case request(ctx, :get, "/user/keys") do
+      {:ok, []} ->
+        IO.puts(ctx, "No SSH keys on your GitHub account. Add one with: gh ssh-key add")
+        0
+
+      {:ok, keys} ->
+        for k <- keys, do: IO.puts(ctx, "#{String.pad_trailing(k["title"] || "", 24)} #{String.slice(k["key"], 0, 40)}...  #{String.slice(k["created_at"] || "", 0, 10)}")
+        0
+
+      {:error, e} ->
+        ssh_key_error(ctx, e)
+    end
+  end
+
+  def run(["ssh-key", "add" | rest], ctx) do
+    {opts, files} = Lepton.Args.getopt(rest, "t:")
+    file = Ctx.path(ctx, List.first(files) || "~/.ssh/id_ed25519.pub")
+
+    with {:ok, text} <- File.read(file),
+         key = text |> String.trim() |> String.split() |> Enum.take(2) |> Enum.join(" "),
+         true <- String.starts_with?(key, ["ssh-", "ecdsa-"]) || {:error, "#{Ctx.tildify(ctx, file)} is not a public key"},
+         title = opts["t"] || opts["title"] || title_from(text),
+         {:ok, _} <- request(ctx, :post, "/user/keys", %{title: title, key: key}) do
+      IO.puts(ctx, "✓ Public key added to your account (#{title})")
+      0
+    else
+      {:error, :enoent} -> IO.err(ctx, "gh: #{Ctx.tildify(ctx, file)} not found; create a key with ssh-keygen"); 1
+      {:error, e} when is_binary(e) -> ssh_key_error(ctx, e)
+      {:error, e} -> IO.err(ctx, "gh: #{inspect(e)}"); 1
+    end
+  end
+
+  def run(["config", "get", "git_protocol" | _], ctx), do: (IO.puts(ctx, git_protocol(ctx)); 0)
+
+  def run(["config", "set", "git_protocol", proto | _], ctx) when proto in ["https", "ssh"] do
+    home = Ctx.home(ctx)
+    config = Path.join(home, ".config/gh/config.yml")
+    File.mkdir_p!(Path.dirname(config))
+    set_yaml(config, ~r/^git_protocol:.*$/m, "git_protocol: #{proto}")
+    if File.exists?(hosts_path(home)), do: set_yaml(hosts_path(home), ~r/^(\s+)git_protocol:.*$/m, "\\1git_protocol: #{proto}", false)
+    0
+  end
+
+  def run(["config" | _], ctx) do
+    IO.err(ctx, "usage: gh config get git_protocol | gh config set git_protocol https|ssh")
+    1
   end
 
   def run(["browse" | _], ctx) do
@@ -303,6 +356,55 @@ defmodule Lepton.GH do
       _ ->
         :ok
     end
+  end
+
+  @doc "`https` or `ssh`: hosts.yml's setting for github.com, else config.yml's."
+  def git_protocol(ctx) do
+    home = Ctx.home(ctx)
+
+    Enum.find_value([hosts_path(home), Path.join(home, ".config/gh/config.yml")], "https", fn path ->
+      case File.read(path) do
+        {:ok, text} ->
+          case Regex.run(~r/^\s*git_protocol:\s*(\S+)/m, text) do
+            [_, p] -> p
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  # Replace the line matching `re`, or append `line` when `add?`.
+  defp set_yaml(path, re, line, add? \\ true) do
+    text = case File.read(path) do
+      {:ok, t} -> t
+      _ -> ""
+    end
+
+    cond do
+      Regex.match?(re, text) -> File.write!(path, Regex.replace(re, text, line, global: false))
+      add? -> File.write!(path, String.trim_trailing(text) <> if(text == "", do: "", else: "\n") <> line <> "\n")
+      true -> :ok
+    end
+  end
+
+  defp title_from(pub_text) do
+    case String.split(String.trim(pub_text)) do
+      [_, _, comment | _] -> comment
+      _ -> "lepton"
+    end
+  end
+
+  defp ssh_key_error(ctx, e) do
+    hint =
+      if e =~ ~r/HTTP (403|404)/,
+        do: "\nThe token needs the admin:public_key scope: create one at https://github.com/settings/tokens and run gh auth login,\nor add the key at https://github.com/settings/ssh/new",
+        else: ""
+
+    IO.err(ctx, "gh: #{e}#{hint}")
+    1
   end
 
   defp gh_user(ctx) do

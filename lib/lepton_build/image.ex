@@ -12,7 +12,7 @@ defmodule LeptonBuild.Image do
 
   alias LeptonBuild.{Cpio, Dotfiles, ELF, FAT, ISO9660, Kernel, Sources}
 
-  @otp_apps ~w(kernel stdlib compiler crypto public_key asn1 ssl inets sasl runtime_tools syntax_tools parsetools tools)
+  @otp_apps ~w(kernel stdlib compiler crypto public_key asn1 ssl ssh inets sasl runtime_tools syntax_tools parsetools tools)
   @elixir_apps ~w(elixir eex ex_unit iex logger mix)
   @erts_bins ~w(beam.smp erlexec erl_child_setup inet_gethost epmd)
 

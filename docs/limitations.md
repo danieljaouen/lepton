@@ -1,6 +1,6 @@
 ---
 title: Limitations
-order: 11
+order: 12
 summary: What Lepton doesn't do yet.
 ---
 
@@ -14,8 +14,9 @@ summary: What Lepton doesn't do yet.
 - Single user (`root`), with no permissions model beyond the kernel's.
 - Services are simple ones only: no dependencies (`After=`,
   `Requires=`), timers, socket activation or resource limits.
-- git: no three-way merge (pulls fast-forward only), no rebase and no SSH
-  transport (HTTPS only).
+- git: no three-way merge (pulls fast-forward only) and no rebase.
+- SSH: keys only (no password logins), no passphrase-protected keys, no
+  `ssh-agent`, forwarding, `scp`/`sftp` or SSH server.
 - `le` is a Spacemacs work-alike, not Emacs: it doesn't *evaluate* Elisp,
   so layers and packages aren't loaded. Unsupported bindings are
   reported.

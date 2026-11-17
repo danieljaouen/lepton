@@ -1,6 +1,6 @@
 ---
 title: Your dotfiles, applied
-order: 10
+order: 11
 summary: How Lepton reads Spacemacs, tmux, zsh, starship and git configuration.
 ---
 
