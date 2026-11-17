@@ -68,6 +68,7 @@ mix lepton.qemu                # boot in a QEMU window (UTM-equivalent machine)
 mix lepton.qemu --test         # headless boot, run lepton-test, report
 mix lepton.qemu --run "uname -a" --run "ip addr"
 mix lepton.shell               # run the userland in this terminal, no VM
+mix lepton.publish             # build + publish the ISO, update the site's checksum
 mix test                       # host-side test run
 ```
 

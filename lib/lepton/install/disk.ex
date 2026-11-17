@@ -109,7 +109,7 @@ defmodule Lepton.Install.GPT do
       partitions
       |> Enum.map(fn p ->
         name = p.name |> :unicode.characters_to_binary(:utf8, {:utf16, :little}) |> pad(72)
-        guid(p.type) <> random_guid() <> <<p.first::little-64, p.last::little-64, 0::little-64>> <> name
+        guid(p.type) <> (p[:guid] || random_guid()) <> <<p.first::little-64, p.last::little-64, 0::little-64>> <> name
       end)
       |> Enum.join()
       |> pad(@entries * @entry_size)
@@ -152,6 +152,12 @@ defmodule Lepton.Install.GPT do
     <<y::16>> = b
     <<z::16>> = c
     <<x::little-32, y::little-16, z::little-16>> <> d <> e
+  end
+
+  @doc "A stable GUID derived from `seed` (for reproducible images)."
+  def guid_from(seed) do
+    <<a::48, _::4, b::12, _::2, c::62, _::binary>> = :crypto.hash(:sha256, seed)
+    <<a::48, 4::4, b::12, 2::2, c::62>>
   end
 
   # A version-4 GUID (byte order is irrelevant for random values).

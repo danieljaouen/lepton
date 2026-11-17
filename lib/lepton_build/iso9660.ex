@@ -105,7 +105,13 @@ defmodule LeptonBuild.ISO9660 do
     {:ok, _} = :file.position(io, bytes - 1)
     :ok = IO.binwrite(io, <<0>>)
 
-    for {offset, data} <- Lepton.Install.GPT.build(disk_sectors, [%{type: Lepton.Install.GPT.esp_type(), name: "EFI System", first: first, last: last}]) do
+    # GUIDs derive from the image layout so identical inputs give an
+    # identical ISO (and checksum).
+    alias Lepton.Install.GPT
+    seed = "lepton-iso:#{total}:#{efi_lba}:#{efi_size}"
+    partition = %{type: GPT.esp_type(), name: "EFI System", first: first, last: last, guid: GPT.guid_from(seed <> ":esp")}
+
+    for {offset, data} <- GPT.build(disk_sectors, [partition], GPT.guid_from(seed <> ":disk")) do
       :ok = :file.pwrite(io, offset, data)
     end
 
