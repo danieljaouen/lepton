@@ -50,6 +50,7 @@ defmodule Lepton.Shell.Expand do
         {:lit, t} -> t
         {:var, name} -> var(name, shell, :joined)
         {:cmd, src} -> command_sub(src, shell)
+        {:arith, src} -> arith(src, shell)
       end)
 
     [{text, true}]
@@ -57,6 +58,102 @@ defmodule Lepton.Shell.Expand do
 
   defp part({:var, name}, shell), do: [{:split, var(name, shell, :fields)}]
   defp part({:cmd, src}, shell), do: [{:split, command_sub(src, shell)}]
+  defp part({:arith, src}, shell), do: [{:split, arith(src, shell)}]
+
+  # -- $(( arithmetic )) -------------------------------------------------------------
+  # Integer arithmetic with C precedence. Bare names and $NAME are variables
+  # (unset or non-numeric = 0).
+
+  @doc false
+  def arith(src, shell) do
+    tokens = arith_tokens(String.to_charlist(src), [])
+
+    case arith_expr(tokens, 0, shell) do
+      {value, []} -> Integer.to_string(value)
+      _ -> raise ArgumentError, "bad arithmetic expression: #{String.trim(src)}"
+    end
+  end
+
+  defp arith_tokens([], acc), do: Enum.reverse(acc)
+  defp arith_tokens([c | rest], acc) when c in [?\s, ?\t, ?\n], do: arith_tokens(rest, acc)
+
+  defp arith_tokens([c | _] = chars, acc) when c in ?0..?9 do
+    {digits, rest} = Enum.split_while(chars, &(&1 in ?0..?9))
+    arith_tokens(rest, [{:num, List.to_integer(digits)} | acc])
+  end
+
+  defp arith_tokens([c | _] = chars, acc) when c in ?a..?z or c in ?A..?Z or c == ?_ or c == ?$ do
+    chars = if c == ?$, do: tl(chars), else: chars
+    {name, rest} = Enum.split_while(chars, &(&1 in ?a..?z or &1 in ?A..?Z or &1 in ?0..?9 or &1 == ?_))
+    arith_tokens(rest, [{:name, List.to_string(name)} | acc])
+  end
+
+  defp arith_tokens([a, b | rest], acc) when [a, b] in [~c"<=", ~c">=", ~c"==", ~c"!=", ~c"&&", ~c"||"],
+    do: arith_tokens(rest, [List.to_string([a, b]) | acc])
+
+  defp arith_tokens([c | rest], acc) when c in ~c"+-*/%()<>!", do: arith_tokens(rest, [<<c>> | acc])
+  defp arith_tokens([c | _], _), do: raise(ArgumentError, "bad character in arithmetic: #{<<c::utf8>>}")
+
+  @arith_ops %{"||" => 1, "&&" => 2, "==" => 3, "!=" => 3, "<" => 4, ">" => 4, "<=" => 4, ">=" => 4, "+" => 5, "-" => 5, "*" => 6, "/" => 6, "%" => 6}
+
+  # Precedence climbing: parse operators binding tighter than `min`.
+  defp arith_expr(tokens, min, shell) do
+    {lhs, rest} = arith_unary(tokens, shell)
+    arith_rhs(lhs, rest, min, shell)
+  end
+
+  defp arith_rhs(lhs, [op | rest] = tokens, min, shell) when is_binary(op) do
+    case @arith_ops[op] do
+      prec when is_integer(prec) and prec > min ->
+        {rhs, rest} = arith_expr(rest, prec, shell)
+        arith_rhs(arith_apply(op, lhs, rhs), rest, min, shell)
+
+      _ ->
+        {lhs, tokens}
+    end
+  end
+
+  defp arith_rhs(lhs, tokens, _min, _shell), do: {lhs, tokens}
+
+  defp arith_unary(["-" | rest], shell), do: arith_unary(rest, shell) |> then(fn {v, r} -> {-v, r} end)
+  defp arith_unary(["+" | rest], shell), do: arith_unary(rest, shell)
+  defp arith_unary(["!" | rest], shell), do: arith_unary(rest, shell) |> then(fn {v, r} -> {if(v == 0, do: 1, else: 0), r} end)
+  defp arith_unary([{:num, n} | rest], _shell), do: {n, rest}
+
+  defp arith_unary([{:name, name} | rest], shell) do
+    value =
+      case Integer.parse(String.trim(var(name, shell, :joined))) do
+        {n, ""} -> n
+        _ -> 0
+      end
+
+    {value, rest}
+  end
+
+  defp arith_unary(["(" | rest], shell) do
+    case arith_expr(rest, 0, shell) do
+      {v, [")" | rest]} -> {v, rest}
+      _ -> raise ArgumentError, "missing ) in arithmetic"
+    end
+  end
+
+  defp arith_unary(_, _), do: raise(ArgumentError, "bad arithmetic expression")
+
+  defp arith_apply(op, _a, 0) when op in ["/", "%"], do: raise(ArgumentError, "division by zero")
+  defp arith_apply("+", a, b), do: a + b
+  defp arith_apply("-", a, b), do: a - b
+  defp arith_apply("*", a, b), do: a * b
+  defp arith_apply("/", a, b), do: div(a, b)
+  defp arith_apply("%", a, b), do: rem(a, b)
+  defp arith_apply(op, a, b) when op in ["&&", "||"], do: bool(if(op == "&&", do: a != 0 and b != 0, else: a != 0 or b != 0))
+  defp arith_apply("==", a, b), do: bool(a == b)
+  defp arith_apply("!=", a, b), do: bool(a != b)
+  defp arith_apply("<", a, b), do: bool(a < b)
+  defp arith_apply(">", a, b), do: bool(a > b)
+  defp arith_apply("<=", a, b), do: bool(a <= b)
+  defp arith_apply(">=", a, b), do: bool(a >= b)
+  defp bool(true), do: 1
+  defp bool(false), do: 0
 
   defp var(name, shell, mode) do
     case name do

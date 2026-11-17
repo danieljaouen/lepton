@@ -7,7 +7,7 @@ defmodule Lepton.Shell.Builtins do
 
   @builtins ~w(cd pwd export unset alias unalias history exit logout source . jobs fg bg wait
                type which read eval shift set setopt unsetopt bindkey hash rehash umask local
-               dirs pushd popd exec builtin command return)
+               dirs pushd popd exec builtin command return break continue)
 
   def builtin?(name), do: name in @builtins
   def names, do: @builtins
@@ -277,6 +277,27 @@ defmodule Lepton.Shell.Builtins do
   end
 
   defp do_run(cmd, _args, shell) when cmd in ["hash", "rehash", "umask", "return"], do: {0, shell}
+
+  defp do_run(cmd, args, shell) when cmd in ["break", "continue"] do
+    levels =
+      case args do
+        [] -> 1
+        [n | _] -> String.to_integer(n)
+      end
+
+    cond do
+      levels < 1 ->
+        IO.err(shell.ctx, "#{cmd}: loop count must be at least 1")
+        {1, shell}
+
+      shell.loop_depth == 0 ->
+        IO.err(shell.ctx, "#{cmd}: only meaningful in a for, while or until loop")
+        {0, shell}
+
+      true ->
+        {0, %{shell | loop_ctl: {String.to_atom(cmd), min(levels, shell.loop_depth)}}}
+    end
+  end
 
   defp do_run("dirs", _args, shell) do
     IO.puts(shell.ctx, Enum.map_join([shell.ctx.cwd | shell.dirstack], " ", &Ctx.tildify(shell.ctx, &1)))

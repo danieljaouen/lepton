@@ -18,6 +18,7 @@ defmodule Lepton.Shell.Parser do
       {:dq, parts}     "double quoted" (contains :lit/:var/:cmd parts)
       {:var, name}     $name / ${name} / $? / $$ / $1 ...
       {:cmd, source}   $(command) or `command`
+      {:arith, source} $((expression))
       :tilde           a leading ~
   """
 
@@ -140,6 +141,15 @@ defmodule Lepton.Shell.Parser do
   defp backquote([?\\, c | rest], acc), do: backquote(rest, [c | acc])
   defp backquote([c | rest], acc), do: backquote(rest, [c | acc])
   defp backquote([], _), do: throw({:lex_error, :incomplete})
+
+  defp dollar([?$, ?(, ?( | rest]) do
+    {inner, rest} = balanced(rest, 1, [])
+
+    case rest do
+      [?) | rest] -> {{:arith, inner}, rest}
+      _ -> throw({:lex_error, :incomplete})
+    end
+  end
 
   defp dollar([?$, ?( | rest]) do
     {inner, rest} = balanced(rest, 1, [])

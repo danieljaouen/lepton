@@ -22,7 +22,7 @@ defmodule Lepton.Shell.Exec do
           :bg -> background(item, shell)
         end
 
-      if shell.exit, do: {:halt, shell}, else: {:cont, shell}
+      if shell.exit || shell.loop_ctl, do: {:halt, shell}, else: {:cont, shell}
     end)
   end
 
@@ -30,8 +30,8 @@ defmodule Lepton.Shell.Exec do
     shell = run_pipeline(first, shell)
 
     Enum.reduce(rest, shell, fn
-      {:and, p}, shell -> if shell.status == 0 and !shell.exit, do: run_pipeline(p, shell), else: shell
-      {:or, p}, shell -> if shell.status != 0 and !shell.exit, do: run_pipeline(p, shell), else: shell
+      {:and, p}, shell -> if shell.status == 0 and !shell.exit and !shell.loop_ctl, do: run_pipeline(p, shell), else: shell
+      {:or, p}, shell -> if shell.status != 0 and !shell.exit and !shell.loop_ctl, do: run_pipeline(p, shell), else: shell
     end)
   end
 
@@ -94,7 +94,7 @@ defmodule Lepton.Shell.Exec do
     shell = run(cond, shell)
 
     cond do
-      shell.exit -> {:ok, shell}
+      shell.exit || shell.loop_ctl -> {:ok, shell}
       shell.status == 0 -> {:ok, run(body, shell)}
       else_body -> {:ok, run(else_body, shell)}
       true -> {:ok, %{shell | status: 0}}
@@ -105,30 +105,42 @@ defmodule Lepton.Shell.Exec do
     items = Expand.words(Enum.map(words, fn {:word, parts} -> parts end), shell)
 
     shell =
-      Enum.reduce_while(items, %{shell | status: 0}, fn item, shell ->
-        shell = run(body, put_in(shell.ctx.env[var], item))
-        if shell.exit || shell.interrupted, do: {:halt, shell}, else: {:cont, shell}
+      Enum.reduce_while(items, %{shell | status: 0, loop_depth: shell.loop_depth + 1}, fn item, shell ->
+        {next, shell} = after_body(run(body, put_in(shell.ctx.env[var], item)))
+        if next == :stop or shell.exit || shell.interrupted, do: {:halt, shell}, else: {:cont, shell}
       end)
 
-    {:ok, shell}
+    {:ok, %{shell | loop_depth: shell.loop_depth - 1}}
   end
 
   defp in_process({kind, cond, body}, shell) when kind in [:while, :until] do
-    {:ok, loop(kind, cond, body, %{shell | status: 0}, 0)}
+    shell = loop(kind, cond, body, %{shell | status: 0, loop_depth: shell.loop_depth + 1}, 0)
+    {:ok, %{shell | loop_depth: shell.loop_depth - 1}}
   end
 
   defp in_process({:subshell, _, _}, _shell), do: :spawn
 
   defp loop(kind, cond, body, shell, n) do
-    result = run(cond, shell)
+    {next, result} = after_body(run(cond, shell))
     continue? = if kind == :while, do: result.status == 0, else: result.status != 0
 
-    if continue? and !result.exit and !result.interrupted and n < 1_000_000 do
-      loop(kind, cond, body, run(body, result), n + 1)
-    else
-      %{result | status: 0}
+    cond do
+      next == :stop -> result
+      continue? and !result.exit and !result.interrupted ->
+        {next, shell} = after_body(run(body, result))
+        if next == :stop, do: shell, else: loop(kind, cond, body, shell, n + 1)
+
+      true ->
+        %{result | status: 0}
     end
   end
+
+  # After a loop body: consume a break/continue aimed at this loop, or pass
+  # a multi-level one outward. Returns {:next | :stop, shell}.
+  defp after_body(%{loop_ctl: nil} = shell), do: {:next, shell}
+  defp after_body(%{loop_ctl: {:break, 1}} = shell), do: {:stop, %{shell | loop_ctl: nil}}
+  defp after_body(%{loop_ctl: {:continue, 1}} = shell), do: {:next, %{shell | loop_ctl: nil}}
+  defp after_body(%{loop_ctl: {kind, n}} = shell), do: {:stop, %{shell | loop_ctl: {kind, n - 1}}}
 
   defp restore_env(env, saved, keys) do
     Enum.reduce(keys, env, fn k, env ->
@@ -551,6 +563,7 @@ defmodule Lepton.Shell.Exec do
       {:dq, ps} -> "\"" <> word_text(ps) <> "\""
       {:var, n} -> "$" <> n
       {:cmd, s} -> "$(" <> s <> ")"
+      {:arith, s} -> "$((" <> s <> "))"
       :tilde -> "~"
     end)
   end

@@ -136,4 +136,20 @@ defmodule Lepton.ShellTest do
       assert out == "root on x "
     end
   end
+
+  describe "arithmetic and loop control" do
+    test "$((...)) integer arithmetic" do
+      assert {"14 20 3 1 -3 1 1\n", 0} = sh("echo $((2 + 3 * 4)) $(( (2+3)*4 )) $((7 / 2)) $((7 % 3)) $((-5 + 2)) $((3 > 2 && 1)) $((!0))")
+      assert {"x*2=12 7\n", 0} = sh(~s|x=6; echo "x*2=$((x * 2))" $(($x+1))|)
+      assert {"0 1 2\n", 0} = sh("i=0; s=; while [ $i -lt 3 ]; do s=\"$s $i\"; i=$((i+1)); done; echo $s")
+    end
+
+    test "break and continue, including nested levels" do
+      assert {"once\nafter\n", 0} = sh("while true; do echo once; break; done; echo after")
+      assert {"1\n3\n", 0} = sh("for i in 1 2 3; do if [ $i = 2 ]; then continue; fi; echo $i; done")
+      assert {"a1\nb1\n", 0} = sh("for i in a b; do for j in 1 2 3; do if [ $j = 2 ]; then continue 2; fi; echo $i$j; done; done")
+      assert {"a1\ndone\n", 0} = sh("for i in a b; do for j in 1 2; do echo $i$j; break 2; done; done; echo done")
+      assert {"still\n", 0} = sh("break; echo still")
+    end
+  end
 end

@@ -32,7 +32,10 @@ defmodule Lepton.Shell do
             dirstack: [],
             last_command: nil,
             command_started: nil,
-            last_duration: 0
+            last_duration: 0,
+            # break/continue: {:break | :continue, levels} while unwinding loops
+            loop_ctl: nil,
+            loop_depth: 0
 
   @history_file ".lsh_history"
   @history_limit 10_000
