@@ -308,7 +308,11 @@ defmodule Lepton.Shell.Builtins do
     end
   end
 
-  defp do_run(cmd, [name | args], shell) when cmd in ["exec", "builtin", "command"] do
+  # `builtin NAME` runs the OS image's own command even when an official
+  # update (lpm upgrade) stands in for it.
+  defp do_run("builtin", [name | args], shell), do: {Exec.exec_builtin(name, args, shell), shell}
+
+  defp do_run(cmd, [name | args], shell) when cmd in ["exec", "command"] do
     {Exec.exec(name, args, shell), shell}
   end
 

@@ -69,6 +69,7 @@ mix lepton.qemu --test         # headless boot, run lepton-test, report
 mix lepton.qemu --run "uname -a" --run "ip addr"
 mix lepton.shell               # run the userland in this terminal, no VM
 mix lepton.publish             # build + publish the ISO, update the site's checksum
+mix lepton.official add ...    # sign an official app update (see "Official updates")
 mix test                       # host-side test run
 ```
 
@@ -162,6 +163,60 @@ A package can add shell commands. Any module that does
 package loads, so a Lepton tool can be published to hex.pm like any other
 library. Packages built on Mix-specific features (compile-time config,
 application callbacks in `mix.exs`, NIFs) are not supported yet.
+
+**Packages can't hijack the system.** Anyone can publish to hex.pm, so
+`lpm` never lets a package silently take over part of the OS:
+
+- a package command named like a built-in (`grep`, `git`, `poweroff`, ...)
+  is skipped, and the built-in keeps working;
+- a package may not define `Lepton.*` modules or any module the system
+  already has (Elixir, OTP, Lepton); this is checked before compiling and
+  again after. Package code also goes *after* the system's on the code
+  path;
+- only code compiled from the package's sources runs; prebuilt `.beam`
+  files are discarded.
+
+(Installing a package still runs its code, so only install packages you
+trust.)
+
+### Official updates for built-in apps
+
+Built-in apps can be updated from hex.pm without a new ISO, but only
+by **official updates**. The project publishes a signed list,
+<https://trylepton.app/official.json> (Ed25519; the signature is in
+`official.json.sig`). Each entry names the exact hex package, version
+and tarball SHA-256, plus the built-in commands it may stand in for and
+every pinned dependency. The public key is compiled into the OS, with a
+copy at `/etc/lepton/official-key.pub`.
+
+```sh
+lpm official          # what's available, and what's installed
+lpm upgrade grep      # install the official update for grep
+lpm upgrade           # refresh all of them (withdrawn ones are reverted)
+lpm revert grep       # back to the built-in grep
+builtin grep ...      # always runs the built-in, even when replaced
+```
+
+A look-alike package isn't in the list. A new release pushed from a
+compromised hex.pm account doesn't match the pinned checksum. A tampered
+list fails the signature, and an *older* list (one with a lower
+`serial`) is refused, so a withdrawn update can't be brought back. The
+built-in is never deleted; "replacing" only puts the update first in
+line. The last verified list is cached for offline use.
+
+To publish an official update, release the package on hex.pm, then:
+
+```sh
+mix lepton.official add lepton_grep 1.2.0 --replaces grep,egrep [--dep NAME@VERSION ...]
+cd site && git commit -am "Official: lepton_grep 1.2.0" && git push
+```
+
+`add` pins the checksums from hex.pm and refuses unless the whole
+dependency closure is pinned. `list`, `remove` and `sign` manage the
+list. The signing key lives outside the repositories, in
+`~/.config/lepton/official-signing.key`, created by
+`mix lepton.official keygen`. **Back it up**: losing it means a new key
+and a new ISO.
 
 ## Your dotfiles, applied
 
@@ -303,8 +358,8 @@ dotfiles); `:network` needs internet access (DHCP, DNS, and cloning
 network is up; `:dotfiles` needs your dotfiles. Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 82 tests, 0 failures inside the VM (none excluded; run on
-an installed system), and 75 passing plus 7 excluded (native/network) on
+Current results: 96 tests, 0 failures inside the VM (none excluded; run
+from the live ISO), and 88 passing plus 8 excluded (native/network) on
 the host.
 
 ## Limitations

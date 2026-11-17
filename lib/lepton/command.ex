@@ -131,6 +131,11 @@ defmodule Lepton.Commands do
 
   Executable files are also commands: `*.exs` files run as Elixir scripts
   and files starting with `#!` naming `lsh`/`sh` run as shell scripts.
+
+  Packages cannot take over built-in names: `register_module/2` skips them
+  unless the package is an official update allowed to replace them (see
+  `Lepton.Official`). Even then the built-in stays available through
+  `builtin_lookup/1` (the shell's `builtin NAME`).
   """
 
   @sets [
@@ -142,14 +147,17 @@ defmodule Lepton.Commands do
     Lepton.Commands.Admin
   ]
 
-  def all do
-    builtin =
-      for set <- @sets, Code.ensure_loaded?(set), cmd <- set.__commands__(), name <- [cmd.name | cmd.aliases], into: %{} do
-        {name, cmd}
-      end
+  def all, do: Map.merge(builtins(), runtime())
 
-    Map.merge(builtin, runtime())
+  @doc "The commands shipped with the OS image, by name."
+  def builtins do
+    for set <- @sets, Code.ensure_loaded?(set), cmd <- set.__commands__(), name <- [cmd.name | cmd.aliases], into: %{} do
+      {name, cmd}
+    end
   end
+
+  @doc "Look up the OS image's own command, ignoring packages."
+  def builtin_lookup(name), do: Map.fetch(builtins(), name)
 
   def names, do: all() |> Map.keys() |> Enum.sort()
 
@@ -171,10 +179,24 @@ defmodule Lepton.Commands do
     :ok
   end
 
-  @doc "Register every command defined by a module that `use Lepton.Command` (packages)."
-  def register_module(mod) do
-    entries = for cmd <- mod.__commands__(), name <- [cmd.name | cmd.aliases], into: %{}, do: {name, cmd}
-    :persistent_term.put({__MODULE__, :runtime}, Map.merge(runtime(), entries))
+  @doc """
+  Register the commands of a package module that `use Lepton.Command`.
+  Names of built-in commands are skipped unless listed in `replaces`
+  (official updates). Returns the skipped names.
+  """
+  def register_module(mod, replaces \\ []) do
+    builtin = builtins()
+    named = for cmd <- mod.__commands__(), name <- [cmd.name | cmd.aliases], do: {name, cmd}
+    {allowed, skipped} = Enum.split_with(named, fn {name, _} -> not Map.has_key?(builtin, name) or name in replaces end)
+    :persistent_term.put({__MODULE__, :runtime}, Map.merge(runtime(), Map.new(allowed)))
+    :persistent_term.erase({__MODULE__, :cache})
+    for {name, _} <- skipped, do: name
+  end
+
+  @doc "Remove the commands a package module registered (when it is uninstalled)."
+  def unregister_module(mod) do
+    kept = Map.reject(runtime(), fn {_name, cmd} -> match?(%{fun: {^mod, _}}, cmd) end)
+    :persistent_term.put({__MODULE__, :runtime}, kept)
     :persistent_term.erase({__MODULE__, :cache})
     :ok
   end

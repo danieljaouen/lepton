@@ -88,6 +88,9 @@ defmodule Lepton.Tutorial do
        lpm installs Elixir/Erlang packages straight from hex.pm, compiles
        them inside Lepton and loads them (and any Lepton commands they
        define). Try: lpm search json   /   lpm install jason
+       Built-in apps get updates only from the signed official list:
+       `lpm official` shows them, `lpm upgrade grep` installs one and
+       `lpm revert grep` goes back. A package can't take over a built-in.
        """, "lpm list"},
       {"Network",
        """

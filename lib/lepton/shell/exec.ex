@@ -240,6 +240,23 @@ defmodule Lepton.Shell.Exec do
     end
   end
 
+  @doc "Run a shell builtin or the OS image's own command, bypassing packages."
+  def exec_builtin(name, args, shell) do
+    cond do
+      Builtins.builtin?(name) ->
+        {status, _} = Builtins.run(name, args, shell)
+        status
+
+      match?({:ok, _}, Lepton.Commands.builtin_lookup(name)) ->
+        {:ok, cmd} = Lepton.Commands.builtin_lookup(name)
+        guard(name, shell.ctx, fn -> Lepton.Commands.invoke(cmd, args, shell.ctx) end)
+
+      true ->
+        Lepton.IO.write(shell.ctx.stderr, "builtin: #{name}: not a built-in command\n")
+        1
+    end
+  end
+
   defp guard(name, ctx, fun) do
     case fun.() do
       status when is_integer(status) -> status
