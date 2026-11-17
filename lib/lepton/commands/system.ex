@@ -563,6 +563,7 @@ defmodule Lepton.Commands.System do
       "  / /      ",
       " / /___    ",
       "/_____/    ",
+      "           ",
       "           "
     ]
 
@@ -572,7 +573,8 @@ defmodule Lepton.Commands.System do
       "Kernel: Linux #{Sys.kernel_release()}",
       "Runtime: Elixir #{System.version()} / OTP #{System.otp_release()} (ERTS #{:erlang.system_info(:version)})",
       "Uptime: #{trunc(Sys.uptime_seconds())}s   Processes: #{length(Proc.list())} lepton, #{:erlang.system_info(:process_count)} beam",
-      "Memory: #{div((mem["MemTotal"] || 0) - (mem["MemAvailable"] || 0), 1_048_576)}MiB / #{div(mem["MemTotal"] || 0, 1_048_576)}MiB"
+      "Memory: #{div((mem["MemTotal"] || 0) - (mem["MemAvailable"] || 0), 1_048_576)}MiB / #{div(mem["MemTotal"] || 0, 1_048_576)}MiB   #{if Lepton.Persist.installed?(), do: "installed", else: "live"}",
+      "Written by Claude (Anthropic) - see `credits`"
     ]
 
     color = Lepton.Style.color?(ctx)

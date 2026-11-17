@@ -22,6 +22,7 @@ defmodule LeptonBuild.Image do
     xhci-pci usbhid hid-generic virtio_input evdev
     virtio_net af_packet virtio_rng
     virtio_blk virtio_scsi sr_mod isofs
+    usb-storage uas sd_mod nvme ext4
   )
 
   @lib_dir "/usr/lib/aarch64-linux-gnu"

@@ -163,7 +163,7 @@ defmodule Lepton.Commands.Dev do
     existed = File.dir?(Path.join(dir, ".git"))
     branch = opts["b"] || opts["initial-branch"] || "main"
     unless existed, do: Repo.init(dir, branch)
-    IO.puts(ctx, "#{if existed, do: "Reinitialized existing", else: "Initialized empty"} Git repository in #{Path.join(dir, ".git")}/")
+    unless opts["q"], do: IO.puts(ctx, "#{if existed, do: "Reinitialized existing", else: "Initialized empty"} Git repository in #{Path.join(dir, ".git")}/")
     0
   end
 

@@ -20,11 +20,11 @@ defmodule Mix.Tasks.Lepton.Qemu do
   def run(args) do
     {opts, _} =
       OptionParser.parse!(args,
-        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer]
+        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean]
       )
 
     iso = opts[:iso] || @iso
-    unless File.exists?(iso), do: Mix.raise("#{iso} not found; run `mix lepton.iso` first")
+    unless File.exists?(iso) or opts[:no_cd], do: Mix.raise("#{iso} not found; run `mix lepton.iso` first")
 
     cond do
       opts[:print] ->
@@ -61,6 +61,14 @@ defmodule Mix.Tasks.Lepton.Qemu do
   end
 
   def base_args(iso, opts) do
+    cd =
+      if opts[:no_cd],
+        do: [],
+        else: ["-device", "virtio-scsi-pci,id=scsi", "-drive", "if=none,id=cd,file=#{iso},media=cdrom,readonly=on", "-device", "scsi-cd,drive=cd"]
+
+    # --disk attaches a VirtIO drive (UTM's default) for lepton-install.
+    disk = if d = opts[:disk], do: ["-drive", "if=none,id=hd,file=#{d},format=#{if String.ends_with?(d, ".qcow2"), do: "qcow2", else: "raw"}", "-device", "virtio-blk-pci,drive=hd"], else: []
+
     accel = if :os.type() == {:unix, :darwin} and arm_host?(), do: ["-accel", "hvf", "-cpu", "host"], else: ["-cpu", "max"]
 
     ["-M", "virt"] ++
@@ -71,13 +79,11 @@ defmodule Mix.Tasks.Lepton.Qemu do
         "-smp",
         "4",
         "-bios",
-        firmware(),
-        "-device",
-        "virtio-scsi-pci,id=scsi",
-        "-drive",
-        "if=none,id=cd,file=#{iso},media=cdrom,readonly=on",
-        "-device",
-        "scsi-cd,drive=cd",
+        firmware()
+      ] ++
+      cd ++
+      disk ++
+      [
         "-device",
         "virtio-net-pci,netdev=net0",
         "-netdev",
@@ -112,7 +118,9 @@ defmodule LeptonBuild.QemuHarness do
     deadline = System.monotonic_time(:millisecond) + timeout
 
     try do
-      boot_log = wait_for(port, ~r/\$ |# |❯ /, "", deadline)
+      boot_log = wait_for(port, ~r/\$ |# |❯ |SSID[^:]*: $|\[Y\/n\] $/, "", deadline)
+
+      boot_log = answer_setup(port, boot_log, deadline)
       # Plain line-oriented terminal (TERM=dumb disables the line editor)
       # and a prompt marker that never appears literally in typed input.
       [head, tail] = String.split(@prompt_marker, "-", parts: 2)
@@ -131,6 +139,23 @@ defmodule LeptonBuild.QemuHarness do
       Enum.join([summarize_boot(boot_log) | outputs], "\n")
     after
       if Port.info(port), do: Port.close(port)
+    end
+  end
+
+  # Skip the first-run prompts: Wi-Fi (Enter) and, after installation, the
+  # tutorial offer ("n").
+  defp answer_setup(port, log, deadline) do
+    cond do
+      Regex.match?(~r/SSID[^:]*: $/, strip_ansi(log)) ->
+        send_line(port, "")
+        answer_setup(port, log <> wait_for(port, ~r/\$ |# |❯ |\[Y\/n\] $/, "", deadline), deadline)
+
+      Regex.match?(~r/\[Y\/n\] $/, strip_ansi(log)) ->
+        send_line(port, "n")
+        log <> wait_for(port, ~r/\$ |# |❯ /, "", deadline)
+
+      true ->
+        log
     end
   end
 

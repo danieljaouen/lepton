@@ -81,6 +81,73 @@ You are logged in as `root`, on the display console (`tty1`) and on the
 serial port (`ttyAMA0`) if present. `hvc0` is used under Apple
 Virtualization. Networking comes up by DHCP in the background.
 
+### Installing to a disk (UTM)
+
+The live ISO runs entirely from RAM. To keep your files, install to a
+virtual disk:
+
+1. With the VM stopped: **Drives → New → VirtIO** (or NVMe), 4 GB or more.
+2. Boot the ISO and run `lepton-install` (it asks which disk and asks you
+   to confirm; `lepton-install -y /dev/vda` skips both).
+3. `poweroff`, then **CD/DVD → Clear** to eject the ISO, and start the VM.
+
+The installer writes everything itself, in Elixir: a GPT partition table,
+a FAT16 EFI system partition (GRUB, kernel and initramfs copied from the
+ISO), and an ext2 data partition named `LEPTON-DATA`
+(`lib/lepton/install/`). The installed system still boots into RAM, but
+`/root` and `/var/lib/lepton` (packages, Wi-Fi credentials, setup state)
+are bind-mounted from the data partition. On the first boot, `/root` is
+seeded from the image, including your dotfiles.
+
+With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
+`mix lepton.qemu --disk disk.qcow2` to install and
+`mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system.
+
+### First-run setup: Wi-Fi and the tutorial
+
+- **Wi-Fi.** Before login, Lepton asks for a Wi-Fi network name and
+  passphrase. On the live ISO it asks at every startup; on an installed
+  system it asks until you answer or skip once. Enter skips, and the
+  prompt skips itself after 30 seconds so headless boots aren't blocked.
+  Credentials are saved in wpa_supplicant format
+  (`/var/lib/lepton/wpa_supplicant.conf`), with the passphrase stored only
+  as its WPA PSK (PBKDF2, the same value `wpa_passphrase` computes).
+  `wifi` shows status, `wifi setup` asks again, and `wifi forget` clears
+  them. **Limitation:** Lepton cannot join a Wi-Fi network yet. The
+  shipped kernel (`linux-virt`) has no 802.11 stack or Wi-Fi drivers, and
+  UTM/QEMU VMs have no wireless hardware, since their network is virtio
+  ethernet, which DHCP configures automatically. The saved credentials are
+  meant for a future kernel with Wi-Fi support.
+- **Tutorial.** On the first boot after installation, Lepton offers a
+  10-lesson tour (once). It covers files, pipes, jobs, the editor, tmux,
+  git/GitHub, packages, networking and help, using the key bindings from
+  your dotfiles. Each lesson suggests a command that you can run for
+  real. `lepton-tutorial` runs it any time.
+
+### Packages: `lpm` (hex.pm)
+
+`lpm` installs Elixir and Erlang packages directly from
+[hex.pm](https://hex.pm). It resolves version requirements and
+dependencies through the Hex API, downloads the tarballs, verifies them
+against the registry's SHA-256 checksum, and compiles them *inside
+Lepton* with the Elixir and Erlang compilers in the image. Packages are
+loaded at every boot.
+
+```sh
+lpm search json
+lpm info jason
+lpm install jason           # or jason@~>1.4, several at once
+elixir -e 'IO.puts Jason.encode!(%{hello: "lepton"})'
+lpm install ./my_tool       # a local Mix project
+lpm list | lpm remove NAME | lpm update
+```
+
+A package can add shell commands. Any module that does
+`use Lepton.Command` and defines `defcmd`s becomes a command when the
+package loads, so a Lepton tool can be published to hex.pm like any other
+library. Packages built on Mix-specific features (compile-time config,
+application callbacks in `mix.exs`, NIFs) are not supported yet.
+
 ## Your dotfiles, applied
 
 The build installs your dotfiles repo into `/root` following its own
@@ -177,6 +244,7 @@ list|view|create`, `gh pr list|view`, `gh browse`, `gh api`. In the editor,
 - **system**: `ps kill pgrep pkill top free uptime uname hostname whoami id mount umount dmesg lsmod modprobe rmmod sync reboot poweroff neofetch keys`
 - **network**: `ip ifconfig dhclient ping nslookup/host curl/wget www`
 - **dev**: `le tmux git gh iex elixir mix erl lsh lepton-test`
+- **admin**: `lepton-install lepton-tutorial lpm wifi credits`
 - **clipboard**: `pbcopy pbpaste xclip` (shared with tmux copy mode and editor yanks; also sent to the host terminal with OSC 52)
 
 Executable `*.exs` files on `$PATH` run as Elixir scripts, and files
@@ -220,14 +288,16 @@ dotfiles); `:network` needs internet access (DHCP, DNS, and cloning
 network is up; `:dotfiles` needs your dotfiles. Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 76 tests, 0 failures inside the VM (none excluded), and
-70 passing plus 6 excluded (native/network) on the host.
+Current results: 82 tests, 0 failures inside the VM (none excluded; run on
+an installed system), and 75 passing plus 7 excluded (native/network) on
+the host.
 
 ## Limitations
 
-- RAM only: the root filesystem is the initramfs. Changes, including
-  `gh auth` tokens and git repositories, are lost at reboot until a
-  persistent disk is added.
+- The live ISO keeps everything in RAM. An installed system persists
+  `/root` and `/var/lib/lepton` only. Changes elsewhere (for example
+  `/etc`) reset at boot.
+- Wi-Fi credentials can be saved but not used: see "First-run setup".
 - Single user (`root`), no permissions model beyond the kernel's.
 - git: no three-way merge (pulls fast-forward only), no rebase, and no SSH
   transport (HTTPS only).
@@ -261,6 +331,18 @@ The CLI layers were built so a graphical stack can sit on top of them:
    compositor, and images (PNG decoding via `:zlib`). JavaScript is a much
    later milestone.
 
+## Credits
+
+Lepton OS was designed and written by **Claude** (Anthropic's Claude Opus
+5.5, an AI model), working in Claude Code at the direction of
+[Daniel Jaouen](https://github.com/danieljaouen), whose dotfiles define how
+it behaves. `credits` shows this inside the OS.
+
+It stands on the shoulders of Linux, Erlang/OTP and ERTS, Elixir, Alpine
+Linux (kernel packaging, busybox, CA bundle), Debian (the GRUB EFI build),
+Ubuntu (glibc and runtime libraries), and Hex.pm (prebuilt OTP and the
+package registry `lpm` uses).
+
 ## Repository layout
 
 ```
@@ -275,6 +357,8 @@ lib/lepton/            the operating system
   git.ex git/ gh.ex               git + GitHub
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
+  install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
+  setup.ex tutorial.ex pkg.ex     first-run Wi-Fi prompt, tutorial, lpm
   selftest.ex                     lepton-test
 lib/lepton_build/      image build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | lepton.qemu | lepton.shell

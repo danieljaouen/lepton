@@ -17,7 +17,7 @@ defmodule Lepton.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :crypto, :public_key, :ssl, :inets],
+      extra_applications: [:logger, :crypto, :public_key, :ssl, :inets, :parsetools],
       mod: {Lepton.Application, []}
     ]
   end

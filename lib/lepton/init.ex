@@ -36,7 +36,13 @@ defmodule Lepton.Init do
     "virtio_blk",
     "virtio_scsi",
     "sr_mod",
-    "isofs"
+    "isofs",
+    # installed systems: USB / SCSI / NVMe disks, ext2 data partition
+    "usb-storage",
+    "uas",
+    "sd_mod",
+    "nvme",
+    "ext4"
   ]
 
   def main do
@@ -61,6 +67,9 @@ defmodule Lepton.Init do
     {:ok, _} = Application.ensure_all_started(:lepton)
 
     if Sys.pid1?() do
+      wait_for_data_partition()
+      verbose("storage: #{Lepton.Persist.mount()}")
+      Lepton.Pkg.load_installed()
       Lepton.Net.start_background()
       wait_for_consoles()
       ms = System.monotonic_time(:millisecond) - t0
@@ -124,6 +133,14 @@ defmodule Lepton.Init do
     })
 
     Logger.configure(level: if(Sys.cmdline_flag?("lepton.verbose=1"), do: :debug, else: :info))
+  end
+
+  # Disks are probed asynchronously; give an installed disk time to appear.
+  defp wait_for_data_partition(tries \\ 20) do
+    if tries > 0 and Lepton.Persist.data_partition() == nil and Lepton.Install.Disk.disks() != [] do
+      Process.sleep(100)
+      wait_for_data_partition(tries - 1)
+    end
   end
 
   # Device nodes appear asynchronously as drivers bind.

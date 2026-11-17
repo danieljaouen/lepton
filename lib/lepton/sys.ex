@@ -193,11 +193,13 @@ defmodule Lepton.Sys do
   def sync, do: sysrq("s")
 
   def poweroff do
+    Lepton.Persist.shutdown()
     sync()
     sysrq("o")
   end
 
   def reboot do
+    Lepton.Persist.shutdown()
     sync()
     sysrq("b")
   end

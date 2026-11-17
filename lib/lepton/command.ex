@@ -138,7 +138,8 @@ defmodule Lepton.Commands do
     Lepton.Commands.Text,
     Lepton.Commands.System,
     Lepton.Commands.Network,
-    Lepton.Commands.Dev
+    Lepton.Commands.Dev,
+    Lepton.Commands.Admin
   ]
 
   def all do
@@ -166,6 +167,14 @@ defmodule Lepton.Commands do
 
   def register(name, fun, summary \\ "user command") when is_function(fun, 2) do
     :persistent_term.put({__MODULE__, :runtime}, Map.put(runtime(), name, %{name: name, summary: summary, usage: nil, aliases: [], fun: fun}))
+    :persistent_term.erase({__MODULE__, :cache})
+    :ok
+  end
+
+  @doc "Register every command defined by a module that `use Lepton.Command` (packages)."
+  def register_module(mod) do
+    entries = for cmd <- mod.__commands__(), name <- [cmd.name | cmd.aliases], into: %{}, do: {name, cmd}
+    :persistent_term.put({__MODULE__, :runtime}, Map.merge(runtime(), entries))
     :persistent_term.erase({__MODULE__, :cache})
     :ok
   end

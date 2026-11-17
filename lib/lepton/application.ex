@@ -77,6 +77,8 @@ defmodule Lepton.Session do
 
   defp loop(tty, name, mode) do
     ctx = login_ctx(tty, name)
+    # First-run setup (Wi-Fi prompt, post-install tutorial) before login.
+    if mode == :forever, do: Lepton.Setup.run(ctx)
     motd(ctx)
     shell = Task.async(fn -> Lepton.Shell.login(ctx) end)
     Task.await(shell, :infinity)
