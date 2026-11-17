@@ -48,6 +48,13 @@ zboot unpacker live in `lib/lepton_build`.
    with `mix lepton.qemu --test`.
 3. **ISO**: `out/lepton.iso` (UEFI, aarch64), built with `mix lepton.iso`.
 
+## Download
+
+A prebuilt ISO is published at
+[danieljaouen/lepton.iso](https://github.com/danieljaouen/lepton.iso)
+([direct download](https://github.com/danieljaouen/lepton.iso/raw/main/lepton.iso)),
+and the project site is <https://danieljaouen.github.io/>.
+
 ## Quick start
 
 Requirements on the build machine: Elixir 1.18+ on **OTP 29** (the image ships
