@@ -22,7 +22,7 @@ defmodule Lepton.OfficialTest do
   end
 
   defp signed(priv, serial, apps \\ []) do
-    json = JSON.encode!(%{"schema" => 1, "serial" => serial, "issued" => "2026-11-16", "apps" => apps})
+    json = JSON.encode!(%{"schema" => 1, "serial" => serial, "issued" => "2026-11-16", "maintainers" => %{"hex_organization" => "lepton"}, "apps" => apps})
     {json, Base.encode64(:crypto.sign(:eddsa, :none, json, [priv, :ed25519]))}
   end
 
@@ -30,7 +30,7 @@ defmodule Lepton.OfficialTest do
 
   test "the list must be signed by the Lepton key", %{pub: pub, priv: priv} do
     {json, sig} = signed(priv, 1, [@app])
-    assert {:ok, %{serial: 1, apps: [%{package: "lepton_grep", replaces: ["grep", "egrep"]}]} = m} = Official.verify(json, sig, pub)
+    assert {:ok, %{serial: 1, maintainers: "lepton", apps: [%{package: "lepton_grep", replaces: ["grep", "egrep"]}]} = m} = Official.verify(json, sig, pub)
     assert Official.find(m, "egrep").package == "lepton_grep"
     assert Official.find(m, "lepton_grep").version == "1.2.0"
     refute Official.find(m, "sed")

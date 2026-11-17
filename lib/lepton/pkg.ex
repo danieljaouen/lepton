@@ -538,6 +538,10 @@ defmodule Lepton.Pkg do
     with_list(ctx, fn manifest ->
       index = installed()
 
+      if manifest[:maintainers] do
+        IO.puts(ctx, "Official updates are maintained by the #{manifest.maintainers} organization on hex.pm (https://hex.pm/orgs/#{manifest.maintainers}).")
+      end
+
       if manifest.apps == [] do
         IO.puts(ctx, "No official updates yet (list ##{manifest.serial}, #{manifest.issued}). Built-in apps are current.")
       end

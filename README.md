@@ -204,7 +204,9 @@ list fails the signature, and an *older* list (one with a lower
 built-in is never deleted; "replacing" only puts the update first in
 line. The last verified list is cached for offline use.
 
-**Maintainers** are the [`lepton` organization on hex.pm](https://hex.pm/orgs/lepton).
+**Maintainers** are the [`lepton` organization on hex.pm](https://hex.pm/orgs/lepton),
+named in the signed list itself (`"maintainers"`) and shown by
+`lpm official`.
 Making a package official takes two things: every hex.pm owner of the
 package must be the organization or one of its members (checked live by
 `mix lepton.official add`), *and* the list must be signed with the Lepton

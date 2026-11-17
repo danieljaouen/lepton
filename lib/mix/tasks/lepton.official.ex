@@ -32,6 +32,7 @@ defmodule Mix.Tasks.Lepton.Official do
   @api "https://hex.pm/api"
   @trust "Do not edit by hand: use `mix lepton.official` (the file is signed)."
   @keychain "lepton-official-signing-key"
+  @org "lepton"
 
   @impl true
   def run(args) do
@@ -73,7 +74,7 @@ defmodule Mix.Tasks.Lepton.Official do
 
   defp list do
     %{"serial" => serial, "issued" => issued, "apps" => apps} = read()
-    info("official list ##{serial}, issued #{issued}")
+    info("official list ##{serial}, issued #{issued}, maintained by the #{org(read())} organization on hex.pm")
     if apps == [], do: info("(no official updates)")
 
     for a <- apps do
@@ -88,7 +89,7 @@ defmodule Mix.Tasks.Lepton.Official do
 
     builtin = Lepton.Commands.builtins()
     for r <- replaces, not Map.has_key?(builtin, r), do: Mix.raise("#{r} is not a built-in command")
-    check_owners!(package, opts[:org] || "lepton")
+    check_owners!(package, opts[:org] || org(read()))
 
     deps =
       for d <- Keyword.get_values(opts, :dep) do
@@ -137,10 +138,13 @@ defmodule Mix.Tasks.Lepton.Official do
     end
   end
 
+  defp org(manifest), do: get_in(manifest, ["maintainers", "hex_organization"]) || @org
+
   defp update(fun, message) do
     priv = private_key!()
     old = read()
     data = %{old | "serial" => old["serial"] + 1, "issued" => Date.to_iso8601(Date.utc_today()), "apps" => fun.(old["apps"])}
+    data = Map.put(data, "maintainers", %{"hex_organization" => org(old)})
     json = encode(data)
     sig = Base.encode64(:crypto.sign(:eddsa, :none, json, [priv, :ed25519])) <> "\n"
 
@@ -159,7 +163,7 @@ defmodule Mix.Tasks.Lepton.Official do
   end
 
   # Readable, stable JSON (fixed key order) - the exact bytes are signed.
-  defp encode(%{"schema" => schema, "serial" => serial, "issued" => issued, "apps" => apps}) do
+  defp encode(%{"schema" => schema, "serial" => serial, "issued" => issued, "maintainers" => maintainers, "apps" => apps}) do
     app_keys = ~w(package version checksum replaces description deps)
     pin_keys = ~w(package version checksum)
 
@@ -173,6 +177,7 @@ defmodule Mix.Tasks.Lepton.Official do
       "schema": #{schema},
       "serial": #{serial},
       "issued": #{JSON.encode!(issued)},
+      "maintainers": {"hex_organization": #{JSON.encode!(maintainers["hex_organization"])}},
       "apps": #{apps_json}
     }
     """

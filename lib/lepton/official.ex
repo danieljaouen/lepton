@@ -16,6 +16,12 @@ defmodule Lepton.Official do
   built-in is never deleted: `lpm revert grep` brings it back, and
   `builtin grep` always runs it.
 
+  The list also names its maintainers: the `lepton` organization on
+  hex.pm (<https://hex.pm/orgs/lepton>). Every hex.pm owner of an official
+  package must belong to it, which `mix lepton.official add` checks before
+  signing, so publishing an official update takes both the organization and
+  the signing key.
+
   Lists carry a `serial`; an older list than one already accepted is
   rejected, so a stale list can't resurrect a withdrawn update. The last
   verified list is cached for offline use.
@@ -23,6 +29,7 @@ defmodule Lepton.Official do
   Manifest format (schema 1):
 
       {"schema": 1, "serial": 3, "issued": "2026-11-16",
+       "maintainers": {"hex_organization": "lepton"},
        "apps": [{"package": "lepton_grep", "version": "1.2.0",
                  "checksum": "<sha256 of the hex tarball>",
                  "replaces": ["grep", "egrep"],
@@ -103,7 +110,7 @@ defmodule Lepton.Official do
     apps = Enum.map(apps, &app/1)
 
     if Enum.all?(apps, &match?(%{}, &1)),
-      do: {:ok, %{serial: serial, issued: data["issued"], apps: apps}},
+      do: {:ok, %{serial: serial, issued: data["issued"], maintainers: get_in(data, ["maintainers", "hex_organization"]), apps: apps}},
       else: {:error, "official list has a malformed entry"}
   end
 
