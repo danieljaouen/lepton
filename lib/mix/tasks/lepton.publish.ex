@@ -147,10 +147,10 @@ defmodule Mix.Tasks.Lepton.Publish do
   end
 
   defp git(dir, args, opts \\ []) do
-    case System.cmd("git", ["-C", dir | args], stderr_to_stdout: true) do
-      {out, 0} -> out
-      {_out, _} when opts[:allow_fail] -> :failed
-      {out, status} -> Mix.raise("git #{Enum.join(args, " ")} failed in #{dir} (#{status}):\n#{out}")
+    case {System.cmd("git", ["-C", dir | args], stderr_to_stdout: true), opts[:allow_fail]} do
+      {{out, 0}, _} -> out
+      {{_out, _}, true} -> :failed
+      {{out, status}, _} -> Mix.raise("git #{Enum.join(args, " ")} failed in #{dir} (#{status}):\n#{out}")
     end
   end
 
