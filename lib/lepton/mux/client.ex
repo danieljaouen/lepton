@@ -98,6 +98,7 @@ defmodule Lepton.Mux.Client do
   # -- keys ----------------------------------------------------------------------------------
 
   defp handle_key(st, {:cpr, _, _}), do: st
+  defp handle_key(st, {:resize, _, _}), do: check_size(st)
 
   defp handle_key(st, key) do
     case st.mode do

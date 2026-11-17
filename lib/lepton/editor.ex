@@ -129,6 +129,8 @@ defmodule Lepton.Editor do
       case key do
         :timeout -> timeout(st)
         {:cpr, _, _} -> st
+        # The terminal was resized (see Lepton.TTY): adopt the size now.
+        {:resize, _, _} -> check_resize(st)
         key -> handle_key(st, key)
       end
 

@@ -93,6 +93,7 @@ defmodule Lepton.Shell.LineEditor do
 
     case TTY.read_key(tty) do
       {:cpr, _, _} -> loop(state)
+      {:resize, _rows, cols} -> state |> Map.put(:cols, max(cols, 20)) |> redraw() |> loop()
       key -> dispatch(key, state)
     end
   end

@@ -13,6 +13,14 @@ defmodule Lepton.TTY do
 
   Output goes to a backend: a device node, the BEAM's own stdio (hosted
   mode) or a multiplexer pane.
+
+  **Window size on serial lines.** A serial console has no winsize ioctl
+  and no SIGWINCH, so when the backend cannot report a size the TTY
+  watches it itself: while a program has the terminal in raw mode it asks
+  the terminal emulator for its size every #{1500} ms (a cursor-position
+  report after moving to the far corner, as `resize(1)` does). When the
+  answer changes, the size is updated and raw readers receive a
+  `{:resize, rows, cols}` key - Lepton's SIGWINCH.
   """
 
   use GenServer
@@ -35,7 +43,10 @@ defmodule Lepton.TTY do
             term: "xterm-256color",
             cpr_waiter: nil,
             esc_timer: nil,
-            until_cont: []
+            until_cont: [],
+            auto_probe: false,
+            probe_interval: 1500,
+            probe_sent: nil
 
   # -- API -----------------------------------------------------------------------
 
@@ -97,13 +108,19 @@ defmodule Lepton.TTY do
     {mod, arg} = backend
     {:ok, handle} = mod.open(arg, self())
 
+    reported = mod.size(handle)
+
     state = %__MODULE__{
       backend: {mod, handle},
       name: opts[:name] || "tty",
       term: opts[:term] || "xterm-256color",
-      size: mod.size(handle) || {24, 80}
+      size: reported || {24, 80},
+      # Only terminals that can't report their own size need watching.
+      auto_probe: Keyword.get(opts, :auto_probe, reported == nil),
+      probe_interval: opts[:probe_interval] || 1500
     }
 
+    if state.auto_probe, do: Process.send_after(self(), :probe_tick, state.probe_interval)
     {:ok, state}
   end
 
@@ -185,6 +202,23 @@ defmodule Lepton.TTY do
   def handle_info({:DOWN, _, :process, _, _}, state), do: {:noreply, state}
 
   def handle_info({:backend_closed, _}, state), do: {:stop, :normal, state}
+  def handle_info(:probe_tick, state) do
+    Process.send_after(self(), :probe_tick, state.probe_interval)
+    now = System.monotonic_time(:millisecond)
+    # Probe only while a full-screen program (or the line editor) owns the
+    # terminal, not while an earlier probe may still be answered, and not
+    # mid-key (a reply right after a lone ESC would read as M-[...).
+    stale? = state.probe_sent == nil or now - state.probe_sent > 3 * state.probe_interval
+    idle? = state.cpr_waiter == nil and state.esc_timer == nil and state.pending == <<>>
+
+    if state.mode == :raw and idle? and stale? do
+      out(state, "\e7\e[999;999H\e[6n\e8")
+      {:noreply, %{state | probe_sent: now}}
+    else
+      {:noreply, state}
+    end
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   # -- keys ----------------------------------------------------------------------------
@@ -193,6 +227,20 @@ defmodule Lepton.TTY do
     Process.cancel_timer(ref)
     GenServer.reply(from, {:ok, {rows, cols}})
     %{state | cpr_waiter: nil, size: {rows, cols}}
+  end
+
+  # Answer to a background size probe: consume it, and on a change notify
+  # the raw reader. Implausible sizes (e.g. a modified F-key that looks like
+  # a report) are ignored.
+  defp handle_key({:cpr, rows, cols}, %{probe_sent: sent} = state) when sent != nil do
+    state = %{state | probe_sent: nil}
+
+    cond do
+      rows < 4 or cols < 10 -> state
+      {rows, cols} == state.size -> state
+      state.mode == :raw -> %{state | size: {rows, cols}, keys: :queue.in({:resize, rows, cols}, state.keys)}
+      true -> %{state | size: {rows, cols}}
+    end
   end
 
   defp handle_key({:cpr, _, _} = key, %{mode: :raw} = state), do: %{state | keys: :queue.in(key, state.keys)}
