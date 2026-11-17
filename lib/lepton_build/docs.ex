@@ -21,15 +21,6 @@ defmodule LeptonBuild.Docs do
 
   @repo "https://github.com/danieljaouen/lepton"
 
-  # The site-wide Google Tag Manager tag, on every page (as on the home page).
-  @analytics """
-                 <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-NXNK6NF7"></script>
-                 <script>
-                   window.dataLayer = window.dataLayer || [];
-                   function gtag(){dataLayer.push(arguments);}
-                   gtag('js', new Date());
-                 </script>\
-               """
 
   @set_titles %{
     Lepton.Commands.Core => "Files and basics",
@@ -359,8 +350,7 @@ defmodule LeptonBuild.Docs do
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <!-- Google Tag Manager -->
-#{@analytics}
+    #{LeptonBuild.SiteTags.head()}
       <title>#{e.(title)}</title>
       <meta name="description" content="#{e.(page.summary || "Documentation for Lepton OS, a Unix-like operating system with an Elixir userland.")}">
       <meta name="theme-color" content="#1b1d1e">

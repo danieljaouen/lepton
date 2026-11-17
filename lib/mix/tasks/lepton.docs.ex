@@ -34,15 +34,17 @@ defmodule Mix.Tasks.Lepton.Docs do
       Mix.shell().info("docs: #{length(pages)} pages, no problems")
     else
       LeptonBuild.Docs.write(pages, @out, rev)
-      Mix.shell().info([:cyan, "==> ", :reset, "wrote #{length(pages)} pages to #{@out}/"])
-      if opts[:publish], do: publish(rev)
+      # Every page of the site, not just the docs, carries the site tags.
+      tagged = LeptonBuild.SiteTags.apply("site")
+      Mix.shell().info([:cyan, "==> ", :reset, "wrote #{length(pages)} pages to #{@out}/" <> if(tagged == [], do: "", else: "; tagged #{length(tagged)} other page(s)")])
+      if opts[:publish], do: publish(rev, Enum.map(tagged, &Path.relative_to(&1, "site")))
     end
   end
 
-  defp publish(rev) do
+  defp publish(rev, tagged) do
     site = "site"
     git = fn args -> System.cmd("git", ["-C", site | args], stderr_to_stdout: true) end
-    git.(["add", "docs", "assets/docs.css"])
+    git.(["add", "docs", "assets/docs.css" | tagged])
 
     case git.(["diff", "--cached", "--quiet"]) do
       {_, 0} ->

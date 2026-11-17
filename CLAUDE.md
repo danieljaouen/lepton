@@ -23,6 +23,16 @@ anything a user would notice. For each one:
    regenerates and pushes the docs (even when the ISO is unchanged).
    `mix lepton.docs --publish` publishes documentation-only fixes.
 
+## Every site page carries the site tags
+
+Every `*.html` page in `site/` must have the Google Tag Manager block
+from `lib/lepton_build/site_head.html` (the single source; edit it there
+to change or add tags). New pages get it automatically: `mix
+lepton.publish` and `mix lepton.docs` run `mix lepton.site.tags`, and the
+docs generator includes it. `mix test` (`test/site_tags_test.exs`) and the
+site repo's "Site tags" GitHub check fail for any page without it. For a
+new hand-written page, run `mix lepton.site.tags` (or just publish).
+
 Keep README.md for the project (overview, build, architecture, testing,
 layout); feature documentation lives in `docs/`, not in the README.
 

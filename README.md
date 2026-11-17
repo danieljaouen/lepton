@@ -110,6 +110,7 @@ mix lepton.qemu --test         # headless boot, run lepton-test, report
 mix lepton.qemu --run "uname -a" --run "ip addr"
 mix lepton.shell               # run the userland in this terminal, no VM
 mix lepton.docs                # build the documentation into site/docs
+mix lepton.site.tags           # put the site tags (lib/lepton_build/site_head.html) on every page
 mix lepton.publish             # build + publish the ISO, the docs and the site's checksum
 mix lepton.official add ...    # sign an official app update (docs: packages)
 mix test                       # host-side test run
@@ -159,8 +160,8 @@ network is up; `:dotfiles` needs your dotfiles. Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
 Current results: 105 tests, 0 failures inside the VM (run from the live
-ISO; the 8 `:docs` tests are host-only), and 105 passing plus 8 excluded
-(native/network) on the host.
+ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
+110 passing plus 8 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 

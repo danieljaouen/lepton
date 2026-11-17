@@ -12,10 +12,12 @@ defmodule Mix.Tasks.Lepton.Publish do
        is `…/releases/latest/download/lepton.iso`.
     3. updates the checksum and size shown on the site (`site/index.html`,
        elements marked `data-iso-sha256` / `data-iso-size`)
-    4. regenerates the documentation (`mix lepton.docs`: `site/docs` from
+    4. puts the site-wide `<head>` tags on any page that lacks them
+       (`mix lepton.site.tags`)
+    5. regenerates the documentation (`mix lepton.docs`: `site/docs` from
        `docs/*.md` and the code), so the docs describe this release
-    5. records the new site commit in this repository's `site` submodule
-    6. commits and pushes each repository that changed, rebasing onto any
+    6. records the new site commit in this repository's `site` submodule
+    7. commits and pushes each repository that changed, rebasing onto any
        remote changes first (e.g. edits made on GitHub)
 
   If the ISO's checksum is unchanged, no release is made, but changed
@@ -84,8 +86,9 @@ defmodule Mix.Tasks.Lepton.Publish do
         update_site(site, sha, mib, rev, dry, push)
       end
 
+    tags_changed = update_tags(site, rev, dry, push)
     docs_changed = update_docs(site, rev, dry, push)
-    if (site_changed or docs_changed) and not dry, do: update_submodule(site, rev, push)
+    if (site_changed or tags_changed or docs_changed) and not dry, do: update_submodule(site, rev, push)
     info(if dry, do: "dry run complete - nothing was written", else: "published")
   end
 
@@ -227,6 +230,18 @@ defmodule Mix.Tasks.Lepton.Publish do
         File.write!(path, updated)
         commit_and_push(site, ["index.html"], "Update ISO checksum and size (lepton@#{rev})", push)
         true
+    end
+  end
+
+  # Pages added by hand get the site tags before anything is published.
+  defp update_tags(site, rev, dry, push) do
+    pages = if dry, do: LeptonBuild.SiteTags.missing(site), else: LeptonBuild.SiteTags.apply(site)
+    rel = Enum.map(pages, &Path.relative_to(&1, site))
+
+    cond do
+      pages == [] -> false
+      dry -> info("would add the site tags to: #{Enum.join(rel, ", ")}"); false
+      true -> commit_and_push(site, rel, "Add the site tags to new pages (lepton@#{rev})", push); true
     end
   end
 
