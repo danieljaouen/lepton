@@ -93,7 +93,7 @@ defmodule Lepton.Commands.Dev do
 
   # -- git --------------------------------------------------------------------------------------
 
-  defcmd "git", "the stupid content tracker (Elixir implementation)", usage: "git COMMAND [ARGS]" do
+  defcmd "git", "distributed version control, with HTTPS and SSH remotes (Elixir implementation)", usage: "git COMMAND [ARGS]" do
     git(args, ctx)
   end
 
