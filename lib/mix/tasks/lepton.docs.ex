@@ -1,11 +1,12 @@
 defmodule Mix.Tasks.Lepton.Docs do
-  @shortdoc "Generate the documentation site (site/docs) from docs/*.md and the code"
+  @shortdoc "Generate the documentation (SITE/docs) from docs/*.md and the code"
   @moduledoc """
-  Builds `site/docs/` with `LeptonBuild.Docs`: the guides in `docs/*.md`
-  plus pages generated from the code (command reference, key bindings,
-  tutorial).
+  Builds `docs/` in the site checkout (`LeptonBuild.Paths.site/0`:
+  `../danieljaouen.github.io` for maintainers, else the `site/` submodule)
+  with `LeptonBuild.Docs`: the guides in `docs/*.md` plus pages generated
+  from the code (command reference, key bindings, tutorial).
 
-      mix lepton.docs              # write site/docs (preview: open site/docs/index.html)
+      mix lepton.docs              # write SITE/docs (preview: open SITE/docs/index.html)
       mix lepton.docs --check      # fail if the docs have broken links or bad directives
       mix lepton.docs --publish    # write, then commit and push the site
 
@@ -15,7 +16,7 @@ defmodule Mix.Tasks.Lepton.Docs do
   """
   use Mix.Task
 
-  @out "site/docs"
+  alias LeptonBuild.Paths
 
   @impl true
   def run(args) do
@@ -33,16 +34,17 @@ defmodule Mix.Tasks.Lepton.Docs do
     if opts[:check] do
       Mix.shell().info("docs: #{length(pages)} pages, no problems")
     else
-      LeptonBuild.Docs.write(pages, @out, rev)
+      site = Paths.site()
+      out = Path.join(site, "docs")
+      LeptonBuild.Docs.write(pages, out, rev)
       # Every page of the site, not just the docs, carries the site tags.
-      tagged = LeptonBuild.SiteTags.apply("site")
-      Mix.shell().info([:cyan, "==> ", :reset, "wrote #{length(pages)} pages to #{@out}/" <> if(tagged == [], do: "", else: "; tagged #{length(tagged)} other page(s)")])
-      if opts[:publish], do: publish(rev, Enum.map(tagged, &Path.relative_to(&1, "site")))
+      tagged = LeptonBuild.SiteTags.apply(site)
+      Mix.shell().info([:cyan, "==> ", :reset, "wrote #{length(pages)} pages to #{out}/" <> if(tagged == [], do: "", else: "; tagged #{length(tagged)} other page(s)")])
+      if opts[:publish], do: publish(site, rev, Enum.map(tagged, &Path.relative_to(&1, site)))
     end
   end
 
-  defp publish(rev, tagged) do
-    site = "site"
+  defp publish(site, rev, tagged) do
     git = fn args -> System.cmd("git", ["-C", site | args], stderr_to_stdout: true) end
     git.(["add", "docs", "assets/docs.css" | tagged])
 

@@ -1,6 +1,3 @@
-[submodule "dotfiles"]
-	path = dotfiles
-	url = https://github.com/danieljaouen/dotfiles.git
 [submodule "site"]
 	path = site
 	url = https://github.com/danieljaouen/danieljaouen.github.io.git

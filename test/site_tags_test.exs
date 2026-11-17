@@ -8,7 +8,7 @@ defmodule Lepton.SiteTagsTest do
   alias LeptonBuild.SiteTags
 
   test "every page of the site carries the current tags" do
-    assert SiteTags.missing("site") == [], "run `mix lepton.site.tags` to tag these pages"
+    assert SiteTags.missing(LeptonBuild.Paths.site()) == [], "run `mix lepton.site.tags` to tag these pages"
   end
 
   test "a new page gets the block after its viewport meta, aligned with it" do

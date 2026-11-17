@@ -84,8 +84,9 @@ code: the command registry (every `defcmd`'s summary, usage and aliases),
 `<!-- commands: ip ping -->` to get a table of those commands from the
 registry.
 
-- `mix lepton.docs` writes `site/docs/` (preview it locally);
-  `--check` only validates.
+- `mix lepton.docs` writes `docs/` in the site checkout (see
+  [Repositories](#repositories); preview it locally); `--check` only
+  validates.
 - `mix lepton.publish` regenerates and publishes the docs with every
   release, so they always describe the downloadable ISO. It publishes
   documentation-only changes too, even when the ISO is unchanged.
@@ -104,13 +105,13 @@ OTP 29.1.2, and compiled `.beam` files must match), `tar`, and network access
 for the first build. QEMU (`brew install qemu`) is optional, for testing.
 
 ```sh
-mix lepton.iso                 # -> out/lepton.iso (dotfiles from ./dotfiles)
-mix lepton.iso --dotfiles ~/.dotfiles
+mix lepton.iso                 # -> out/lepton.iso (dotfiles from ~/.dotfiles, if any)
+mix lepton.iso --dotfiles PATH # or set LEPTON_DOTFILES
 mix lepton.qemu                # boot in a QEMU window (UTM-equivalent machine)
 mix lepton.qemu --test         # headless boot, run lepton-test, report
 mix lepton.qemu --run "uname -a" --run "ip addr"
 mix lepton.shell               # run the userland in this terminal, no VM
-mix lepton.docs                # build the documentation into site/docs
+mix lepton.docs                # build the documentation into the site's docs/
 mix lepton.site.tags           # put the site tags (lib/lepton_build/site_head.html) on every page
 mix lepton.publish             # build + publish the ISO, the docs and the site's checksum
 mix lepton.official add ...    # sign an official app update (docs: packages)
@@ -152,6 +153,28 @@ mix test                       # host-side test run
   OTP's `:ssh`, with its own key callback for keys, known hosts (GitHub's
   built in) and `~/.ssh/config`. `ssh` and git's SSH transport use it.
 
+## Repositories
+
+- This repository. Clone it with `git clone --recursive
+  https://github.com/danieljaouen/lepton` to get the website as well.
+- **Dotfiles** are not part of it. `mix lepton.iso` installs
+  `$LEPTON_DOTFILES` or `~/.dotfiles` (the published ISO uses
+  [danieljaouen/dotfiles](https://github.com/danieljaouen/dotfiles)), or
+  uses Lepton's defaults when there is none. Pass `--dotfiles PATH` to
+  choose another.
+- **Website**: `site/` is a submodule of
+  [danieljaouen.github.io](https://github.com/danieljaouen/danieljaouen.github.io)
+  over HTTPS, for reading. The tooling (`mix lepton.docs`, `lepton.site.tags`,
+  `lepton.official`, `lepton.publish`) writes to the *site checkout*:
+  `$LEPTON_SITE`, else an SSH clone at `../danieljaouen.github.io`
+  (maintainers: `git clone git@github.com:danieljaouen/danieljaouen.github.io.git
+  ../danieljaouen.github.io`), else `site/`. `mix lepton.publish` pushes the
+  site from that checkout and then moves the `site/` submodule to the same
+  commit.
+- **ISO releases**: `../lepton.iso`, a clone of
+  [danieljaouen/lepton.iso](https://github.com/danieljaouen/lepton.iso);
+  the ISOs themselves are GitHub Release assets.
+
 ## Testing
 
 `lepton-test` (inside the OS) compiles and runs the same `test/*_test.exs`
@@ -159,7 +182,8 @@ files that `mix test` runs on a Mac. Tags pick tests by environment:
 `:native` needs the real system (PID 1, mounts, loaded drivers, installed
 dotfiles); `:network` needs internet access (DHCP, DNS, and cloning
 `octocat/Hello-World` from GitHub) and is enabled automatically when the
-network is up; `:dotfiles` needs your dotfiles. Options: `--only TAG`,
+network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
+`$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
 Current results: 115 tests, 0 failures inside the VM (run from the live
@@ -227,6 +251,5 @@ lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs
 docs/                  the user guides (Markdown; published to trylepton.app/docs)
 rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ssh/ssh_known_hosts, ...)
 test/                  ExUnit suite (host + in-OS)
-dotfiles/              your dotfiles repo (input to the build)
-site/                  the website and generated docs (submodule: danieljaouen.github.io)
+site/                  the website and generated docs (submodule: danieljaouen.github.io, read-only HTTPS)
 ```

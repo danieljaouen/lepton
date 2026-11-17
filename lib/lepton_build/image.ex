@@ -31,7 +31,7 @@ defmodule LeptonBuild.Image do
 
   def build!(opts \\ []) do
     out_dir = opts[:out_dir] || "out"
-    dotfiles = opts[:dotfiles] || "dotfiles"
+    dotfiles = opts[:dotfiles] || LeptonBuild.Paths.dotfiles()
     File.mkdir_p!(out_dir)
 
     info("fetching substrate")
@@ -378,7 +378,7 @@ defmodule LeptonBuild.Image do
   end
 
   defp home(dotfiles) do
-    if File.dir?(dotfiles) do
+    if dotfiles && File.dir?(dotfiles) do
       for {rel, contents} <- Dotfiles.entries(dotfiles) do
         case contents do
           :dir -> {:dir, "/root/" <> rel, 0o755}
@@ -386,7 +386,7 @@ defmodule LeptonBuild.Image do
         end
       end ++ [{:file, "/root/.dotfiles-source", 0o644, {:data, Path.expand(dotfiles) <> "\n"}}]
     else
-      Mix.shell().info("  (no dotfiles repo at #{dotfiles}; using built-in defaults)")
+      Mix.shell().info("  (no dotfiles repo#{if dotfiles, do: " at #{dotfiles}"}; using built-in defaults - pass --dotfiles PATH)")
       []
     end
   end

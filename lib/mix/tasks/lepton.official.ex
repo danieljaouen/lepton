@@ -1,7 +1,8 @@
 defmodule Mix.Tasks.Lepton.Official do
   @shortdoc "Manage the signed list of official app updates (lpm upgrade)"
   @moduledoc """
-  Maintains `site/official.json` (+ `.sig`), the signed list that lets a
+  Maintains `official.json` (+ `.sig`) in the site checkout
+  (`LeptonBuild.Paths.site/0`), the signed list that lets a
   hex.pm package stand in for a built-in command (see `Lepton.Official`).
 
       mix lepton.official keygen
@@ -28,11 +29,12 @@ defmodule Mix.Tasks.Lepton.Official do
   use Mix.Task
 
   @pub "rootfs/etc/lepton/official-key.pub"
-  @manifest "site/official.json"
   @api "https://hex.pm/api"
   @trust "Do not edit by hand: use `mix lepton.official` (the file is signed)."
   @keychain "lepton-official-signing-key"
   @org "lepton"
+
+  defp manifest, do: Path.join(LeptonBuild.Paths.site(), "official.json")
 
   @impl true
   def run(args) do
@@ -69,7 +71,7 @@ defmodule Mix.Tasks.Lepton.Official do
     File.mkdir_p!(Path.dirname(@pub))
     File.write!(@pub, Base.encode64(pub) <> "\n")
     info("public key:  #{@pub} (compiled into the OS; commit it and rebuild the ISO)")
-    unless File.exists?(@manifest), do: update(& &1, "created an empty official list")
+    unless File.exists?(manifest()), do: update(& &1, "created an empty official list")
   end
 
   defp list do
@@ -132,7 +134,7 @@ defmodule Mix.Tasks.Lepton.Official do
   # -- the signed file -----------------------------------------------------------------------------
 
   defp read do
-    case File.read(@manifest) do
+    case File.read(manifest()) do
       {:ok, json} -> JSON.decode!(json)
       _ -> %{"schema" => 1, "serial" => 0, "issued" => nil, "apps" => []}
     end
@@ -156,10 +158,10 @@ defmodule Mix.Tasks.Lepton.Official do
       {:error, e} -> Mix.raise("the signed list does not verify (#{e}) - is the key in #{key_source()} the key for #{@pub}?")
     end
 
-    File.write!(@manifest, json)
-    File.write!(@manifest <> ".sig", sig)
+    File.write!(manifest(), json)
+    File.write!(manifest() <> ".sig", sig)
     info("#{message}; signed list ##{data["serial"]}")
-    info("publish it: commit and push #{Path.dirname(@manifest)}/ (official.json, official.json.sig)")
+    info("publish it: commit and push #{Path.dirname(manifest())}/ (official.json, official.json.sig)")
   end
 
   # Readable, stable JSON (fixed key order) - the exact bytes are signed.

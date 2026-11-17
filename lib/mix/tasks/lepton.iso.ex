@@ -5,8 +5,9 @@ defmodule Mix.Tasks.Lepton.Iso do
 
       mix lepton.iso [--dotfiles PATH] [--out DIR]
 
-  The dotfiles repository (default `./dotfiles`) is installed into `/root`
-  following its `locations/` convention.
+  The dotfiles repository (default `$LEPTON_DOTFILES`, else `~/.dotfiles`)
+  is installed into `/root` following its `locations/` convention; without
+  one the image uses Lepton's built-in defaults.
   """
   use Mix.Task
 

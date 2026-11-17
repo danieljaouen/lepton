@@ -179,9 +179,16 @@ defmodule Lepton.TestHelpers do
     Lepton.Shell.run_capture(src, cwd: opts[:cwd] || tmp_dir("sh"), env: env, stdin: opts[:stdin], stderr: opts[:stderr] || sink)
   end
 
+  @doc "The dotfiles repository on a development machine: `$LEPTON_DOTFILES`, else `~/.dotfiles`."
+  def dotfiles_repo do
+    dir = System.get_env("LEPTON_DOTFILES") || Path.expand("~/.dotfiles")
+    if File.dir?(Path.join(dir, "topics")), do: dir
+  end
+
   @doc """
   A home directory containing the user's dotfiles: `/root` inside Lepton,
-  or a temporary copy laid out from `./dotfiles` on a development machine.
+  or a temporary copy laid out from the dotfiles repository on a
+  development machine (see `dotfiles_repo/0`).
   """
   def dotfiles_home do
     cond do
@@ -192,7 +199,7 @@ defmodule Lepton.TestHelpers do
         home
 
       true ->
-        repo = Path.join(File.cwd!(), "dotfiles/topics")
+        repo = Path.join(dotfiles_repo() || "/nonexistent", "topics")
         home = Path.join(System.tmp_dir!(), "lepton-home-#{System.unique_integer([:positive])}")
 
         mapping = %{

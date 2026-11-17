@@ -2,7 +2,8 @@ defmodule Mix.Tasks.Lepton.Site.Tags do
   @shortdoc "Put the site-wide <head> tags (Google Tag Manager) on every site page"
   @moduledoc """
   Inserts or refreshes the block from `lib/lepton_build/site_head.html` in
-  every `*.html` page under `site/` (see `LeptonBuild.SiteTags`).
+  every `*.html` page of the site checkout (`LeptonBuild.Paths.site/0`; see
+  `LeptonBuild.SiteTags`).
 
       mix lepton.site.tags            # tag every page; prints what changed
       mix lepton.site.tags --check    # fail if any page lacks the current block
@@ -15,7 +16,7 @@ defmodule Mix.Tasks.Lepton.Site.Tags do
   @impl true
   def run(args) do
     {opts, _} = OptionParser.parse!(args, strict: [check: :boolean, site: :string])
-    site = opts[:site] || "site"
+    site = opts[:site] || LeptonBuild.Paths.site()
 
     if opts[:check] do
       case LeptonBuild.SiteTags.missing(site) do

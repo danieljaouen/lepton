@@ -17,6 +17,8 @@ defmodule Mix.Tasks.Lepton.Publish do
     5. regenerates the documentation (`mix lepton.docs`: `site/docs` from
        `docs/*.md` and the code), so the docs describe this release
     6. records the new site commit in this repository's `site` submodule
+       (fast-forwarding the submodule to it when the site is published from
+       a separate checkout)
     7. commits and pushes each repository that changed, rebasing onto any
        remote changes first (e.g. edits made on GitHub)
 
@@ -29,7 +31,8 @@ defmodule Mix.Tasks.Lepton.Publish do
       mix lepton.publish --no-push       # commit locally only
 
   Options: `--iso-repo PATH` (default `../lepton.iso`), `--site PATH`
-  (default `site`), `--allow-dirty` (publish from uncommitted changes),
+  (default `LeptonBuild.Paths.site/0`: `$LEPTON_SITE`, else the SSH clone
+  at `../danieljaouen.github.io`, else the `site/` submodule), `--allow-dirty` (publish from uncommitted changes),
   `--force` (publish even if the checksum is unchanged).
 
   Creating releases needs a GitHub token: `GH_TOKEN`/`GITHUB_TOKEN`, or a
@@ -48,7 +51,7 @@ defmodule Mix.Tasks.Lepton.Publish do
       )
 
     iso_repo = Path.expand(opts[:iso_repo] || "../lepton.iso")
-    site = Path.expand(opts[:site] || "site")
+    site = Path.expand(opts[:site] || LeptonBuild.Paths.site())
     dry = opts[:dry_run] == true
     push = opts[:push] != false and not dry
 
@@ -267,8 +270,17 @@ defmodule Mix.Tasks.Lepton.Publish do
 
   defp update_submodule(site, rev, push) do
     root = File.cwd!()
-    rel = Path.relative_to(site, root)
-    commit_and_push(root, [rel], "Update site submodule for ISO from #{rev}", push)
+    sub = LeptonBuild.Paths.submodule()
+
+    # The submodule is a read-only HTTPS mirror of a separate SSH checkout:
+    # bring it to the checkout's commit (fetched locally, so --no-push works).
+    if LeptonBuild.Paths.separate_site?(site) do
+      head = git(site, ["rev-parse", "HEAD"]) |> String.trim()
+      git(Path.join(root, sub), ["fetch", "-q", site, "HEAD"])
+      git(Path.join(root, sub), ["checkout", "-q", "--detach", head])
+    end
+
+    commit_and_push(root, [sub], "Update site submodule for ISO from #{rev}", push)
   end
 
   # Replace the text content of every element carrying `attr`.

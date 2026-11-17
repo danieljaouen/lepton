@@ -18,14 +18,14 @@ anything a user would notice. For each one:
    tables from the registry rather than copying usage text.
 3. **Check**: `mix test` (includes `test/docs_test.exs`: links, every
    guide linked, every command documented). `mix lepton.docs` writes
-   `site/docs/` for a local preview.
+   `docs/` in the site checkout (below) for a local preview.
 4. **Publish**: `mix lepton.publish` builds and releases the ISO and
    regenerates and pushes the docs (even when the ISO is unchanged).
    `mix lepton.docs --publish` publishes documentation-only fixes.
 
 ## Every site page carries the site tags
 
-Every `*.html` page in `site/` must have the Google Tag Manager block
+Every `*.html` page of the site must have the Google Tag Manager block
 from `lib/lepton_build/site_head.html` (the single source; edit it there
 to change or add tags). New pages get it automatically: `mix
 lepton.publish` and `mix lepton.docs` run `mix lepton.site.tags`, and the
@@ -50,12 +50,18 @@ layout); feature documentation lives in `docs/`, not in the README.
 - No `Access` (`opts[:x]`) inside guards.
 - Tests run with `NO_COLOR`; test colour paths too (`sh(..., color: true)`).
 - `mix lepton.publish` refuses to run with uncommitted changes in this
-  repository, `site/` or `../lepton.iso`.
+  repository, the site checkout or `../lepton.iso`.
 
 ## Repositories
 
 - this repo: git@github.com:danieljaouen/lepton.git
-- `site/` (submodule): danieljaouen.github.io, served at trylepton.app
+- `../danieljaouen.github.io`: the site checkout (SSH clone of
+  danieljaouen.github.io, served at trylepton.app). The tooling writes,
+  commits and pushes here (`LeptonBuild.Paths.site/0`); edit the site here.
+- `site/` (submodule): the same repository over HTTPS, read-only. Don't
+  edit it; `mix lepton.publish` moves it to the site checkout's commit.
+- Dotfiles: not in this repository. Builds and tests use `~/.dotfiles`
+  (or `$LEPTON_DOTFILES`).
 - `../lepton.iso`: ISO releases (GitHub Releases; never commit the ISO)
 
 Commit or push only when asked. End commit messages with:
