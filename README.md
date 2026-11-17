@@ -204,19 +204,36 @@ list fails the signature, and an *older* list (one with a lower
 built-in is never deleted; "replacing" only puts the update first in
 line. The last verified list is cached for offline use.
 
+**Maintainers** are the [`lepton` organization on hex.pm](https://hex.pm/orgs/lepton).
+Making a package official takes two things: every hex.pm owner of the
+package must be the organization or one of its members (checked live by
+`mix lepton.official add`), *and* the list must be signed with the Lepton
+key. After the first publish, hand the package to the organization with
+`mix hex.owner transfer PACKAGE lepton` (it replaces the existing owners).
+
 To publish an official update, release the package on hex.pm, then:
 
 ```sh
+mix hex.user auth        # once; the owner check reads the org's members
 mix lepton.official add lepton_grep 1.2.0 --replaces grep,egrep [--dep NAME@VERSION ...]
 cd site && git commit -am "Official: lepton_grep 1.2.0" && git push
 ```
 
 `add` pins the checksums from hex.pm and refuses unless the whole
 dependency closure is pinned. `list`, `remove` and `sign` manage the
-list. The signing key lives outside the repositories, in
-`~/.config/lepton/official-signing.key`, created by
-`mix lepton.official keygen`. **Back it up**: losing it means a new key
-and a new ISO.
+list.
+
+**Credentials** live in the macOS Keychain (Keychain Access → search
+"lepton"), never in a repository:
+
+| Keychain service | What it is | Used by |
+|---|---|---|
+| `lepton-official-signing-key` | Ed25519 private key that signs `official.json` | `mix lepton.official` (automatically) |
+| `hex-lepton` | hex.pm API key for the `lepton` organization | `HEX_API_KEY=$(security find-generic-password -s hex-lepton -w) mix hex.publish` |
+
+On a machine without a Keychain, set `LEPTON_SIGNING_KEY` to a key file.
+Keep the Keychain backed up (iCloud Keychain or Time Machine): losing
+the signing key means a new key and a new ISO.
 
 ## Your dotfiles, applied
 
