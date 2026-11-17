@@ -11,7 +11,24 @@ defmodule Lepton.Tutorial do
   alias Lepton.{IO, Persist}
 
   def run(ctx) do
-    home = Lepton.Ctx.home(ctx)
+    lessons = lessons(Lepton.Ctx.home(ctx))
+    total = length(lessons)
+
+    result =
+      lessons
+      |> Enum.with_index(1)
+      |> Enum.reduce_while(:ok, fn {{title, text, cmd}, n}, _ ->
+        IO.puts(ctx, "\n\e[1;36m[#{n}/#{total}] #{title}\e[0m\n" <> String.trim_trailing(text))
+        if lesson(ctx, cmd) == :quit, do: {:halt, :quit}, else: {:cont, :ok}
+      end)
+
+    if Persist.installed?(), do: Persist.set_flag("tutorial-done")
+    IO.puts(ctx, if(result == :quit, do: "\nTutorial stopped. Run `lepton-tutorial` to resume from the start.", else: "\n\e[1;32mThat's the tour - enjoy Lepton!\e[0m"))
+    0
+  end
+
+  @doc "The lessons as `{title, text, suggested_command | nil}` (tested by the self-test)."
+  def lessons(home) do
     tmux = Lepton.Mux.Config.load(home)
     prefix = tmux.options["prefix"] || "C-b"
     emacs = Lepton.Dotfiles.emacs(home)
@@ -21,7 +38,7 @@ defmodule Lepton.Tutorial do
         b -> b.cmd
       end end
 
-    lessons = [
+    [
       {"Welcome",
        """
        Lepton is a Unix-like system whose userland is written in Elixir and
@@ -85,20 +102,6 @@ defmodule Lepton.Tutorial do
        self-test suite. Run `lepton-tutorial` to see this again.
        """, "keys tmux | head -8"}
     ]
-
-    total = length(lessons)
-
-    result =
-      lessons
-      |> Enum.with_index(1)
-      |> Enum.reduce_while(:ok, fn {{title, text, cmd}, n}, _ ->
-        IO.puts(ctx, "\n\e[1;36m[#{n}/#{total}] #{title}\e[0m\n" <> String.trim_trailing(text))
-        if lesson(ctx, cmd) == :quit, do: {:halt, :quit}, else: {:cont, :ok}
-      end)
-
-    if Persist.installed?(), do: Persist.set_flag("tutorial-done")
-    IO.puts(ctx, if(result == :quit, do: "\nTutorial stopped. Run `lepton-tutorial` to resume from the start.", else: "\n\e[1;32mThat's the tour - enjoy Lepton!\e[0m"))
-    0
   end
 
   defp lesson(ctx, cmd) do

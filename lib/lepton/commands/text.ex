@@ -117,7 +117,7 @@ defmodule Lepton.Commands.Text do
   end
 
   defp highlight(ctx, re, text, invert) do
-    if Lepton.Style.color?(ctx) and not invert and Lepton.TTY.tty?(ctx.stdout) do
+    if Lepton.Style.color?(ctx) && !invert && Lepton.TTY.tty?(ctx.stdout) do
       Regex.replace(re, text, fn m -> "\e[1;31m" <> m <> "\e[0m" end)
     else
       text

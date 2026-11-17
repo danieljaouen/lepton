@@ -40,6 +40,15 @@ defmodule Lepton.CoreutilsTest do
     assert out =~ "d/e/deep.ex:defmodule Deep do"
   end
 
+  test "grep with colour enabled", %{dir: dir} do
+    # Colour is on by default (unlike the other tests); matches are only
+    # highlighted on a terminal, so piped output stays plain.
+    assert {"BANANA\n", 0} = sh("echo BANANA | grep -i banana", cwd: dir, color: true)
+    assert {"apple\napple\n", 0} = sh("grep apple fruits.txt | cat", cwd: dir, color: true)
+    assert {"banana\ncherry\n", 0} = sh("grep -v apple fruits.txt", cwd: dir, color: true)
+    assert {"1:banana\n", 0} = sh("grep -n ban fruits.txt", cwd: dir, color: true)
+  end
+
   test "sort, uniq, head, tail, wc", %{dir: dir} do
     assert {"apple\napple\nbanana\ncherry\n", 0} = sh("sort fruits.txt", cwd: dir)
     assert {"      2 apple\n      1 banana\n      1 cherry\n", 0} = sh("sort fruits.txt | uniq -c", cwd: dir)
