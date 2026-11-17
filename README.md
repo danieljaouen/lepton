@@ -196,8 +196,9 @@ ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
 The CLI layers were built so a graphical stack can sit on top of them:
 
 1. **Display**: the kernel already provides a DRM/fbdev framebuffer
-   (`simpledrm`/`virtio-gpu` are loaded at boot). Phase 1 writes pixels to
-   `/dev/fb0` from Elixir (mode queried via sysfs). Phase 2 uses DRM dumb
+   (`virtio-gpu` at boot, or `simpledrm` when the machine has no virtio
+   GPU). Phase 1 writes pixels to `/dev/fb0` from Elixir (mode queried via
+   sysfs). Phase 2 uses DRM dumb
    buffers and page flips, adding `DRM_IOCTL_*` calls to the syscall shim
    boundary in `Lepton.Sys`.
 2. **Input**: `evdev` is loaded, so `/dev/input/event*` can be read as files

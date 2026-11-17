@@ -38,6 +38,10 @@ It is a hybrid image: it boots when attached as a CD or as a disk.
 5. Start the VM. GRUB boots the default entry after 3 seconds. Other
    entries give a verbose boot and a boot that runs the self-tests.
 
+UTM's window shows the console with the default display card
+(`virtio-ramfb`); no serial device is needed. Other cards, such as
+`virtio-gpu-pci` and `ramfb`, work too.
+
 You are logged in as `root` on the display console (`tty1`), on the
 serial port (`ttyAMA0`) if present, and on `hvc0` under Apple
 Virtualization. The network comes up by DHCP in the background.

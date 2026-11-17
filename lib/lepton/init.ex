@@ -20,9 +20,7 @@ defmodule Lepton.Init do
   @consoles ["/dev/tty1", "/dev/ttyAMA0", "/dev/hvc0"]
 
   @drivers [
-    # display: firmware framebuffer, then virtio-gpu if present
-    "simpledrm",
-    "virtio-gpu",
+    # display: see load_display/0
     # keyboards: USB (UTM/QEMU default) and virtio-input (Apple Virtualization)
     "xhci-pci",
     "usbhid",
@@ -116,11 +114,52 @@ defmodule Lepton.Init do
   end
 
   defp load_drivers do
-    for mod <- @drivers do
-      case Lepton.Kmod.modprobe(mod) do
-        :ok -> :ok
-        {:error, reason} -> verbose("modprobe #{mod}: #{reason}")
-      end
+    load_display()
+
+    Enum.each(@drivers, &modprobe/1)
+  end
+
+  # The console must live on the device the VM window shows. With a virtio
+  # GPU (QEMU's virtio-gpu-pci, UTM's virtio-ramfb, Apple Virtualization)
+  # that is the GPU: loading simpledrm first would put the console on the
+  # firmware framebuffer, and UTM's virtio-ramfb, which switches to the GPU
+  # once its driver starts, would then show "Display output is not active".
+  # Without one (plain ramfb, or another firmware framebuffer) simpledrm
+  # drives what the firmware set up.
+  defp load_display do
+    if virtio_gpu?() do
+      modprobe("virtio-gpu")
+      # If the GPU driver doesn't come up, fall back to the framebuffer.
+      unless wait_for(fn -> Path.wildcard("/sys/class/drm/card*") != [] end, 20), do: modprobe("simpledrm")
+    else
+      modprobe("simpledrm")
+    end
+  end
+
+  # PCI vendor 0x1af4 (virtio), device 0x1050 (virtio-gpu).
+  defp virtio_gpu? do
+    Enum.any?(Path.wildcard("/sys/bus/pci/devices/*"), fn dev ->
+      read = fn f -> case File.read(Path.join(dev, f)) do
+          {:ok, v} -> String.trim(v)
+          _ -> nil
+        end end
+
+      read.("vendor") == "0x1af4" and read.("device") == "0x1050"
+    end)
+  end
+
+  defp modprobe(mod) do
+    case Lepton.Kmod.modprobe(mod) do
+      :ok -> :ok
+      {:error, reason} -> verbose("modprobe #{mod}: #{reason}")
+    end
+  end
+
+  defp wait_for(fun, tries) do
+    cond do
+      fun.() -> true
+      tries == 0 -> false
+      true -> Process.sleep(50); wait_for(fun, tries - 1)
     end
   end
 
