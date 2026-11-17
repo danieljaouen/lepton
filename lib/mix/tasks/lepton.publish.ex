@@ -12,11 +12,14 @@ defmodule Mix.Tasks.Lepton.Publish do
        is `…/releases/latest/download/lepton.iso`.
     3. updates the checksum and size shown on the site (`site/index.html`,
        elements marked `data-iso-sha256` / `data-iso-size`)
-    4. records the new site commit in this repository's `site` submodule
-    5. commits and pushes each repository that changed, rebasing onto any
+    4. regenerates the documentation (`mix lepton.docs`: `site/docs` from
+       `docs/*.md` and the code), so the docs describe this release
+    5. records the new site commit in this repository's `site` submodule
+    6. commits and pushes each repository that changed, rebasing onto any
        remote changes first (e.g. edits made on GitHub)
 
-  If the ISO's checksum is unchanged, nothing is committed.
+  If the ISO's checksum is unchanged, no release is made, but changed
+  documentation is still published.
 
       mix lepton.publish                 # build and publish
       mix lepton.publish --no-build      # publish the existing out/lepton.iso
@@ -70,16 +73,20 @@ defmodule Mix.Tasks.Lepton.Publish do
 
     published = published_sha(iso_repo)
 
-    if published == sha and opts[:force] != true do
-      info("the published ISO already has this checksum - nothing to do")
-    else
-      info("published checksum: #{published || "(none)"} -> updating")
-      unless dry or push, do: Mix.raise("--no-push cannot be combined with publishing a release")
-      publish_iso(iso_repo, sha, bytes, mib, rev, dry)
-      site_changed = update_site(site, sha, mib, rev, dry, push)
-      if site_changed and not dry, do: update_submodule(site, rev, push)
-      info(if dry, do: "dry run complete - nothing was written", else: "published")
-    end
+    site_changed =
+      if published == sha and opts[:force] != true do
+        info("the published ISO already has this checksum - no new release")
+        false
+      else
+        info("published checksum: #{published || "(none)"} -> updating")
+        unless dry or push, do: Mix.raise("--no-push cannot be combined with publishing a release")
+        publish_iso(iso_repo, sha, bytes, mib, rev, dry)
+        update_site(site, sha, mib, rev, dry, push)
+      end
+
+    docs_changed = update_docs(site, rev, dry, push)
+    if (site_changed or docs_changed) and not dry, do: update_submodule(site, rev, push)
+    info(if dry, do: "dry run complete - nothing was written", else: "published")
   end
 
   # -- steps ------------------------------------------------------------------------
@@ -223,6 +230,26 @@ defmodule Mix.Tasks.Lepton.Publish do
     end
   end
 
+  # The docs always match what was just released (or the current source,
+  # for documentation-only changes).
+  defp update_docs(site, rev, dry, push) do
+    if dry do
+      Mix.Task.run("lepton.docs", ["--check"])
+      info("would regenerate the documentation in #{Path.relative_to_cwd(site)}/docs")
+      false
+    else
+      Mix.Task.run("lepton.docs", [])
+
+      if git(site, ["status", "--porcelain", "docs", "assets/docs.css"]) == "" do
+        info("documentation unchanged")
+        false
+      else
+        commit_and_push(site, ["docs", "assets/docs.css"], "Update documentation (lepton@#{rev})", push)
+        true
+      end
+    end
+  end
+
   defp update_submodule(site, rev, push) do
     root = File.cwd!()
     rel = Path.relative_to(site, root)
@@ -311,7 +338,8 @@ defmodule Mix.Tasks.Lepton.Publish do
 
     Prebuilt `lepton.iso` for [Lepton OS](https://github.com/danieljaouen/lepton),
     a Unix-like operating system for ARM64 (aarch64) whose userland is written in
-    Elixir. Website: <https://trylepton.app/>
+    Elixir. Website: <https://trylepton.app/> · Documentation:
+    <https://trylepton.app/docs/>
 
     | | |
     |---|---|

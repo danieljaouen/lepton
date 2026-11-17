@@ -10,6 +10,7 @@ defmodule Lepton.SelfTest do
     * `:network` - needs internet access; included automatically when the
       network is up (DHCP lease + DNS), or with `--include network`
     * `:dotfiles` - needs the user's dotfiles installed in `$HOME`
+    * `:docs` - checks the documentation generator (development machine only)
 
   Options: `--only TAG`, `--include TAG`, `--exclude TAG`, `--seed N`,
   `-v` (print each test name), plus test file paths.
@@ -52,7 +53,9 @@ defmodule Lepton.SelfTest do
       [] ++
         if(Lepton.Sys.native?(), do: [], else: [:native]) ++
         if(network_up?() or :network in opts.include, do: [], else: [:network]) ++
-        if(dotfiles_present?(), do: [], else: [:dotfiles])
+        if(dotfiles_present?(), do: [], else: [:dotfiles]) ++
+        # The documentation generator is build tooling, not in the image.
+        if(Code.ensure_loaded?(LeptonBuild.Docs), do: [], else: [:docs])
 
     exclude = (auto_exclude ++ opts.exclude) -- opts.include
     {include, exclude} = if opts.only != [], do: {opts.only, [:test | exclude]}, else: {opts.include, exclude}

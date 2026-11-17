@@ -55,6 +55,47 @@ A prebuilt ISO is published at
 ([direct download](https://github.com/danieljaouen/lepton.iso/releases/latest/download/lepton.iso)),
 and the project site is <https://trylepton.app/>.
 
+## Documentation
+
+The user documentation is at **<https://trylepton.app/docs/>**:
+
+- [Getting started](https://trylepton.app/docs/getting-started.html):
+  download, UTM and QEMU, installing to a disk, shutting down
+- Guides: [the shell](https://trylepton.app/docs/shell.html),
+  [the editor](https://trylepton.app/docs/editor.html),
+  [tmux](https://trylepton.app/docs/tmux.html),
+  [git and GitHub](https://trylepton.app/docs/git.html),
+  [services](https://trylepton.app/docs/services.html),
+  [packages](https://trylepton.app/docs/packages.html),
+  [networking](https://trylepton.app/docs/networking.html),
+  [system](https://trylepton.app/docs/system.html),
+  [your dotfiles](https://trylepton.app/docs/dotfiles.html) and
+  [limitations](https://trylepton.app/docs/limitations.html)
+- Reference: [every command](https://trylepton.app/docs/commands.html),
+  [key bindings](https://trylepton.app/docs/keybindings.html) and
+  [the tutorial](https://trylepton.app/docs/tutorial.html)
+
+**How the docs stay current.** The guides are `docs/*.md` in this
+repository, one per topic. The reference pages are generated from the
+code: the command registry (every `defcmd`'s summary, usage and aliases),
+`Lepton.Tutorial.lessons/1`, and the output of `keys`, `bindkey` and
+`alias` for the dotfiles the ISO is built with. A guide can embed
+`<!-- commands: ip ping -->` to get a table of those commands from the
+registry.
+
+- `mix lepton.docs` writes `site/docs/` (preview it locally);
+  `--check` only validates.
+- `mix lepton.publish` regenerates and publishes the docs with every
+  release, so they always describe the downloadable ISO. It publishes
+  documentation-only changes too, even when the ISO is unchanged.
+- `mix test` fails if a page has a broken link, a guide names a command
+  that doesn't exist, a guide isn't linked, or a command has no summary
+  or usage line.
+
+So a user-facing change means: update the code (with `usage:` on any new
+`defcmd`), update the relevant `docs/*.md` guide, run `mix test`, then
+publish.
+
 ## Quick start
 
 Requirements on the build machine: Elixir 1.18+ on **OTP 29** (the image ships
@@ -68,331 +109,11 @@ mix lepton.qemu                # boot in a QEMU window (UTM-equivalent machine)
 mix lepton.qemu --test         # headless boot, run lepton-test, report
 mix lepton.qemu --run "uname -a" --run "ip addr"
 mix lepton.shell               # run the userland in this terminal, no VM
-mix lepton.publish             # build + publish the ISO, update the site's checksum
-mix lepton.official add ...    # sign an official app update (see "Official updates")
+mix lepton.docs                # build the documentation into site/docs
+mix lepton.publish             # build + publish the ISO, the docs and the site's checksum
+mix lepton.official add ...    # sign an official app update (docs: packages)
 mix test                       # host-side test run
 ```
-
-### Running in UTM
-
-1. **Create a New Virtual Machine → Virtualize → Linux**.
-2. **Boot ISO Image**: choose `out/lepton.iso`. Leave "Use Apple
-   Virtualization" unchecked (the QEMU backend is the tested path).
-3. Memory: 2048 MB or more; CPU: 2+ cores. Storage: any size (Lepton runs
-   from RAM and does not touch the disk).
-4. Optional: **Devices → New → Serial**, to get a second login session in
-   UTM's terminal window. That window speaks xterm, so 256 colours and Unicode
-   glyphs look better there than on the framebuffer console.
-5. Start the VM. GRUB boots the default entry after 3 seconds. Other entries
-   give a verbose boot and a boot that runs the self-tests automatically.
-
-You are logged in as `root`, on the display console (`tty1`) and on the
-serial port (`ttyAMA0`) if present. `hvc0` is used under Apple
-Virtualization. Networking comes up by DHCP in the background.
-
-### Installing to a disk (UTM)
-
-The live ISO runs entirely from RAM. To keep your files, install to a
-virtual disk:
-
-1. With the VM stopped: **Drives → New → VirtIO** (or NVMe), 4 GB or more.
-2. Boot the ISO and run `lepton-install` (it asks which disk and asks you
-   to confirm; `lepton-install -y /dev/vda` skips both).
-3. `poweroff`, then **CD/DVD → Clear** to eject the ISO, and start the VM.
-
-The installer writes everything itself, in Elixir: a GPT partition table,
-a FAT16 EFI system partition (GRUB, kernel and initramfs copied from the
-ISO), and an ext2 data partition named `LEPTON-DATA`
-(`lib/lepton/install/`). The installed system still boots into RAM, but
-`/root` and `/var/lib/lepton` (packages, Wi-Fi credentials, setup state)
-are bind-mounted from the data partition. On the first boot, `/root` is
-seeded from the image, including your dotfiles.
-
-**Shutting down.** Use UTM's power button → **Request power down** (or
-type `poweroff`). Lepton listens for the virtual power button (ACPI
-through the `gpio-pl061` and `button` drivers, read in `Lepton.Power`),
-warns the consoles, flushes the data partition, remounts it read-only and
-powers off, so the next start is a clean boot through GRUB. "Force shut
-down" and closing the VM window pull the plug and can't be intercepted.
-
-With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
-`mix lepton.qemu --disk disk.qcow2` to install and
-`mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system.
-
-### First-run setup: Wi-Fi and the tutorial
-
-- **Wi-Fi.** The automatic Wi-Fi prompt at startup and after installation
-  is **turned off for now**, because Lepton can't join Wi-Fi networks yet
-  (see the limitation below). Re-enable it with `@wifi_prompt true` in
-  `lib/lepton/setup.ex`. Credentials can still be entered manually with
-  `wifi setup`. They are saved in wpa_supplicant format
-  (`/var/lib/lepton/wpa_supplicant.conf`), with the passphrase stored only
-  as its WPA PSK (PBKDF2, the same value `wpa_passphrase` computes).
-  `wifi` shows status, `wifi setup` asks again, and `wifi forget` clears
-  them. **Limitation:** Lepton cannot join a Wi-Fi network yet. The
-  shipped kernel (`linux-virt`) has no 802.11 stack or Wi-Fi drivers, and
-  UTM/QEMU VMs have no wireless hardware, since their network is virtio
-  ethernet, which DHCP configures automatically. The saved credentials are
-  meant for a future kernel with Wi-Fi support.
-- **Tutorial.** On the first boot after installation, Lepton offers a
-  11-lesson tour (once). It covers files, pipes, jobs, services, the
-  editor, tmux, git/GitHub, packages, networking and help, using the key bindings from
-  your dotfiles. Each lesson suggests a command that you can run for
-  real. `lepton-tutorial` runs it any time.
-
-### Packages: `lpm` (hex.pm)
-
-`lpm` installs Elixir and Erlang packages directly from
-[hex.pm](https://hex.pm). It resolves version requirements and
-dependencies through the Hex API, downloads the tarballs, verifies them
-against the registry's SHA-256 checksum, and compiles them *inside
-Lepton* with the Elixir and Erlang compilers in the image. Packages are
-loaded at every boot.
-
-```sh
-lpm search json
-lpm info jason
-lpm install jason           # or jason@~>1.4, several at once
-elixir -e 'IO.puts Jason.encode!(%{hello: "lepton"})'
-lpm install ./my_tool       # a local Mix project
-lpm list | lpm remove NAME | lpm update
-```
-
-A package can add shell commands. Any module that does
-`use Lepton.Command` and defines `defcmd`s becomes a command when the
-package loads, so a Lepton tool can be published to hex.pm like any other
-library. Packages built on Mix-specific features (compile-time config,
-application callbacks in `mix.exs`, NIFs) are not supported yet.
-
-**Packages can't hijack the system.** Anyone can publish to hex.pm, so
-`lpm` never lets a package silently take over part of the OS:
-
-- a package command named like a built-in (`grep`, `git`, `poweroff`, ...)
-  is skipped, and the built-in keeps working;
-- a package may not define `Lepton.*` modules or any module the system
-  already has (Elixir, OTP, Lepton); this is checked before compiling and
-  again after. Package code also goes *after* the system's on the code
-  path;
-- only code compiled from the package's sources runs; prebuilt `.beam`
-  files are discarded.
-
-(Installing a package still runs its code, so only install packages you
-trust.)
-
-### Official updates for built-in apps
-
-Built-in apps can be updated from hex.pm without a new ISO, but only
-by **official updates**. The project publishes a signed list,
-<https://trylepton.app/official.json> (Ed25519; the signature is in
-`official.json.sig`). Each entry names the exact hex package, version
-and tarball SHA-256, plus the built-in commands it may stand in for and
-every pinned dependency. The public key is compiled into the OS, with a
-copy at `/etc/lepton/official-key.pub`.
-
-```sh
-lpm official          # what's available, and what's installed
-lpm upgrade grep      # install the official update for grep
-lpm upgrade           # refresh all of them (withdrawn ones are reverted)
-lpm revert grep       # back to the built-in grep
-builtin grep ...      # always runs the built-in, even when replaced
-```
-
-A look-alike package isn't in the list. A new release pushed from a
-compromised hex.pm account doesn't match the pinned checksum. A tampered
-list fails the signature, and an *older* list (one with a lower
-`serial`) is refused, so a withdrawn update can't be brought back. The
-built-in is never deleted; "replacing" only puts the update first in
-line. The last verified list is cached for offline use.
-
-**Maintainers** are the [`lepton` organization on hex.pm](https://hex.pm/orgs/lepton),
-named in the signed list itself (`"maintainers"`) and shown by
-`lpm official`.
-Making a package official takes two things: every hex.pm owner of the
-package must be the organization or one of its members (checked live by
-`mix lepton.official add`), *and* the list must be signed with the Lepton
-key. After the first publish, hand the package to the organization with
-`mix hex.owner transfer PACKAGE lepton` (it replaces the existing owners).
-
-To publish an official update, release the package on hex.pm, then:
-
-```sh
-mix hex.user auth        # once; the owner check reads the org's members
-mix lepton.official add lepton_grep 1.2.0 --replaces grep,egrep [--dep NAME@VERSION ...]
-cd site && git commit -am "Official: lepton_grep 1.2.0" && git push
-```
-
-`add` pins the checksums from hex.pm and refuses unless the whole
-dependency closure is pinned. `list`, `remove` and `sign` manage the
-list.
-
-**Credentials** live in the macOS Keychain (Keychain Access → search
-"lepton"), never in a repository:
-
-| Keychain service | What it is | Used by |
-|---|---|---|
-| `lepton-official-signing-key` | Ed25519 private key that signs `official.json` | `mix lepton.official` (automatically) |
-| `hex-lepton` | hex.pm API key for the `lepton` organization | `HEX_API_KEY=$(security find-generic-password -s hex-lepton -w) mix hex.publish` |
-
-On a machine without a Keychain, set `LEPTON_SIGNING_KEY` to a key file.
-Keep the Keychain backed up (iCloud Keychain or Time Machine): losing
-the signing key means a new key and a new ISO.
-
-### Services: `svc` (like systemd)
-
-`svc` (also `systemctl`) starts, stops and restarts long-running apps,
-restarts them when they fail, starts enabled ones at boot and keeps
-their logs:
-
-```sh
-svc                         # every service: state, PID, uptime
-svc start hello             # an example service that ships with Lepton
-svc status hello            # state, PID, restarts and the last log lines
-svc logs hello -f           # follow its output (also: journalctl -u hello -f)
-svc stop hello              # stops it and every process it started
-svc new clock 'while true; do date; sleep 60; done'
-svc enable --now clock      # start now and at every boot
-```
-
-A service is a unit file in systemd syntax, in
-`~/.config/lepton/services/` (yours, persistent) or
-`/etc/lepton/services/` (shipped; yours override them). `ExecStart` is
-any `lsh` command line:
-
-```ini
-[Unit]
-Description=Static web server for ~/public (port 8080)
-
-[Service]
-ExecStart=mkdir -p ~/public && httpd -p 8080 ~/public
-Restart=on-failure      # no (default) | on-failure | always
-RestartSec=2
-Environment=GREETING=hi "NAME=a b"
-WorkingDirectory=~
-TimeoutStopSec=5
-```
-
-How it behaves:
-
-- Each run is a Lepton process tree under PID 1, so it shows in `ps`.
-  Stopping a service ends the whole tree.
-- A clean exit leaves the service `inactive`; a non-zero exit or a kill
-  marks it `failed`, and `Restart=` decides whether it comes back. The
-  restarts stop after 5 starts in 10 seconds, as in systemd.
-- Logs go to `/var/lib/lepton/log/NAME.log` (rotated at 1 MiB), so on an
-  installed system they survive reboots. The enabled list is kept in
-  `/var/lib/lepton/services`.
-- Every service is stopped cleanly before power-off.
-
-`svc cat`, `svc edit` (opens `le`; editing a shipped unit makes your own
-copy), `svc is-active` / `svc is-enabled` and `svc enable|disable
-[--now]` round it out. `httpd [-p PORT] [DIR]` is a static file server
-built on OTP's `inets`, which makes a good first service.
-
-## Your dotfiles, applied
-
-The build installs your dotfiles repo into `/root` following its own
-`locations/` convention (`*.symlink` → `~/.name`, `*.directory.symlink` →
-directories). Each program then reads its native config file at runtime.
-`keys` (or `keys editor|tmux|git|shell`) prints exactly what was loaded.
-
-**Editor (`le`; also `vi`, `vim`, `nvim`, `emacs`, `emacsclient`, `e`)**:
-reads `~/.spacemacs` and `~/.spacemacs.d/{editing,keybindings}.el` with an
-Emacs Lisp reader (`Lepton.Elisp`), extracting `define-key`,
-`global-set-key`, `evil-define-key`, `setq(-default)`, `defalias` and
-`defun` forms, including inside `with-eval-after-load`.
-
-| From your config | Effect in `le` |
-|---|---|
-| `;` → `evil-ex` (normal, visual) | `;` opens the ex prompt |
-| `C-h/j/k/l` → `evil-window-*` | window navigation; with the **tmux layer**, at an edge it moves to the neighbouring tmux pane |
-| `,w` → `delete-trailing-whitespace` | normal state |
-| `,q` → `sort-lines`, `,ah` → `align-repeat` | visual state (your `align-repeat` defun is implemented) |
-| insert `C-h` backspace, `C-w` delete word, `C-n`/`C-p` lines | insert state |
-| `C-y` unbound, `C-y ,` → `my-tab-command` | indent + yasnippet expansion (snippets read from `~/.emacs.d/snippets`) |
-| evilified `/ ? n N`, `Buffer-menu` `k` | magit, dired, help and list buffers |
-| company `C-n/C-p/C-w/C-h`, `C-d o`/`C-d t` (EEx tags) | completion popup |
-| magit `C-j/C-k`, `/ n N`, `Z` stash, `zt`/`zz` | `SPC g s` status buffer |
-| `evil-escape-key-sequence "jk"`, delay 0.4 | `jk` leaves insert state |
-| `display-line-numbers-type 'relative` | relative line numbers |
-| `display-fill-column-indicator-column 101`, `fill-column 79` | indicator at column 101 |
-| `case-fold-search nil` | case-sensitive search |
-| `before-save-hook delete-trailing-whitespace` | applied on save |
-| `defalias 'sl 'sort-lines` | `:sl` / `M-x sl` |
-| `dotspacemacs-themes '(monokai …)` | Monokai palette |
-
-Spacemacs defaults are built in: the `SPC` leader tree with which-key
-popups (`SPC f f/s`, `SPC b b/d`, `SPC w /,-,d,m`, `SPC g s`, `SPC p f`,
-`SPC s s`, `SPC /`, `SPC t n/r`, `SPC x a r`, `SPC q q`, `SPC SPC` M-x,
-`SPC ?`), helm-style candidate lists, evil operators/motions/text objects
-with counts and `.`, visual modes, undo/redo, splits, and ex commands
-(`:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`). Bindings that name
-commands `le` does not implement are listed as "not supported" by `keys` /
-`SPC h d b`, never silently dropped.
-
-**Multiplexer (`tmux`)**: interprets your `~/.tmux.conf`: `set -g prefix
-C-t`, every `bind`/`unbind` (`-r` repeat, `-n` root table, `-T
-copy-mode-vi`), `\;` command chains, `mode-keys vi`, `history-limit 100000`,
-`monitor-activity`, `set-titles`, and `if-shell "uname | grep -q Linux"
-"source-file ~/.tmux.linux.conf"` (the test runs in lsh, so the Linux branch
-is taken and `Y` pipes to `xclip`). Your zoom hack (`+`/`-`, built on
-`new-window -d -n tmux-zoom` and cross-window `swap-pane`) works as written.
-`@themepack powerline/default/cyan` sets the status line colours; TPM and
-resurrect/continuum are not run. Sessions persist after `prefix d`;
-reattach with `tmux attach`.
-
-**Shell (`lsh`; also `sh`, `zsh`, `bash`)**: oh-my-zsh's emacs line editing
-(`bindkey -e`), zsh-autosuggestions (dim history suggestion, `→`/`C-f`/`C-e`
-accept), zsh-syntax-highlighting (command green/red), `C-r` search,
-completion, and `C-x C-e` to edit in `$EDITOR`. `~/.zshrc` is *imported*,
-not executed: `alias` lines (`l`, `gc`, `m`, `mc`, …), simple `export`s
-(including your BSD `LSCOLORS`, honoured by `ls`) and `setopt` are applied,
-macOS-only `if` branches are skipped and the Linux branch used, and
-`EDITOR=vim` makes `vim` an alias of `le`. oh-my-zsh `git`-plugin aliases
-come from `/etc/lshrc`, and yours override them (`gp`, `gc`). History is
-appended per command (`inc_append_history`). Scripting covers pipelines,
-`if`/`for`/`while`/`until`, `break`/`continue [N]`, `$(…)` and `$((…))`
-integer arithmetic.
-
-**Prompt**: a starship engine reads `~/.config/starship.toml` (format
-language, styles, `username show_always`, `hostname ssh_only = false`,
-`directory truncation_length = 1`, your `git_branch`/`git_status` formats).
-Your character symbols are empty strings (stripped Nerd Font glyphs), so
-starship's `❯` is used, or `>` on the Linux console.
-
-**git**: format-compatible with upstream git (loose and packed objects,
-index v2, refs, packed-refs, `.gitignore`). `~/.gitconfig` is honoured,
-including `[include] path = .gitconfig.local`, all your aliases (`gl`, `gll`
-with `--pretty=format:` placeholders, `st`, `ci`, `co`, `br`, `df`, `dc`,
-`lg`, `ls`, `ign`, `ull`/`ll`, `ush`/`sh`), `user.name`/`email`,
-`core.pager = cat`, `core.excludesfile`, and `http.sslVerify`.
-
-**GitHub**: `git clone/fetch/pull/push` speak smart HTTP to GitHub
-(side-band-64k packs, OFS/REF deltas). `gh auth login` stores a token in the
-same `~/.config/gh/hosts.yml` format GitHub's `gh` uses (or set `GH_TOKEN`),
-and `git push` uses it. `gh repo view|list|clone|create`, `gh issue
-list|view|create`, `gh pr list|view`, `gh browse`, `gh api`. In the editor,
-`SPC g s` then `P p` pushes and `F p` pulls.
-
-**iex**: loads `~/.iex.exs`, so your `MyIExHelpers` work: `sh "ls"` and
-`~x(ls -la)` run commands in lsh.
-
-## Commands
-
-`help` lists everything, and `man CMD` describes one. In summary:
-
-- **files**: `ls cat cp mv rm mkdir rmdir touch ln readlink chmod stat find tree du df basename dirname realpath`
-- **text**: `grep head tail wc sort uniq cut tr sed awk diff xargs nl rev tac less/more base64 md5sum sha1sum sha256sum sha512sum strings hexdump/xxd`
-- **shell utils**: `echo printf true false yes seq test/[ expr env printenv time watch sleep date cal clear reset resize stty tty`
-- **system**: `ps kill pgrep pkill top free uptime uname hostname whoami id mount umount dmesg lsmod modprobe rmmod sync reboot poweroff neofetch keys`
-- **services**: `svc/systemctl journalctl httpd`
-- **network**: `ip ifconfig dhclient ping nslookup/host curl/wget www`
-- **dev**: `le tmux git gh iex elixir mix erl lsh lepton-test`
-- **admin**: `lepton-install lepton-tutorial lpm wifi credits`
-- **clipboard**: `pbcopy pbpaste xclip` (shared with tmux copy mode and editor yanks; also sent to the host terminal with OSC 52)
-
-Executable `*.exs` files on `$PATH` run as Elixir scripts, and files
-starting with `#!` naming a shell run in lsh. Commands can also be added at
-runtime with `Lepton.Commands.register/2` (for example from `iex`).
 
 ## Architecture
 
@@ -437,27 +158,9 @@ dotfiles); `:network` needs internet access (DHCP, DNS, and cloning
 network is up; `:dotfiles` needs your dotfiles. Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 105 tests, 0 failures inside the VM (none excluded; run
-from the live ISO), and 97 passing plus 8 excluded (native/network) on
-the host.
-
-## Limitations
-
-- The live ISO keeps everything in RAM. An installed system persists
-  `/root` and `/var/lib/lepton` only. Changes elsewhere (for example
-  `/etc`) reset at boot.
-- Wi-Fi credentials can be saved but not used: see "First-run setup".
-- Single user (`root`), no permissions model beyond the kernel's.
-- `svc` covers `Type=simple` services only: no dependencies (`After=`,
-  `Requires=`), timers, socket activation or resource limits. Unsupported
-  unit keys are listed by `svc status`.
-- git: no three-way merge (pulls fast-forward only), no rebase, and no SSH
-  transport (HTTPS only).
-- `le` is a Spacemacs work-alike, not Emacs: no Elisp *evaluation*, so
-  layers and packages are not loaded. Unsupported bindings are reported.
-- ELF binaries can run through `Port` (stdin/stdout only, no pty).
-- The Linux framebuffer console approximates 256-colour themes. A serial
-  console in an xterm-compatible terminal renders the Monokai palette fully.
+Current results: 105 tests, 0 failures inside the VM (run from the live
+ISO; the 8 `:docs` tests are host-only), and 105 passing plus 8 excluded
+(native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -514,10 +217,11 @@ lib/lepton/            the operating system
   pkg.ex official.ex              lpm, signed official updates
   services.ex power.ex            svc service manager, power button
   selftest.ex                     lepton-test
-lib/lepton_build/      image build tooling (not shipped in the image)
-lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official
+lib/lepton_build/      image and docs build tooling (not shipped in the image)
+lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs
+docs/                  the user guides (Markdown; published to trylepton.app/docs)
 rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ...)
 test/                  ExUnit suite (host + in-OS)
 dotfiles/              your dotfiles repo (input to the build)
-site/                  the showcase website (submodule: danieljaouen.github.io)
+site/                  the website and generated docs (submodule: danieljaouen.github.io)
 ```
