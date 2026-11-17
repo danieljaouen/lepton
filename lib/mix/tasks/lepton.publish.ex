@@ -10,15 +10,17 @@ defmodule Mix.Tasks.Lepton.Publish do
        itself is never committed: release assets are free, unlimited in
        bandwidth and keep the repository small. The stable download link
        is `…/releases/latest/download/lepton.iso`.
-    3. updates the checksum and size shown on the site (`site/index.html`,
+    3. updates the checksum and size shown on the site (`index.html` in the
+       site checkout,
        elements marked `data-iso-sha256` / `data-iso-size`)
     4. puts the site-wide `<head>` tags on any page that lacks them
        (`mix lepton.site.tags`)
-    5. regenerates the documentation (`mix lepton.docs`: `site/docs` from
+    5. regenerates the documentation (`mix lepton.docs`: the site's `docs/` from
        `docs/*.md` and the code), so the docs describe this release
     6. records the new site commit in this repository's `site` submodule
        (fast-forwarding the submodule to it when the site is published from
-       a separate checkout)
+       a separate checkout; the site repository's workflow does the same on
+       GitHub; both make the same change, so a rebase drops the duplicate)
     7. commits and pushes each repository that changed, rebasing onto any
        remote changes first (e.g. edits made on GitHub)
 

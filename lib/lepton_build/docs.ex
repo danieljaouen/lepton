@@ -1,6 +1,7 @@
 defmodule LeptonBuild.Docs do
   @moduledoc """
-  Builds the documentation site (`site/docs/`) from two sources of truth:
+  Builds the documentation (`docs/` in the site checkout, see
+  `LeptonBuild.Paths`) from two sources of truth:
 
     * **guides** - `docs/*.md`, hand-written, one per topic. Front matter
       gives `title`, `order` and `summary`. A line
@@ -67,7 +68,7 @@ defmodule LeptonBuild.Docs do
     end
   end
 
-  @doc "Write the pages to `out` (e.g. `site/docs`). Returns the paths written."
+  @doc "Write the pages to `out` (e.g. `../danieljaouen.github.io/docs`). Returns the paths written."
   def write(pages, out, rev) do
     File.mkdir_p!(out)
     nav = Enum.reject(pages, &(&1.slug == "index"))
