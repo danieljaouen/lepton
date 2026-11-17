@@ -27,7 +27,8 @@ pre-built, unmodified substrate that is downloaded at build time
 
 | Layer | Source | Why it is not Elixir |
 |---|---|---|
-| Linux kernel + modules | Alpine `linux-virt` (v3.24) | the BEAM needs a kernel |
+| Linux kernel + modules + Wi-Fi firmware | Alpine `linux-lts` (v3.24), only the modules Lepton uses | the BEAM needs a kernel |
+| `wpa_supplicant` (+ `hostapd` for the self-tests) | Alpine (musl, in `/usr/lib/musl`) | WPA authentication for Wi-Fi |
 | ERTS / OTP 29.1.2 | Hex.pm prebuilt for arm64 | "Erlang, and so on down the line" |
 | glibc, libstdc++, zlib, libtinfo, libcrypto | Ubuntu 24.04 arm64 | ERTS links against them |
 | GRUB EFI | Debian `grub-efi-arm64-unsigned` | firmware → kernel loader |
@@ -187,9 +188,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 115 tests, 0 failures inside the VM (run from the live
+Current results: 120 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-119 passing plus 9 excluded (native/network) on the host.
+123 passing plus 10 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -244,7 +245,8 @@ lib/lepton/            the operating system
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
-  setup.ex tutorial.ex            first-run setup (Wi-Fi prompt off), tutorial
+  wifi.ex                         Wi-Fi: saved networks, wpa_supplicant manager
+  setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates
   services.ex power.ex            svc service manager, power button
   selftest.ex                     lepton-test

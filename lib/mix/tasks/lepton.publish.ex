@@ -348,7 +348,7 @@ defmodule Mix.Tasks.Lepton.Publish do
       case File.read("_build/lepton/cache/sources.lock") do
         {:ok, text} ->
           {lock, _} = Code.eval_string(text)
-          lock["linux-virt"].version |> String.split("-") |> hd()
+          lock["linux-lts"].version |> String.split("-") |> hd()
 
         _ ->
           "?"

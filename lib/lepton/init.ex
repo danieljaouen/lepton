@@ -19,8 +19,13 @@ defmodule Lepton.Init do
 
   @consoles ["/dev/tty1", "/dev/ttyAMA0", "/dev/hvc0"]
 
+  # Bus drivers every virtio device needs (modules in linux-lts).
+  @transports ["virtio_pci", "virtio_mmio"]
+
   @drivers [
     # display: see load_display/0
+    # consoles: hvc0 under Apple Virtualization
+    "virtio_console",
     # keyboards: USB (UTM/QEMU default) and virtio-input (Apple Virtualization)
     "xhci-pci",
     "usbhid",
@@ -40,7 +45,8 @@ defmodule Lepton.Init do
     "uas",
     "sd_mod",
     "nvme",
-    "ext4"
+    "ext4",
+    "ext2"
   ]
 
   def main do
@@ -114,9 +120,12 @@ defmodule Lepton.Init do
   end
 
   defp load_drivers do
+    Enum.each(@transports, &modprobe/1)
     load_display()
-
     Enum.each(@drivers, &modprobe/1)
+    # Drivers by hardware ID: USB/SDIO Wi-Fi adapters (Lepton.Wifi keeps
+    # doing this for devices plugged in later).
+    Lepton.Kmod.load_for_hardware()
   end
 
   # The console must live on the device the VM window shows. With a virtio

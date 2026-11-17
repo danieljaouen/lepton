@@ -9,6 +9,7 @@ defmodule Lepton.Application do
       Lepton.Services,
       Lepton.Clipboard,
       Lepton.Net,
+      Lepton.Wifi,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},
       {DynamicSupervisor, name: Lepton.SessionSupervisor, strategy: :one_for_one}
     ]

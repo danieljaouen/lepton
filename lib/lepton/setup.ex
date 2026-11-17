@@ -1,81 +1,11 @@
-defmodule Lepton.Wifi do
-  @moduledoc """
-  Wi-Fi credentials and wireless interface detection.
-
-  Credentials are stored in `/var/lib/lepton/wpa_supplicant.conf` (the
-  wpa_supplicant format, so they are portable) with the passphrase
-  replaced by its WPA PSK: PBKDF2-HMAC-SHA1(passphrase, ssid, 4096, 32),
-  exactly what `wpa_passphrase` computes.
-
-  Association is not implemented yet: the `linux-virt` kernel Lepton
-  ships has no 802.11 stack (cfg80211/mac80211) or Wi-Fi drivers, and
-  UTM/QEMU virtual machines expose no wireless hardware - their network
-  is virtio ethernet, which Lepton configures with DHCP. Saved
-  credentials are used as soon as a kernel with Wi-Fi support is added.
-  """
-
-  alias Lepton.Persist
-
-  def conf_path, do: Persist.state_path("wpa_supplicant.conf")
-
-  def wireless_interfaces do
-    case File.ls("/sys/class/net") do
-      {:ok, names} -> Enum.filter(names, &(File.dir?("/sys/class/net/#{&1}/wireless") or File.dir?("/sys/class/net/#{&1}/phy80211")))
-      _ -> []
-    end
-  end
-
-  def psk(ssid, passphrase), do: :crypto.pbkdf2_hmac(:sha, passphrase, ssid, 4096, 32) |> Base.encode16(case: :lower)
-
-  def save(ssid, passphrase) do
-    network =
-      if passphrase == "",
-        do: "network={\n\tssid=\"#{ssid}\"\n\tkey_mgmt=NONE\n}\n",
-        else: "network={\n\tssid=\"#{ssid}\"\n\tpsk=#{psk(ssid, passphrase)}\n}\n"
-
-    File.mkdir_p!(Path.dirname(conf_path()))
-    File.write!(conf_path(), "# written by Lepton (wifi setup)\nctrl_interface=/run/wpa_supplicant\n" <> network)
-    File.chmod(conf_path(), 0o600)
-    :ok
-  end
-
-  def networks do
-    case File.read(conf_path()) do
-      {:ok, text} -> for [_, s] <- Regex.scan(~r/ssid="([^"]*)"/, text), do: s
-      _ -> []
-    end
-  end
-
-  def configured?, do: networks() != [] or Persist.flag?("wifi-skipped")
-
-  def status_lines do
-    wired =
-      for {iface, l} <- Lepton.Net.leases(), do: "wired #{iface}: #{Lepton.Net.format_ip(l.ip)}/#{l.prefix} (DHCP)"
-
-    wifi =
-      case wireless_interfaces() do
-        [] -> ["wireless: no Wi-Fi hardware detected (normal in UTM/QEMU)"]
-        list -> Enum.map(list, &"wireless #{&1}: present (association not supported by this kernel yet)")
-      end
-
-    saved = case networks() do
-      [] -> []
-      ns -> ["saved Wi-Fi networks: " <> Enum.join(ns, ", ")]
-    end
-
-    (if wired == [], do: ["wired: no DHCP lease yet"], else: wired) ++ wifi ++ saved
-  end
-end
-
 defmodule Lepton.Setup do
   @moduledoc """
   First-run setup shown on the consoles before the login shell:
 
-    1. **Wi-Fi** - currently disabled (`@wifi_prompt false`) because Lepton
-       cannot join Wi-Fi networks yet; when enabled: at every startup of the live ISO, and on an installed
-       system until answered (Enter skips; it is skipped automatically
-       after 30 seconds so headless boots are not blocked). `wifi setup`
-       re-runs it.
+    1. **Wi-Fi** - when the machine has Wi-Fi hardware and no network is
+       saved: at every startup of the live ISO, and on an installed system
+       until answered (Enter skips; it is skipped automatically after 30
+       seconds so headless boots are not blocked). `wifi setup` re-runs it.
     2. **Tutorial** - offered once, on the first boot after installation.
 
   Each prompt is answered once per boot: when two consoles are attached
@@ -86,13 +16,10 @@ defmodule Lepton.Setup do
 
   @timeout_s 30
 
-  # The automatic Wi-Fi prompt stays off until association works (the
-  # kernel has no 802.11 stack yet). `wifi setup` still saves credentials.
-  @wifi_prompt false
-
   def run(ctx) do
     if Lepton.Sys.native?() and ctx.tty do
-      if @wifi_prompt, do: wifi(ctx)
+      # Virtual machines have no Wi-Fi hardware: no prompt there.
+      if Wifi.wireless_interfaces() != [], do: wifi(ctx)
       tutorial(ctx)
     end
 
@@ -128,8 +55,8 @@ defmodule Lepton.Setup do
         done!(:wifi)
 
         out(ctx, """
-        Saved credentials for "#{ssid}" to #{Wifi.conf_path()} (stored as a WPA PSK).\r
-        #{if Wifi.wireless_interfaces() == [], do: "No Wi-Fi hardware is present, so the wired connection stays in use.", else: "This kernel has no 802.11 stack yet, so the network cannot be joined; the credentials are kept for when it does."}\r
+        Saved "#{ssid}" to #{Wifi.conf_path()} (stored as a WPA PSK).\r
+        #{if Wifi.wireless_interfaces() == [], do: "No Wi-Fi hardware yet: Lepton connects as soon as an adapter appears.", else: "Connecting in the background; `wifi` shows the status."}\r
         \r
         """)
 
@@ -148,6 +75,9 @@ defmodule Lepton.Setup do
       end
     end
   end
+
+  @doc "Read a line without echoing it (`*` per character); nil if cancelled."
+  def read_secret(ctx, prompt), do: read(ctx, prompt, :secret, false, true)
 
   # Line input with an optional timeout; aborts when another console has
   # already answered `key`.

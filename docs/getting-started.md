@@ -98,8 +98,10 @@ Logging out with `C-d` just logs the console back in; it reminds you that
 - **Tutorial.** Lepton offers an interactive tour once, on the first boot
   after installation. `lepton-tutorial` runs it any time; see
   [the tutorial](tutorial.html) for the lessons.
-- **Wi-Fi.** The Wi-Fi prompt is turned off for now: Lepton can't join
-  Wi-Fi networks yet. See [Networking](networking.html#wi-fi).
+- **Wi-Fi.** On a machine with a Wi-Fi adapter, Lepton asks for a network
+  at startup until one is saved (Enter skips). Virtual machines have no
+  Wi-Fi hardware, so you won't see it there. See
+  [Networking](networking.html#wi-fi).
 
 ## Where next
 

@@ -40,14 +40,43 @@ over HTTP and HTTPS and can save to a file with `-o`.
 
 ## Wi-Fi
 
-Lepton can't join Wi-Fi networks yet. The shipped kernel has no 802.11
-stack or Wi-Fi drivers, and UTM/QEMU virtual machines have no wireless
-hardware (their network is virtio ethernet). So the automatic Wi-Fi
-prompt at startup is turned off.
+Lepton joins WPA2 and open Wi-Fi networks, with the kernel's 802.11 stack
+and `wpa_supplicant`:
 
-You can still save credentials for a future kernel: `wifi setup` asks for
-them, `wifi` shows the status and `wifi forget` clears them. They're
-stored in wpa_supplicant format in `/var/lib/lepton/wpa_supplicant.conf`,
-with the passphrase kept only as its WPA PSK.
+```sh
+wifi scan                       # networks in range: signal, security, band
+wifi connect MyNetwork          # asks for the passphrase, joins, then DHCP
+wifi connect Cafe ""            # an open network
+wifi                            # status: connected network and address
+wifi forget MyNetwork           # (or `wifi forget` for all)
+```
+
+Saved networks are kept in `/var/lib/lepton/wpa_supplicant.conf` (in
+wpa_supplicant's format) with each passphrase stored only as its WPA PSK.
+An installed system keeps them and reconnects at boot. With Wi-Fi hardware
+and nothing saved, Lepton asks for a network at startup (`wifi setup` asks
+again).
+
+### Hardware
+
+Virtual machines have no Wi-Fi of their own: their network is virtio
+ethernet, configured automatically. To use Wi-Fi in UTM, plug a USB Wi-Fi
+adapter into the Mac and pass it to the VM. Check that **Input → USB
+Sharing** is on in the VM's settings, then click the **USB** icon in the
+VM's toolbar while it runs and pick the adapter. Lepton loads the driver
+as soon as it appears, with no restart. Drivers are included for common
+USB adapters:
+
+- MediaTek (MT7601U, MT7610U, MT7612U, MT7921AU);
+- Realtek (`rtl8xxxu`, `rtw88`, `rtw89`: RTL8188/8192, 8811/8812/8814,
+  8821/8822, 8851/8852 USB);
+- Ralink (RT2800/RT3070/RT5370);
+- Atheros (AR9271, AR7010, AR9170);
+- Broadcom's `brcmfmac` (Raspberry Pi's built-in Wi-Fi).
+
+Their firmware is included.
+
+`wifi` reports when no adapter is present. Enterprise (802.1X) and
+WPA3-only networks aren't supported, and neither are hidden networks.
 
 <!-- commands: ip ifconfig dhclient ping nslookup curl www httpd wifi -->

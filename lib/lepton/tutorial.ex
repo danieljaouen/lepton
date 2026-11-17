@@ -105,8 +105,8 @@ defmodule Lepton.Tutorial do
       {"Network",
        """
        The network comes up with DHCP. `ip addr`, `ping`, `curl` and the
-       text browser `www` are available; `wifi` shows Wi-Fi status and
-       `wifi setup` saves credentials.
+       text browser `www` are available. With a Wi-Fi adapter, `wifi scan`
+       lists networks and `wifi connect NAME` joins one.
        """, "ip addr"},
       {"Help",
        """

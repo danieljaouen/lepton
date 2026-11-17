@@ -17,11 +17,36 @@ defmodule LeptonBuild.Sources do
 
   @alpine_mirror "https://dl-cdn.alpinelinux.org/alpine"
   @alpine_branch "v3.24"
+  # linux-lts rather than linux-virt: the same kernel, built with the
+  # 802.11 stack and Wi-Fi drivers. The image keeps only the modules Lepton
+  # uses (LeptonBuild.Image).
   @alpine_packages [
-    {"main", "linux-virt"},
+    {"main", "linux-lts"},
     {"main", "busybox-static"},
     {"main", "ca-certificates-bundle"}
   ]
+
+  # Wi-Fi: wpa_supplicant (and hostapd, for the self-tests' simulated access
+  # point), the musl libraries they link against, the regulatory database,
+  # and firmware for the USB/SDIO Wi-Fi drivers in the image. Only the
+  # firmware files those drivers request are copied into the image.
+  @alpine_wifi_packages [
+    {"main", "musl"},
+    {"main", "libcrypto3"},
+    {"main", "libssl3"},
+    {"main", "libnl3"},
+    {"main", "pcsc-lite-libs"},
+    {"main", "dbus-libs"},
+    {"main", "wpa_supplicant"},
+    {"main", "hostapd"},
+    {"main", "wireless-regdb"}
+  ]
+
+  @alpine_firmware ~w(mediatek rtw88 rtw89 rtlwifi realtek ath9k_htc brcm cypress other)
+                   |> Enum.map(&{"main", "linux-firmware-" <> &1})
+
+  def wifi_packages, do: Enum.map(@alpine_wifi_packages, &elem(&1, 1))
+  def firmware_packages, do: Enum.map(@alpine_firmware, &elem(&1, 1))
 
   @ubuntu_mirror "http://ports.ubuntu.com/ubuntu-ports"
   @ubuntu_suites ["noble-updates", "noble"]
@@ -43,7 +68,7 @@ defmodule LeptonBuild.Sources do
     lock =
       Map.new(
         [fetch_otp()] ++
-          Enum.map(@alpine_packages, &fetch_alpine/1) ++
+          Enum.map(@alpine_packages ++ @alpine_wifi_packages ++ @alpine_firmware, &fetch_alpine/1) ++
           fetch_debs(@ubuntu_mirror, @ubuntu_suites, @ubuntu_packages, "ubuntu") ++
           fetch_debs(@debian_mirror, [@debian_suite], @debian_packages, "debian")
       )

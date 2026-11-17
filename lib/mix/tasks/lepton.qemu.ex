@@ -142,8 +142,8 @@ defmodule LeptonBuild.QemuHarness do
     end
   end
 
-  # Skip the first-run prompts: Wi-Fi (Enter) and, after installation, the
-  # tutorial offer ("n").
+  # Skip the first-run prompts: Wi-Fi (Enter; shown only with Wi-Fi
+  # hardware) and, after installation, the tutorial offer ("n").
   defp answer_setup(port, log, deadline) do
     cond do
       Regex.match?(~r/SSID[^:]*: $/, strip_ansi(log)) ->

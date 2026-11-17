@@ -9,8 +9,9 @@ summary: What Lepton doesn't do yet.
 - The live ISO keeps everything in RAM. An installed system persists
   `/root` and `/var/lib/lepton` only; changes elsewhere (for example
   `/etc`) reset at boot.
-- Wi-Fi credentials can be saved but not used: the kernel has no Wi-Fi
-  support and the virtual machines have no wireless hardware.
+- Wi-Fi needs a supported adapter: virtual machines have no wireless
+  hardware (pass a USB adapter through). WPA2 and WPA2/WPA3 networks
+  work; WPA3-only and enterprise (802.1X) networks don't.
 - Single user (`root`), with no permissions model beyond the kernel's.
 - Services are simple ones only: no dependencies (`After=`,
   `Requires=`), timers, socket activation or resource limits.

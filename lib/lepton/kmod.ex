@@ -4,6 +4,10 @@ defmodule Lepton.Kmod do
 
   Dependency resolution reads `modules.dep` the same way kmod does; the final
   `finit_module(2)` goes through `Lepton.Sys.insmod/2`.
+
+  There is no udev: `load_for_hardware/0` matches the `modalias` of every
+  USB and SDIO device against `modules.alias` and loads the drivers, which
+  is how Wi-Fi adapters (including ones plugged in later) get theirs.
   """
 
   def modules_dir do
@@ -84,5 +88,74 @@ defmodule Lepton.Kmod do
       {_, 0} -> :ok
       {out, _} -> {:error, String.trim(out)}
     end
+  end
+
+  @hotplug_buses ~w(usb sdio)
+
+  @doc "Load the drivers for USB and SDIO devices present now. Returns the modules loaded."
+  def load_for_hardware do
+    table = alias_table()
+
+    device_aliases()
+    |> Enum.flat_map(&modules_for(&1, table))
+    |> Enum.uniq()
+    |> Enum.reject(&loaded?/1)
+    |> Enum.filter(&(modprobe(&1) == :ok))
+  end
+
+  def device_aliases do
+    for bus <- @hotplug_buses,
+        file <- Path.wildcard("/sys/bus/#{bus}/devices/*/modalias"),
+        {:ok, text} <- [File.read(file)],
+        alias = String.trim(text),
+        alias != "",
+        uniq: true,
+        do: alias
+  end
+
+  @doc "Modules whose aliases match a device's `modalias`."
+  def modules_for(modalias, table) do
+    for {re, mod} <- table, Regex.match?(re, modalias), uniq: true, do: mod
+  end
+
+  @doc "`modules.alias` as `[{regex, module}]` (cached per kernel)."
+  def alias_table do
+    key = {__MODULE__, :aliases, modules_dir()}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        table =
+          case File.read(Path.join(modules_dir(), "modules.alias")) do
+            {:ok, text} -> parse_aliases(text)
+            _ -> []
+          end
+
+        :persistent_term.put(key, table)
+        table
+
+      table ->
+        table
+    end
+  end
+
+  def parse_aliases(text) do
+    for line <- String.split(text, "\n"),
+        ["alias", pattern, mod] <- [String.split(line)],
+        String.starts_with?(pattern, Enum.map(@hotplug_buses, &(&1 <> ":"))),
+        do: {glob_regex(pattern), normalize(mod)}
+  end
+
+  # fnmatch(3) patterns as used in modules.alias: `*`, `?` and `[...]`.
+  defp glob_regex(pattern) do
+    body =
+      Regex.split(~r/(\*|\?|\[[^\]]*\])/, pattern, include_captures: true, trim: true)
+      |> Enum.map_join(fn
+        "*" -> ".*"
+        "?" -> "."
+        "[" <> _ = set -> set
+        text -> Regex.escape(text)
+      end)
+
+    Regex.compile!("\\A" <> body <> "\\z")
   end
 end
