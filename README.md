@@ -51,8 +51,8 @@ zboot unpacker live in `lib/lepton_build`.
 ## Download
 
 A prebuilt ISO is published at
-[danieljaouen/lepton.iso](https://github.com/danieljaouen/lepton.iso)
-([direct download](https://github.com/danieljaouen/lepton.iso/raw/main/lepton.iso)),
+[danieljaouen/lepton.iso releases](https://github.com/danieljaouen/lepton.iso/releases)
+([direct download](https://github.com/danieljaouen/lepton.iso/releases/latest/download/lepton.iso)),
 and the project site is <https://trylepton.app/>.
 
 ## Quick start

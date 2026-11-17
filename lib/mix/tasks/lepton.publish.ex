@@ -4,8 +4,12 @@ defmodule Mix.Tasks.Lepton.Publish do
   Publishes a new Lepton ISO in one step:
 
     1. builds `out/lepton.iso` (`mix lepton.iso`; builds are reproducible)
-    2. copies it into the ISO repository and regenerates `SHA256SUMS` and
-       `README.md` (checksum, size, source revision, versions)
+    2. creates a **GitHub Release** on the ISO repository (tag
+       `lepton-REV`) with `lepton.iso` and `SHA256SUMS` attached, and
+       commits the regenerated `SHA256SUMS` and `README.md` there. The ISO
+       itself is never committed: release assets are free, unlimited in
+       bandwidth and keep the repository small. The stable download link
+       is `…/releases/latest/download/lepton.iso`.
     3. updates the checksum and size shown on the site (`site/index.html`,
        elements marked `data-iso-sha256` / `data-iso-size`)
     4. records the new site commit in this repository's `site` submodule
@@ -20,19 +24,22 @@ defmodule Mix.Tasks.Lepton.Publish do
       mix lepton.publish --no-push       # commit locally only
 
   Options: `--iso-repo PATH` (default `../lepton.iso`), `--site PATH`
-  (default `site`), `--allow-dirty` (publish from uncommitted changes).
+  (default `site`), `--allow-dirty` (publish from uncommitted changes),
+  `--force` (publish even if the checksum is unchanged).
+
+  Creating releases needs a GitHub token: `GH_TOKEN`/`GITHUB_TOKEN`, or a
+  logged-in GitHub CLI (`gh auth login`).
   """
   use Mix.Task
 
   @iso "out/lepton.iso"
-  @download "https://github.com/danieljaouen/lepton.iso/raw/main/lepton.iso"
   @trailer "\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n"
 
   @impl true
   def run(args) do
     {opts, _} =
       OptionParser.parse!(args,
-        strict: [build: :boolean, dry_run: :boolean, push: :boolean, iso_repo: :string, site: :string, allow_dirty: :boolean]
+        strict: [build: :boolean, dry_run: :boolean, push: :boolean, iso_repo: :string, site: :string, allow_dirty: :boolean, force: :boolean]
       )
 
     iso_repo = Path.expand(opts[:iso_repo] || "../lepton.iso")
@@ -63,11 +70,12 @@ defmodule Mix.Tasks.Lepton.Publish do
 
     published = published_sha(iso_repo)
 
-    if published == sha do
+    if published == sha and opts[:force] != true do
       info("the published ISO already has this checksum - nothing to do")
     else
       info("published checksum: #{published || "(none)"} -> updating")
-      publish_iso(iso_repo, sha, bytes, mib, rev, dry, push)
+      unless dry or push, do: Mix.raise("--no-push cannot be combined with publishing a release")
+      publish_iso(iso_repo, sha, bytes, mib, rev, dry)
       site_changed = update_site(site, sha, mib, rev, dry, push)
       if site_changed and not dry, do: update_submodule(site, rev, push)
       info(if dry, do: "dry run complete - nothing was written", else: "published")
@@ -76,14 +84,114 @@ defmodule Mix.Tasks.Lepton.Publish do
 
   # -- steps ------------------------------------------------------------------------
 
-  defp publish_iso(repo, sha, bytes, mib, rev, dry, push) do
+  defp publish_iso(repo, sha, bytes, mib, rev, dry) do
+    {owner, name} = github_repo(repo)
+    tag = "lepton-#{rev}"
+
     if dry do
-      info("would copy #{@iso} to #{repo} and regenerate SHA256SUMS + README.md")
+      info("would create release #{tag} on #{owner}/#{name} with lepton.iso + SHA256SUMS, and regenerate SHA256SUMS + README.md")
     else
-      File.cp!(@iso, Path.join(repo, "lepton.iso"))
-      File.write!(Path.join(repo, "SHA256SUMS"), "#{sha}  lepton.iso\n")
-      File.write!(Path.join(repo, "README.md"), iso_readme(sha, bytes, mib, rev))
-      commit_and_push(repo, ["lepton.iso", "SHA256SUMS", "README.md"], "Lepton OS ISO built from danieljaouen/lepton@#{rev}", push)
+      token = token!()
+      sums = "#{sha}  lepton.iso\n"
+      body = "Lepton OS built from danieljaouen/lepton@#{rev}.\n\nSHA-256: `#{sha}`\n\nSee the README for how to run it."
+      release = ensure_release(token, owner, name, tag, "Lepton OS (lepton@#{rev})", body)
+      upload_asset(token, release, "lepton.iso", File.read!(@iso))
+      upload_asset(token, release, "SHA256SUMS", sums)
+      info("released #{release["html_url"]}")
+
+      # The repository keeps only metadata; the ISO lives in releases.
+      if git(repo, ["ls-files", "--error-unmatch", "lepton.iso"], allow_fail: true) != :failed do
+        git(repo, ["rm", "-q", "--cached", "lepton.iso"])
+      end
+
+      File.rm(Path.join(repo, "lepton.iso"))
+      File.write!(Path.join(repo, ".gitignore"), "lepton.iso\n")
+      File.write!(Path.join(repo, "SHA256SUMS"), sums)
+      File.write!(Path.join(repo, "README.md"), iso_readme(sha, bytes, mib, rev, owner, name))
+      commit_and_push(repo, [".gitignore", "SHA256SUMS", "README.md"], "Release #{tag}: SHA-256 #{String.slice(sha, 0, 12)}", true)
+    end
+  end
+
+  # -- GitHub Releases API ------------------------------------------------------------
+
+  defp github_repo(repo) do
+    url = git(repo, ["remote", "get-url", "origin"]) |> String.trim()
+
+    case Regex.run(~r{github\.com[:/]([^/]+)/(.+?)(\.git)?$}, url) do
+      [_, owner, name | _] -> {owner, name}
+      _ -> Mix.raise("#{repo}: origin #{url} is not a GitHub repository")
+    end
+  end
+
+  def download_url(owner, name), do: "https://github.com/#{owner}/#{name}/releases/latest/download/lepton.iso"
+
+  defp token! do
+    from_gh =
+      if System.find_executable("gh") do
+        case System.cmd("gh", ["auth", "token"], stderr_to_stdout: true) do
+          {t, 0} -> String.trim(t)
+          _ -> nil
+        end
+      end
+
+    System.get_env("GH_TOKEN") || System.get_env("GITHUB_TOKEN") || from_gh ||
+      Mix.raise("creating a GitHub release needs a token: run `gh auth login` (or set GH_TOKEN)")
+  end
+
+  defp ensure_release(token, owner, name, tag, title, body) do
+    payload = JSON.encode!(%{tag_name: tag, target_commitish: "main", name: title, body: body, make_latest: "true"})
+
+    case api(token, :post, "https://api.github.com/repos/#{owner}/#{name}/releases", payload, "application/json") do
+      {201, release} ->
+        release
+
+      {422, _} ->
+        # The tag already has a release (re-publishing the same revision).
+        {200, release} = api(token, :get, "https://api.github.com/repos/#{owner}/#{name}/releases/tags/#{tag}")
+        release
+
+      {status, resp} ->
+        Mix.raise("creating release #{tag} failed (HTTP #{status}): #{inspect(resp)}")
+    end
+  end
+
+  defp upload_asset(token, release, file, data) do
+    # Replace an existing asset of the same name.
+    for %{"name" => ^file, "url" => url} <- release["assets"] || [] do
+      api(token, :delete, url)
+    end
+
+    base = release["upload_url"] |> String.replace(~r/\{.*\}$/, "")
+    info("uploading #{file} (#{div(byte_size(data), 1_048_576)} MiB)")
+
+    case api(token, :post, base <> "?name=" <> URI.encode_www_form(file), data, "application/octet-stream") do
+      {201, _} -> :ok
+      {status, resp} -> Mix.raise("uploading #{file} failed (HTTP #{status}): #{inspect(resp)}")
+    end
+  end
+
+  defp api(token, method, url, body \\ nil, type \\ nil) do
+    :inets.start()
+    :ssl.start()
+
+    headers = [
+      {~c"authorization", String.to_charlist("Bearer " <> token)},
+      {~c"accept", ~c"application/vnd.github+json"},
+      {~c"x-github-api-version", ~c"2022-11-28"},
+      {~c"user-agent", ~c"lepton-publish"}
+    ]
+
+    request =
+      if body,
+        do: {String.to_charlist(url), headers, String.to_charlist(type), body},
+        else: {String.to_charlist(url), headers}
+
+    ssl = [verify: :verify_peer, cacerts: :public_key.cacerts_get(), customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]]
+
+    case :httpc.request(method, request, [ssl: ssl, timeout: 900_000], body_format: :binary) do
+      {:ok, {{_, status, _}, _, ""}} -> {status, nil}
+      {:ok, {{_, status, _}, _, resp}} -> {status, JSON.decode!(resp)}
+      {:error, reason} -> Mix.raise("GitHub API #{method} #{url}: #{inspect(reason)}")
     end
   end
 
@@ -194,8 +302,9 @@ defmodule Mix.Tasks.Lepton.Publish do
     {kernel, otp, System.version()}
   end
 
-  defp iso_readme(sha, _bytes, mib, rev) do
+  defp iso_readme(sha, _bytes, mib, rev, owner, name) do
     {kernel, otp, elixir} = versions()
+    download = download_url(owner, name)
 
     """
     # Lepton OS - bootable ISO
@@ -210,11 +319,13 @@ defmodule Mix.Tasks.Lepton.Publish do
     | SHA-256 | `#{sha}` |
     | Built from | danieljaouen/lepton @ `#{rev}` (Linux #{kernel}, Erlang/OTP #{otp}, Elixir #{elixir}) |
 
-    This repository is updated by `mix lepton.publish` in the source repository.
+    The ISO is attached to this repository's
+    [Releases](https://github.com/#{owner}/#{name}/releases); every release is
+    published by `mix lepton.publish` in the source repository.
 
     ## Download
 
-        curl -LO #{@download}
+        curl -LO #{download}
         shasum -a 256 -c SHA256SUMS
 
     ## Run it
