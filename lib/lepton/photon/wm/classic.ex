@@ -52,7 +52,8 @@ defmodule Lepton.Photon.WM.Classic do
   ]
 
   @impl true
-  def init(w, h), do: %{w: w, h: h, menu: false, hover: nil, selected: nil}
+  # The taskbar is on the primary display (`bar_w` wide); the desktop may extend past it.
+  def init(w, h, {pw, _ph}), do: %{w: w, h: h, bar_w: pw, menu: false, hover: nil, selected: nil}
 
   # -- frames ----------------------------------------------------------------------------------
 
@@ -147,7 +148,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def signature(s, info) do
-    {s.menu, s.hover, s.selected, s.w, s.h, clock(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
+    {s.menu, s.hover, s.selected, s.w, s.h, s.bar_w, clock(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
   end
 
   @impl true
@@ -187,7 +188,7 @@ defmodule Lepton.Photon.WM.Classic do
   # -- the taskbar --------------------------------------------------------------------------------
 
   defp taskbar(s, info) do
-    w = s.w
+    w = s.bar_w
     face = Render.rgb(@face)
 
     c =
@@ -295,7 +296,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def click(s, info, {px, py} = pos, _button, double?) do
-    on_bar? = py >= s.h - @taskbar
+    on_bar? = py >= s.h - @taskbar and px < s.bar_w
 
     cond do
       s.menu and menu_hit(s, pos) not in [nil, :none] ->
@@ -313,7 +314,7 @@ defmodule Lepton.Photon.WM.Classic do
         click(%{s | menu: false, hover: nil}, info, pos, 0, double?)
 
       on_bar? ->
-        case Enum.find(task_buttons(info, s.w), fn {_, x, bw} -> px >= x and px < x + bw end) do
+        case Enum.find(task_buttons(info, s.bar_w), fn {_, x, bw} -> px >= x and px < x + bw end) do
           {win, _, _} when win.focused and not win.minimized -> {:handled, s, [{:minimize, win.key}]}
           {win, _, _} -> {:handled, s, [{:focus, win.key}]}
           nil -> {:handled, s, []}

@@ -10,6 +10,10 @@ defmodule Lepton.Photon do
 
   * **Output**: the framebuffer (`Lepton.Photon.Output`); only damaged
     rectangles are recomposed and written, at most once a frame (60 Hz).
+    With more than one display (a second virtual display, a USB display
+    adapter), the desktop extends across them or is mirrored on them
+    (`Lepton.Photon.Screen`); displays that come and go are picked up
+    every two seconds.
   * **Windows**: server-side decorations (title bar, close button,
     border), click to focus and raise, drag the title bar (or Alt+drag
     anywhere) to move, drag the bottom-right corner (or Alt+right-drag) to
@@ -30,12 +34,13 @@ defmodule Lepton.Photon do
 
   require Logger
 
-  alias Lepton.Photon.{Output, Render, WM}
+  alias Lepton.Photon.{Output, Render, Screen, WM}
   alias Lepton.Wayland.{Conn, Keymap, Protocol, Wire}
 
   import Bitwise
 
   @frame_ms 16
+  @display_check 2_000
   @double_click_ms 400
 
   @globals [
@@ -118,7 +123,8 @@ defmodule Lepton.Photon do
     wm_state: nil,
     wm_sig: nil,
     wm_layers: {[], []},
-    last_click: nil
+    last_click: nil,
+    auto_displays: false
   ]
 
   # -- API ---------------------------------------------------------------------------------
@@ -126,7 +132,10 @@ defmodule Lepton.Photon do
   @doc """
   Start Photon. Options:
 
-    * `:output` - a `Lepton.Photon.Output` (required)
+    * `:output` - a `Lepton.Photon.Output` (required): the primary display
+    * `:displays` - more displays: a list of `Output`s, or `:auto` for
+      every framebuffer, including ones plugged in later (default: none)
+    * `:mode` - `:extend` (default) or `:mirror` for more than one display
     * `:socket` - the socket path (required)
     * `:input` - `:evdev` to read the kernel's input devices (default: none)
     * `:spawn` - a function of options (`:command`) that opens a terminal
@@ -153,6 +162,12 @@ defmodule Lepton.Photon do
   @doc "The composed screen as a PNG."
   def screenshot(server), do: GenServer.call(server, :screenshot, 30_000)
 
+  @doc "The displays: `%{mode, displays: [%{path, driver, width, height, x, y}]}`."
+  def displays(server), do: GenServer.call(server, :displays)
+
+  @doc "Extend the desktop across the displays (`:extend`) or mirror it (`:mirror`)."
+  def display_mode(server, mode) when mode in [:extend, :mirror], do: GenServer.call(server, {:display_mode, mode}, 30_000)
+
   @doc "Wait until everything damaged so far is on the output."
   def sync(server), do: GenServer.call(server, :sync, 10_000)
 
@@ -162,6 +177,14 @@ defmodule Lepton.Photon do
   def init(opts) do
     Process.flag(:trap_exit, true)
     out = Output.open(Keyword.fetch!(opts, :output))
+    extra =
+      case opts[:displays] do
+        :auto -> open_displays(Output.framebuffers() -- [out.path])
+        list when is_list(list) -> Enum.map(list, &Output.open/1)
+        nil -> []
+      end
+
+    screen = Screen.new([out | extra], opts[:mode] || :extend)
     path = Keyword.fetch!(opts, :socket)
 
     case Conn.listen(path) do
@@ -171,19 +194,23 @@ defmodule Lepton.Photon do
         if opts[:input] == :evdev, do: Lepton.Photon.Input.start(me)
         if opts[:session], do: Process.monitor(opts[:session])
 
+        if opts[:displays] == :auto, do: Process.send_after(self(), :displays, @display_check)
+        Enum.each(extra, &Output.clear/1)
+
         if opts[:console] do
           Output.text_console(false)
           if tty = Lepton.TTY.whereis("/dev/tty1"), do: Lepton.TTY.mute(tty, me)
         end
 
         st = %__MODULE__{
-          output: out,
+          output: screen,
+          auto_displays: opts[:displays] == :auto,
           socket_path: path,
           listener: listener,
           keymap: keymap_file(path),
           spawn: opts[:spawn],
           wm: WM.get(opts[:wm]),
-          wm_state: WM.get(opts[:wm]).init(out.width, out.height),
+          wm_state: WM.get(opts[:wm]).init(screen.width, screen.height, {out.width, out.height}),
           pointer: {out.width / 2, out.height / 2},
           started: System.monotonic_time(:millisecond),
           owner: opts[:owner],
@@ -192,7 +219,7 @@ defmodule Lepton.Photon do
 
         st = %{st | background: st.wm.background(st.wm_state)}
         Process.send_after(self(), :wm_tick, 5000)
-        {:ok, damage(st, {0, 0, out.width, out.height})}
+        {:ok, damage(st, {0, 0, screen.width, screen.height})}
 
       {:error, reason} ->
         {:stop, "cannot listen on #{path}: #{inspect(reason)}"}
@@ -214,7 +241,8 @@ defmodule Lepton.Photon do
     for {sock, _} <- st.clients, do: :socket.close(sock)
     :socket.close(st.listener)
     File.rm(st.socket_path)
-    # The console comes back as it was (the TTY unmutes when we exit).
+    # The other displays go dark; the console comes back as it was (the TTY unmutes when we exit).
+    if st.auto_displays, do: Enum.each(tl(Screen.outputs(st.output)), &Output.clear/1)
     if st.console, do: Output.text_console(true)
     :ok
   end
@@ -235,7 +263,14 @@ defmodule Lepton.Photon do
   def handle_call(:screenshot, _from, st) do
     st = repaint(st)
     %{width: w, height: h} = st.output
-    {:reply, Output.png(Output.read(st.output, 0, 0, w, h), w, h), st}
+    {:reply, Output.png(Screen.read(st.output, 0, 0, w, h), w, h), st}
+  end
+
+  def handle_call(:displays, _from, st), do: {:reply, displays_info(st.output), st}
+
+  def handle_call({:display_mode, mode}, _from, st) do
+    st = set_screen(st, Screen.relayout(st.output, mode)) |> repaint()
+    {:reply, displays_info(st.output), st}
   end
 
   def handle_call(:sync, _from, st), do: {:reply, :ok, repaint(st)}
@@ -270,6 +305,26 @@ defmodule Lepton.Photon do
   def handle_info(:wm_tick, st) do
     Process.send_after(self(), :wm_tick, 5000)
     {:noreply, schedule(st)}
+  end
+
+  # Displays plugged in or out (a USB display adapter, a second virtual display).
+  def handle_info(:displays, st) do
+    Process.send_after(self(), :displays, @display_check)
+    [primary | others] = Screen.outputs(st.output)
+    found = Output.framebuffers()
+    keep = Enum.filter(others, &(&1.path in found))
+    added = open_displays(found -- [primary.path | Enum.map(others, & &1.path)])
+    gone = others -- keep
+
+    if added == [] and gone == [] do
+      {:noreply, st}
+    else
+      Enum.each(gone, &Output.close/1)
+      Enum.each(added, &Output.clear/1)
+      for o <- added, do: Logger.info("photon: display #{o.path} (#{o.width}x#{o.height}) connected")
+      for o <- gone, do: Logger.info("photon: display #{o.path} disconnected")
+      {:noreply, set_screen(st, Screen.new([primary | keep ++ added], st.output.mode))}
+    end
   end
 
   def handle_info({:EXIT, _pid, _reason}, st), do: {:noreply, st}
@@ -843,7 +898,7 @@ defmodule Lepton.Photon do
     s = surface(st, key)
     {cw, ch} = content_size(s)
     {fw, fh} = st.wm.frame_size(cw, ch)
-    {ax, ay, aw, ah} = st.wm.work_area(st.wm_state)
+    {ax, ay, aw, ah} = display_area(st, {0, 0})
     n = st.place
     x = ax + max(div(aw - fw, 2) + rem(n, 8) * 32, 0)
     y = ay + max(div(ah - fh, 2) + rem(n, 8) * 32, 0)
@@ -998,7 +1053,7 @@ defmodule Lepton.Photon do
         states = if(key == st.keyboard_focus, do: [@activated], else: []) ++ if(w && w.maximized, do: [@maximized], else: [])
         # A maximized window must be told its size every time: for GTK,
         # "maximized" with 0x0 means "pick a size", and it picks 1x1.
-        {cw, ch} = if w && w.maximized, do: maximized_size(st), else: {0, 0}
+        {cw, ch} = if w && w.maximized, do: maximized_size(st, w), else: {0, 0}
         configure(st, key, cw, ch, states)
 
       _ ->
@@ -1037,9 +1092,21 @@ defmodule Lepton.Photon do
 
   defp put_window(st, w), do: %{st | windows: Enum.map(st.windows, &if(&1.key == w.key, do: w, else: &1))}
 
-  # The content size of a window that fills the work area.
-  defp maximized_size(st) do
-    {_ax, _ay, aw, ah} = st.wm.work_area(st.wm_state)
+  # Where windows maximize to: the work area on the display a window is on
+  # (with several displays side by side, the one its title bar is on).
+  defp display_area(st, {x, y}) do
+    {ax, ay, aw, ah} = st.wm.work_area(st.wm_state)
+    {dx, dy, dw, dh} = Screen.rect_at(st.output, {x, y})
+    x0 = max(ax, dx)
+    y0 = max(ay, dy)
+    {x0, y0, max(min(ax + aw, dx + dw) - x0, 1), max(min(ay + ah, dy + dh) - y0, 1)}
+  end
+
+  defp display_area(st, %Win{x: x, y: y}), do: display_area(st, {x + 40, y + 8})
+
+  # The content size of a window that fills its display's work area.
+  defp maximized_size(st, w) do
+    {_ax, _ay, aw, ah} = display_area(st, w)
     {bw, bh} = st.wm.frame_size(0, 0)
     {aw - bw, ah - bh}
   end
@@ -1047,12 +1114,12 @@ defmodule Lepton.Photon do
   defp maximize(st, key, on?) do
     case window(st, key) do
       %Win{} = w ->
-        {ax, ay, _, _} = st.wm.work_area(st.wm_state)
+        {ax, ay, _, _} = display_area(st, w)
         {cw, ch} = content_size(surface(st, key))
 
         if on? do
           st = damage_window(st, key) |> put_window(%{w | maximized: {w.x, w.y, cw, ch}, x: ax, y: ay})
-          {mw, mh} = maximized_size(st)
+          {mw, mh} = maximized_size(st, window(st, key))
           configure(st, key, mw, mh, [@maximized, @activated]) |> redecorate(key) |> damage_window(key)
         else
           case w.maximized do
@@ -1068,6 +1135,59 @@ defmodule Lepton.Photon do
       nil ->
         st
     end
+  end
+
+  # -- displays ------------------------------------------------------------------------------
+
+  defp open_displays(paths) do
+    for path <- paths, {:ok, o} <- [Output.framebuffer(path)] do
+      Output.activate(o)
+      Output.open(o)
+    end
+  end
+
+  defp displays_info(%Screen{mode: mode, displays: ds}) do
+    list =
+      for %{out: o, rect: {x, y, _, _}} <- ds,
+          do: %{path: o.path, driver: Output.driver(o.path), width: o.width, height: o.height, x: x, y: y}
+
+    %{mode: mode, displays: list}
+  end
+
+  # A new screen (displays added or removed, or another mode). When the
+  # desktop's size changes, the window manager starts over at the new size,
+  # maximized windows fill their display again and the rest stay on screen.
+  defp set_screen(st, screen) do
+    old = st.output
+    Screen.clear(screen)
+    # (damage so far is in the old desktop's coordinates: all of it is redrawn below)
+    st = %{st | output: screen, damage: []}
+
+    st =
+      if {old.width, old.height} == {screen.width, screen.height} do
+        st
+      else
+        [primary | _] = Screen.outputs(screen)
+        wm_state = st.wm.init(screen.width, screen.height, {primary.width, primary.height})
+        {px, py} = st.pointer
+        st = %{st | wm_state: wm_state, wm_sig: nil, wm_layers: {[], []}, pointer: {min(px, screen.width - 1.0), min(py, screen.height - 1.0)}}
+        st = %{st | background: st.wm.background(st.wm_state)}
+
+        Enum.reduce(st.windows, st, fn
+          %Win{kind: :toplevel, maximized: m} = w, st when m != nil ->
+            {ax, ay, _, _} = display_area(st, %{w | x: min(w.x, screen.width - 1)})
+            st = put_window(st, %{w | x: ax, y: ay})
+            st |> reconfigure(w.key) |> redecorate(w.key)
+
+          %Win{kind: :toplevel} = w, st ->
+            keep_in_work_area(st, w.key)
+
+          _, st ->
+            st
+        end)
+      end
+
+    damage(st, {0, 0, screen.width, screen.height})
   end
 
   # -- damage and painting -------------------------------------------------------------------
@@ -1123,7 +1243,7 @@ defmodule Lepton.Photon do
     cursor = cursor(st)
 
     rows = Enum.flat_map(merge(st.damage), &Render.compose(&1, st.background, layers, cursor))
-    if rows != [], do: Output.write(st.output, rows)
+    if rows != [], do: Screen.write(st.output, rows)
 
     now = System.monotonic_time(:millisecond) - st.started
     st = Enum.reduce(st.frame_callbacks, st, fn {sock, cb}, st ->
@@ -1271,6 +1391,14 @@ defmodule Lepton.Photon do
   defp handle_input({:abs, fx, fy}, st) do
     {x, y} = st.pointer
     move_pointer(st, if(fx, do: fx * (st.output.width - 1), else: x), if(fy, do: fy * (st.output.height - 1), else: y))
+  end
+
+  # A tablet points at its own display (the primary's, if it has none).
+  defp handle_input({:abs, fx, fy, n}, st) do
+    rects = Screen.rects(st.output)
+    {rx, ry, rw, rh} = Enum.at(rects, n) || hd(rects)
+    {x, y} = st.pointer
+    move_pointer(st, if(fx, do: rx + fx * (rw - 1), else: x), if(fy, do: ry + fy * (rh - 1), else: y))
   end
 
   defp handle_input({:button, code, pressed?}, st) do
@@ -1576,6 +1704,8 @@ defmodule Lepton.Photon do
   @key_return 28
   @key_f4 62
   @key_esc 1
+  @key_left 105
+  @key_right 106
 
   defp key(st, code, pressed?) do
     st =
@@ -1587,6 +1717,7 @@ defmodule Lepton.Photon do
 
     alt? = band(st.mods, Keymap.alt() ||| Keymap.super()) != 0
     ctrl? = band(st.mods, Keymap.ctrl()) != 0
+    shift? = band(st.mods, Keymap.shift()) != 0
 
     binding =
       cond do
@@ -1595,6 +1726,8 @@ defmodule Lepton.Photon do
         alt? and code == @key_return -> :terminal
         alt? and code == @key_tab -> :next
         alt? and code == @key_f4 -> :close
+        alt? and shift? and code == @key_right -> {:display, 1}
+        alt? and shift? and code == @key_left -> {:display, -1}
         ctrl? and code == @key_esc -> :menu
         true -> nil
       end
@@ -1628,6 +1761,33 @@ defmodule Lepton.Photon do
     end
   end
 
+
+  # The focused window moves to the next (or previous) display, at the same
+  # place on it; a maximized window fills the new display.
+  defp run_binding(st, {:display, step}) do
+    rects = Screen.rects(st.output)
+
+    with key when key != nil <- st.keyboard_focus,
+         %Win{kind: :toplevel} = w <- window(st, key),
+         true <- length(rects) > 1 do
+      {fx, fy, _, _} = from = Screen.rect_at(st.output, {w.x + 40, w.y + 8})
+      i = Enum.find_index(rects, &(&1 == from)) || 0
+      {tx, ty, _, _} = Enum.at(rects, rem(i + step + length(rects), length(rects)))
+      st = damage_window(st, key) |> put_window(%{w | x: w.x - fx + tx, y: w.y - fy + ty})
+
+      st =
+        if w.maximized do
+          {ax, ay, _, _} = display_area(st, window(st, key))
+          st |> put_window(%{window(st, key) | x: ax, y: ay}) |> reconfigure(key) |> redecorate(key)
+        else
+          keep_in_work_area(st, key)
+        end
+
+      damage_window(st, key)
+    else
+      _ -> st
+    end
+  end
 
   defp run_binding(st, :close), do: if(st.keyboard_focus, do: close(st, st.keyboard_focus), else: st)
 

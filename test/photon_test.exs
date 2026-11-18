@@ -3,7 +3,7 @@ defmodule Lepton.PhotonTest do
   import Lepton.TestHelpers
 
   alias Lepton.Photon
-  alias Lepton.Photon.{Input, Output, Render}
+  alias Lepton.Photon.{Input, Output, Render, Screen}
   alias Lepton.Wayland.{Client, Font, Keymap, Wire}
 
   # Unix socket paths are short: keep the runtime directory in /tmp.
@@ -507,6 +507,103 @@ defmodule Lepton.PhotonTest do
 
     assert_receive {:DOWN, ^ref, _, _, _}, 5000
     assert eventually(fn -> Photon.info(ph).windows == [] end)
+  end
+
+  test "screens: displays side by side, or mirrored and scaled to fit" do
+    out = fn w, h -> %Output{path: "d#{w}", width: w, height: h, stride: w * 4} end
+    [a, b, c] = [out.(640, 400), out.(320, 200), out.(1280, 1000)]
+    px = for i <- 0..9, into: <<>>, do: <<i, 0, 0, 255>>
+
+    ext = Screen.new([a, b])
+    assert {ext.width, ext.height} == {960, 400}
+    assert Screen.rects(ext) == [{0, 0, 640, 400}, {640, 0, 320, 200}]
+    assert Screen.rect_at(ext, {700, 10}) == {640, 0, 320, 200}
+    assert Screen.rect_at(ext, {700, 300}) == {0, 0, 640, 400}
+    [da, db] = ext.displays
+    # A row across the boundary is split between the displays.
+    row = {635, 5, px}
+    assert Screen.place(da, row) == [{635, 5, binary_part(px, 0, 20)}]
+    assert Screen.place(db, row) == [{0, 5, binary_part(px, 20, 20)}]
+    # Below the second display's bottom: on the primary only.
+    assert Screen.place(db, {640, 250, px}) == []
+
+    mir = Screen.new([a, b, c], :mirror)
+    assert {mir.width, mir.height} == {640, 400}
+    assert Screen.rects(mir) == [{0, 0, 640, 400}]
+    [ma, mb, mc] = mir.displays
+    assert Screen.place(ma, {0, 3, px}) == [{0, 3, px}]
+    # Half size: every other pixel, every other row.
+    assert Screen.place(mb, {0, 4, px}) == [{0, 2, <<0, 0, 0, 255, 2, 0, 0, 255, 4, 0, 0, 255, 6, 0, 0, 255, 8, 0, 0, 255>>}]
+    assert Screen.place(mb, {0, 5, px}) == []
+    # Twice the size, centred (1280x800 in 1280x1000): each pixel twice, each row twice.
+    doubled = for <<p::binary-4 <- binary_part(px, 0, 8)>>, into: <<>>, do: p <> p
+    assert Screen.place(mc, {0, 1, binary_part(px, 0, 8)}) == [{0, 102, doubled}, {0, 103, doubled}]
+  end
+
+  test "two displays: the desktop extends across them, maximize fills one, mirror copies" do
+    dir = runtime_dir()
+    second = Output.file(Path.join(dir, "fb1"), 320, 200)
+    {ph, out, env} = start_photon(displays: [second])
+    assert Photon.info(ph).output == {960, 400}
+    assert %{mode: :extend, displays: [%{width: 640, x: 0}, %{width: 320, x: 640}]} = Photon.displays(ph)
+
+    red = Render.px(200, 0, 0)
+    a = window(env, 60, 40, red)
+    [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    assert x + 100 < 640, "new windows open on the primary display"
+    assert pixel_at(out, cx, cy) == red
+
+    # Drag it by the title bar onto the second display.
+    Photon.input(ph, {:abs, (x + 10) / 959, (y + 5) / 399})
+    Photon.input(ph, {:button, 0x110, true})
+    # (the second tablet points at the second display: 60, 30 there)
+    Photon.input(ph, {:abs, 60 / 319, 30 / 199, 1})
+    Photon.input(ph, {:button, 0x110, false})
+    Photon.sync(ph)
+    [%{x: x2, y: y2}] = Photon.info(ph).windows
+    assert x2 >= 640
+    {cx2, cy2} = Render.content_origin(x2, y2)
+    assert pixel_at(second, cx2 - 640, cy2) == red
+
+    # Maximized there, it fills the second display only.
+    c = Client.request(a.c, a.top, :set_maximized, [])
+    {evs, c} = events(c)
+    {bw, bh} = Render.frame_size(0, 0)
+    assert Enum.any?(evs, fn {id, _, :configure, [w, h, _]} -> id == a.top and [w, h] == [320 - bw, 200 - bh]; _ -> false end)
+    assert [%{x: 640, y: 0}] = Photon.info(ph).windows
+
+    # Alt+Shift+Left takes it back to the primary display, still maximized there.
+    for {code, down} <- [{56, true}, {42, true}, {105, true}, {105, false}, {42, false}, {56, false}], do: Photon.input(ph, {:key, code, down})
+    {evs, _c} = events(c)
+    assert Enum.any?(evs, fn {id, _, :configure, [w, h, _]} -> id == a.top and [w, h] == [640 - bw, 400 - bh]; _ -> false end)
+    assert [%{x: 0, y: 0, maximized: true}] = Photon.info(ph).windows
+    for {code, down} <- [{56, true}, {42, true}, {106, true}, {106, false}, {42, false}, {56, false}], do: Photon.input(ph, {:key, code, down})
+    assert [%{x: 640, y: 0}] = Photon.info(ph).windows
+
+    # Mirrored: one 640x400 desktop, shown at half size on the second display.
+    assert %{mode: :mirror} = Photon.display_mode(ph, :mirror)
+    assert Photon.info(ph).output == {640, 400}
+    [%{x: mx, y: my}] = Photon.info(ph).windows
+    assert mx < 640
+    {mcx, mcy} = Render.content_origin(mx, my)
+    assert pixel_at(out, mcx + 4, mcy + 4) == red
+    assert pixel_at(second, div(mcx + 4, 2), div(mcy + 4, 2)) == red
+    assert byte_size(Photon.screenshot(ph)) > 0
+  end
+
+  test "16-bit displays (USB display adapters): RGB565, converted as rows are written" do
+    assert Output.to_rgb565(Render.px(255, 0, 0)) == <<0x00, 0xF8>>
+    assert Output.to_rgb565(Render.px(0, 255, 0)) == <<0xE0, 0x07>>
+    assert Output.to_rgb565(Render.px(0, 0, 255)) == <<0x1F, 0x00>>
+    for px <- [Render.px(255, 255, 255), Render.px(0, 0, 0), Render.px(255, 0, 255)], do: assert(Output.from_rgb565(Output.to_rgb565(px)) == px)
+
+    dir = runtime_dir()
+    small = Output.file(Path.join(dir, "fb16"), 64, 40, 16) |> Output.open()
+    Output.write(small, [{2, 3, Render.px(255, 0, 0) <> Render.px(0, 0, 255)}])
+    assert byte_size(File.read!(small.path)) == 64 * 40 * 2
+    assert Output.read(small, 2, 3, 2, 1) == Render.px(255, 0, 0) <> Render.px(0, 0, 255)
+    Output.close(small)
   end
 
   test "photon: info and term without a running compositor" do

@@ -214,9 +214,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 151 tests, 0 failures inside the VM (run from the live
+Current results: 158 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-151 passing plus 13 excluded (native/network) on the host.
+157 passing plus 14 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -268,11 +268,12 @@ lib/lepton/            the operating system
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
   wifi.ex                         Wi-Fi: saved networks, wpa_supplicant manager
+  usb.ex                          USB: device tree (hubs), hotplug driver loading
   users.ex                        accounts, login, sudo and permission checks
   setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates
   services.ex power.ex            svc service manager, power button
-  photon.ex photon/ wayland/      Photon: Wayland compositor, window managers, terminal windows, protocol
+  photon.ex photon/ wayland/      Photon: Wayland compositor, displays, window managers, terminal windows, protocol
   apps.ex alpine.ex fd.ex         native apps (Firefox) from Alpine packages; closing received descriptors
   run_as.ex                       running native programs as the logged-in user
   selftest.ex                     lepton-test

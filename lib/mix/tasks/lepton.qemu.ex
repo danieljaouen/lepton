@@ -4,6 +4,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
   Boots the ISO in QEMU (`brew install qemu`).
 
       mix lepton.qemu              # GUI window (display + USB keyboard), like UTM
+      mix lepton.qemu --displays 2 # ... with a second display (photon display)
       mix lepton.qemu --print      # print a command line for a serial-console session
       mix lepton.qemu --test       # headless: boot, run `lepton-test`, report
       mix lepton.qemu --run "cmd"  # headless: boot, run shell commands, print output
@@ -11,7 +12,8 @@ defmodule Mix.Tasks.Lepton.Qemu do
 
   The machine matches UTM's defaults for ARM64 Linux guests: `virt`,
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
-  keyboard and tablet.
+  keyboard and tablet. The keyboard is plugged into a USB hub, as on a
+  desk, so hubs are always exercised.
   """
   use Mix.Task
 
@@ -21,7 +23,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
   def run(args) do
     {opts, _} =
       OptionParser.parse!(args,
-        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string]
+        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string, displays: :integer]
       )
 
     iso = opts[:iso] || @iso
@@ -44,7 +46,13 @@ defmodule Mix.Tasks.Lepton.Qemu do
         IO.write(output)
 
       true ->
-        args = base_args(iso, opts) ++ ["-device", "virtio-gpu-pci", "-display", "cocoa", "-serial", "mon:stdio"]
+        # Each further display gets a pointer of its own (the first uses the base tablet).
+        gpus =
+          Enum.flat_map(1..max(opts[:displays] || 1, 1), fn
+            1 -> ["-device", "virtio-gpu-pci"]
+            n -> ["-device", "virtio-gpu-pci,id=gpu#{n}", "-device", "usb-tablet,bus=xhci.0,port=#{n + 1},display=gpu#{n}"]
+          end)
+        args = base_args(iso, opts) ++ gpus ++ ["-display", "cocoa", "-serial", "mon:stdio"]
         Mix.shell().info("booting #{iso} (close the window to stop)")
         System.cmd(qemu(), args, into: IO.stream(:stdio, :line))
     end
@@ -94,11 +102,13 @@ defmodule Mix.Tasks.Lepton.Qemu do
         "-device",
         "virtio-rng-pci",
         "-device",
-        "qemu-xhci",
+        "qemu-xhci,id=xhci",
         "-device",
-        "usb-kbd",
+        "usb-hub,bus=xhci.0,port=1",
         "-device",
-        "usb-tablet",
+        "usb-kbd,bus=xhci.0,port=1.1",
+        "-device",
+        "usb-tablet,bus=xhci.0,port=2",
         "-device",
         "ramfb"
       ]

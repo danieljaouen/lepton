@@ -401,6 +401,22 @@ defmodule Lepton.Commands.System do
     end
   end
 
+  defcmd "usb", "USB devices as a tree: hubs, their ports and what is plugged in", usage: "usb", aliases: ["lsusb"] do
+    case {args, Lepton.USB.devices()} do
+      {[_ | _], _} ->
+        IO.err(ctx, "usage: usb")
+        2
+
+      {[], []} ->
+        IO.puts(ctx, "No USB controllers (the VM has none, or its driver isn't loaded).")
+        0
+
+      {[], devices} ->
+        Enum.each(Lepton.USB.describe(devices), &IO.puts(ctx, &1))
+        0
+    end
+  end
+
   defcmd "lsmod", "show the status of modules in the Linux kernel", usage: "lsmod" do
     IO.puts(ctx, "Module                  Size  Used by")
 

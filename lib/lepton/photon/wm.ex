@@ -8,8 +8,9 @@ defmodule Lepton.Photon.WM do
       (what a point of a frame is: `:title`, `:close`, `:maximize`,
       `:minimize`, `:corner`, `:border` or `:content`), `decorations/4`
       (the frame's rows above the content) and `frame_layer/7`
-    * the desktop: `background/1` and `work_area/1` (where windows go and
-      maximize to)
+    * the desktop: `init/3` (the desktop's size, and the primary
+      display's when the desktop extends across several), `background/1`
+      and `work_area/1` (where windows go and maximize to, on each display)
     * its own surfaces: `layers/2` returns `{below_windows, above_windows}`
       (desktop icons; a taskbar and menus), redrawn whenever `signature/2`
       changes
@@ -27,7 +28,7 @@ defmodule Lepton.Photon.WM do
 
   @type layer :: %{x: integer, y: integer, w: integer, h: integer, row: (integer -> binary)}
 
-  @callback init(width :: integer, height :: integer) :: term
+  @callback init(width :: integer, height :: integer, primary :: {integer, integer}) :: term
   @callback frame_size(integer, integer) :: {integer, integer}
   @callback content_offset() :: {integer, integer}
   @callback frame_part(integer, integer, integer, integer) :: atom
@@ -57,7 +58,7 @@ defmodule Lepton.Photon.WM.Default do
   @help "Photon   Alt+Return: terminal   Alt+Tab: next window   Alt+F4: close   Ctrl+Alt+Backspace: quit"
 
   @impl true
-  def init(w, h), do: %{w: w, h: h}
+  def init(w, h, _primary), do: %{w: w, h: h}
 
   @impl true
   def frame_size(w, h), do: Render.frame_size(w, h)

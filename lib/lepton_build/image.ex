@@ -22,11 +22,20 @@ defmodule LeptonBuild.Image do
   @kernel_modules ~w(
     virtio_pci virtio_mmio virtio_console ext2
     simpledrm virtio-gpu
-    xhci-pci usbhid hid-generic virtio_input evdev
+    xhci-pci ehci-pci ohci-pci usbhid hid-generic virtio_input evdev
     virtio_net af_packet virtio_rng
     virtio_blk virtio_scsi sr_mod isofs
     usb-storage uas sd_mod nvme ext4
     gpio-pl061 button
+  )
+
+  # USB devices loaded by hardware ID when they appear (directly or through
+  # a hub or dock; Lepton.USB): display adapters (DisplayLink's older
+  # DL-1x0/1x5 chips, and Generic USB Display gadgets) and the Ethernet
+  # ports of docks and adapters.
+  @usb_modules ~w(
+    udl gud
+    r8152 ax88179_178a cdc_ether cdc_ncm asix
   )
 
   # Wi-Fi: the 802.11 stack, the crypto WPA uses (the kernel would request
@@ -360,7 +369,7 @@ defmodule LeptonBuild.Image do
     root = modules_root(src, kver)
 
     deps = module_deps(root)
-    wanted = module_closure(root, @kernel_modules ++ @wifi_modules)
+    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @wifi_modules)
     shipped = MapSet.new(wanted, &module_name/1)
 
     # Aliases of the shipped modules only, for loading drivers by hardware

@@ -1,0 +1,105 @@
+---
+title: USB, hubs and displays
+order: 13
+summary: USB hubs and docks, devices plugged in while Lepton runs, and second displays for the desktop (extended or mirrored).
+---
+
+# USB, hubs and displays
+
+## USB devices and hubs
+
+Plug things in directly or through a hub (or hubs of hubs) and they work
+the same way. The Linux kernel enumerates every hub's ports. When a device
+appears, Lepton loads its driver within a second:
+
+| Device | Driver | What you get |
+|---|---|---|
+| keyboards, mice, tablets | `usbhid` | they work at the console and in [Photon](desktop.html) at once |
+| USB sticks and disks | `usb-storage`, `uas` | a disk (`sda`, ...) for `mount` and `lepton-install` |
+| Wi-Fi adapters | see [Networking](networking.html) | a wireless interface |
+| Ethernet ports (docks, adapters) | `r8152`, `ax88179_178a`, `asix`, `cdc_ether`, `cdc_ncm` | an interface, configured with DHCP |
+| USB display adapters | `udl`, `gud` | another display for the desktop (below) |
+
+`usb` (or `lsusb`) shows the devices as a tree. Each device is named by
+its port path: `1-1.2` is port 2 of the hub on port 1 of bus 1. Each line
+shows the device's ID, what it is, its speed and its driver. After the
+arrow is what the device became:
+
+```text
+$ usb
+usb1  xHCI Host Controller (root hub, 4 ports) [480 Mbit/s]
+  1-1 0409:55aa  QEMU USB Hub (hub, 8 ports) [12 Mbit/s]
+    1-1.1 0627:0001  QEMU USB Keyboard (HID) [12 Mbit/s; usbhid] -> event2
+    1-1.2 0627:0001  QEMU USB Mouse (HID) [12 Mbit/s; usbhid] -> event4
+    1-1.3 46f4:0001  QEMU USB HARDDRIVE (storage) [12 Mbit/s; usb-storage] -> sda
+  1-2 0627:0001  QEMU USB Tablet (HID) [480 Mbit/s; usbhid] -> event1
+  1-4 0525:a4a2  RNDIS/QEMU USB Network Device (communications) [12 Mbit/s; cdc_ether] -> usb0
+usb2  xHCI Host Controller (root hub, 4 ports) [5 Gbit/s]
+```
+
+**In UTM**, USB devices reach the VM one at a time. Turn on **Input → USB
+Sharing** in the VM's settings, then click the **USB** icon in the
+toolbar and choose a device. macOS keeps the hubs themselves, so a
+device behind a hub on your desk shows up in the VM as if it were
+plugged in directly. Hubs show up as hubs on real hardware and in QEMU
+(`mix lepton.qemu` plugs its keyboard into a virtual hub).
+
+## Displays
+
+[Photon](desktop.html) (and the classic desktop) uses every display the
+kernel has a framebuffer for (`/dev/fb0`, `/dev/fb1`, ...):
+
+- **a second display of the VM.** In UTM, add a second **Display**
+  device (virtio-gpu) in the VM's settings, and UTM opens a second
+  window. With QEMU, run `mix lepton.qemu --displays 2`.
+- **a USB display adapter** (passed to the VM like any USB device):
+  adapters with DisplayLink's USB 2.0 chips (DL-120, DL-160, DL-165,
+  DL-195) through the `udl` driver, and Generic USB Display gadgets (a
+  Raspberry Pi acting as a monitor, for example) through `gud`.
+
+Displays plugged in while the desktop runs join it within two seconds,
+and a display that goes away leaves it.
+
+```sh
+photon display           # the displays and how they're arranged
+photon display extend    # one desktop across them, side by side (the default)
+photon display mirror    # the same picture on every display
+```
+
+**Extended** (the default): the displays sit left to right. The first
+(`/dev/fb0`, where the console was) is the primary display, and the next
+one continues to its right. Move the pointer off the right edge, or drag
+a window there, to reach the next display. New windows open on the
+primary display, and maximizing fills the display the window's title bar
+is on. The classic desktop's taskbar and Start menu stay on the primary
+display. The desktop is as tall as the primary display. A taller display
+shows black below that, and a shorter one shows only the top part.
+
+**The pointer.** A mouse moves across all the displays. The VM's own
+pointer (UTM's and QEMU's tablet) belongs to one display. UTM has one,
+for the first display. `mix lepton.qemu --displays 2` gives each window
+its own. To move a window from the keyboard, press **Alt+Shift+Right**
+(or **Left**): the focused window moves to the next (or previous)
+display.
+
+**Mirrored**: every display shows the primary display's picture, scaled
+to fit and centred, with black bars where the shapes differ.
+
+### HDMI on a USB-C hub or dock
+
+An HDMI port on a USB-C hub is one of two kinds, and they behave
+differently:
+
+- **DisplayPort Alternate Mode**, used by most USB-C hubs with HDMI. The
+  picture comes from the computer's own graphics, carried on spare wires
+  of the USB-C cable; it isn't a USB device. On a Mac, macOS drives that
+  monitor and the VM can't take it over. Instead, drag UTM's window (or
+  the VM's second display window) onto that monitor and make it full
+  screen.
+- **DisplayLink** docks send the picture over USB, so the dock's display
+  chip can be passed to the VM. Lepton drives DisplayLink's older USB 2.0
+  chips (`udl`). Newer ones (the DL-3000, DL-5000 and DL-6000 series in
+  most USB 3 docks) need DisplayLink's closed-source driver, which Lepton
+  doesn't have.
+
+<!-- commands: usb -->

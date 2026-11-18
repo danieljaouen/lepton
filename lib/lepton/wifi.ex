@@ -9,8 +9,8 @@ defmodule Lepton.Wifi do
   so they are not supported; WPA2 and WPA2/WPA3 networks are.)
 
   **The manager** (this GenServer, started at boot) checks for Wi-Fi
-  hardware every two seconds: it loads drivers for newly plugged-in USB or
-  SDIO adapters (`Lepton.Kmod.load_for_hardware/0`), starts
+  hardware every two seconds (`Lepton.USB` loads the drivers for adapters
+  plugged in later), starts
   `/usr/libexec/lepton/wpa_supplicant` on each wireless interface with the
   saved networks, and once an interface has associated, configures it with
   DHCP (`Lepton.Net.configure/1`).
@@ -338,9 +338,6 @@ defmodule Lepton.Wifi do
   @impl true
   def handle_info(:tick, st) do
     Process.send_after(self(), :tick, @tick)
-    loaded = Lepton.Kmod.load_for_hardware()
-    if loaded != [], do: Logger.info("wifi: loaded #{Enum.join(loaded, ", ")}")
-
     ifaces = wireless_interfaces() |> Enum.reject(&MapSet.member?(st.released, &1))
     st = Enum.reduce(Map.keys(st.supplicants) -- ifaces, st, &stop_supplicant(&2, &1))
     st = Enum.reduce(ifaces -- Map.keys(st.supplicants), st, &start_supplicant(&2, &1))

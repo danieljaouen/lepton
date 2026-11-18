@@ -28,6 +28,8 @@ defmodule Lepton.Init do
     "virtio_console",
     # keyboards: USB (UTM/QEMU default) and virtio-input (Apple Virtualization)
     "xhci-pci",
+    "ehci-pci",
+    "ohci-pci",
     "usbhid",
     "hid-generic",
     "virtio_input",
@@ -124,8 +126,8 @@ defmodule Lepton.Init do
     Enum.each(@transports, &modprobe/1)
     load_display()
     Enum.each(@drivers, &modprobe/1)
-    # Drivers by hardware ID: USB/SDIO Wi-Fi adapters (Lepton.Wifi keeps
-    # doing this for devices plugged in later).
+    # Drivers by hardware ID: USB/SDIO Wi-Fi and Ethernet adapters, USB
+    # displays (Lepton.USB does this for devices plugged in later).
     Lepton.Kmod.load_for_hardware()
   end
 

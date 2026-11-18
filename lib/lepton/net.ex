@@ -56,7 +56,8 @@ defmodule Lepton.Net do
     end
   end
 
-  def ethernet_interfaces, do: Enum.filter(interfaces(), &String.match?(&1, ~r/^(eth|en)/))
+  # (USB adapters whose address is locally administered are named usbN)
+  def ethernet_interfaces, do: Enum.filter(interfaces(), &String.match?(&1, ~r/^(eth|en|usb\d)/))
 
   @doc "Bring up an interface and configure it with DHCP."
   def configure(iface) do

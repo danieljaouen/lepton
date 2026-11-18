@@ -1,6 +1,6 @@
 ---
 title: Firefox and other apps
-order: 13
+order: 14
 summary: Firefox, installed on demand from Alpine Linux's packages and run on the desktop.
 ---
 

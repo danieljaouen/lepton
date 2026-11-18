@@ -6,7 +6,7 @@ defmodule Lepton.Commands.Desktop do
   alias Lepton.Photon.{Output, Term}
 
   defcmd "photon", "the graphical desktop (Photon, a Wayland compositor) and its terminal windows",
-    usage: "photon [start] | term [COMMAND...] | info | screenshot FILE.png | stop" do
+    usage: "photon [start] | term [COMMAND...] | info | display [extend|mirror] | screenshot FILE.png | stop" do
     photon(args, ctx)
   end
 
@@ -179,7 +179,10 @@ defmodule Lepton.Commands.Desktop do
         info = Photon.info(pid)
         {w, h} = info.output
         style = if info.wm == Lepton.Photon.WM.Classic, do: "classic", else: "photon"
-        IO.puts(ctx, "Photon: #{w}x#{h}, #{style} window manager, socket #{info.socket}")
+        displays = Photon.displays(pid)
+        n = length(displays.displays)
+        on = if n > 1, do: " on #{n} displays (#{displays.mode})", else: ""
+        IO.puts(ctx, "Photon: #{w}x#{h}#{on}, #{style} window manager, socket #{info.socket}")
         IO.puts(ctx, "#{info.clients} client(s), #{length(info.windows)} window(s)")
 
         for win <- info.windows do
@@ -189,6 +192,28 @@ defmodule Lepton.Commands.Desktop do
             true -> " "
           end
           IO.puts(ctx, " #{mark} #{String.pad_trailing(win.title || "(untitled)", 30)} #{String.pad_trailing(win.app_id || "", 14)} #{win.width}x#{win.height} at #{win.x},#{win.y}")
+        end
+
+        0
+    end
+  end
+
+  defp photon(["display" | mode], ctx) when mode in [[], ["extend"], ["mirror"]] do
+    case Process.whereis(Photon) do
+      nil ->
+        IO.err(ctx, "photon: not running")
+        1
+
+      pid ->
+        info = if mode == [], do: Photon.displays(pid), else: Photon.display_mode(pid, String.to_existing_atom(hd(mode)))
+        n = length(info.displays)
+        how = if n > 1, do: ", #{if info.mode == :mirror, do: "mirrored", else: "extended side by side"}", else: ""
+        IO.puts(ctx, "#{n} display#{if n != 1, do: "s"}#{how}:")
+
+        for {d, i} <- Enum.with_index(info.displays) do
+          where = if info.mode == :extend, do: " at #{d.x},#{d.y}", else: ""
+          primary = if i == 0, do: " (primary)", else: ""
+          IO.puts(ctx, "  #{d.path}  #{d.width}x#{d.height}  #{d.driver || "framebuffer"}#{where}#{primary}")
         end
 
         0
@@ -227,7 +252,7 @@ defmodule Lepton.Commands.Desktop do
   end
 
   defp photon(_args, ctx) do
-    IO.err(ctx, "usage: photon [start] | term [COMMAND...] | info | screenshot FILE.png | stop")
+    IO.err(ctx, "usage: photon [start] | term [COMMAND...] | info | display [extend|mirror] | screenshot FILE.png | stop")
     2
   end
 
@@ -238,7 +263,7 @@ defmodule Lepton.Commands.Desktop do
       env = Map.merge(ctx.env, %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0"})
       open = fn opts -> open(opts, env, ctx) end
 
-      opts = [output: out, socket: Path.join(dir, "wayland-0"), input: :evdev, spawn: open, name: Photon, console: true, session: self(), wm: wm]
+      opts = [output: out, displays: :auto, socket: Path.join(dir, "wayland-0"), input: :evdev, spawn: open, name: Photon, console: true, session: self(), wm: wm]
 
       case Photon.start(opts) do
         {:ok, pid} ->

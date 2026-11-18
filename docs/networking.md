@@ -77,6 +77,10 @@ USB adapters:
 
 Their firmware is included.
 
+USB Ethernet adapters, and the Ethernet ports of USB docks (Realtek
+RTL8152/8153, ASIX, and standard CDC adapters), are configured with DHCP
+as soon as they're plugged in. See [USB, hubs and displays](usb.html).
+
 `wifi` reports when no adapter is present. Enterprise (802.1X) and
 WPA3-only networks aren't supported, and neither are hidden networks.
 

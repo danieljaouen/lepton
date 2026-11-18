@@ -8,10 +8,13 @@ defmodule Lepton.Photon.Input do
     * `{:key, code, pressed?}` - a key (Linux key code)
     * `{:button, code, pressed?}` - a mouse button (`BTN_LEFT` = 0x110, ...)
     * `{:motion, dx, dy}` - a mouse moved
-    * `{:abs, fx, fy}` - a tablet (QEMU's and UTM's pointer) at a fraction
-      of the screen
+    * `{:abs, fx, fy, n}` - tablet `n` (QEMU's and UTM's pointer; numbered
+      in device order) at a fraction of its display: with several
+      displays, tablet `n` points at display `n` (QEMU binds one tablet to
+      each display; UTM's one tablet is the primary display's)
     * `{:wheel, steps}` - the wheel turned (positive: down)
 
+  Devices plugged in while Photon runs are picked up within a second.
   The devices are not grabbed: keys also reach the text console, which
   Photon mutes while it runs (`Lepton.TTY.mute/2`).
   """
@@ -28,11 +31,13 @@ defmodule Lepton.Photon.Input do
 
   @doc "Input devices Photon can use: `[{path, :keyboard | :mouse | :tablet}]`."
   def devices do
-    for dir <- Path.wildcard("/sys/class/input/event*"),
+    for dir <- Enum.sort_by(Path.wildcard("/sys/class/input/event*"), &number/1),
         kind = kind(Path.join(dir, "device/capabilities")),
         kind != nil,
         do: {"/dev/input/" <> Path.basename(dir), kind}
   end
+
+  defp number(path), do: path |> Path.basename() |> String.trim_leading("event") |> String.to_integer()
 
   defp kind(caps) do
     ev = bits(caps, "ev")
@@ -64,9 +69,40 @@ defmodule Lepton.Photon.Input do
 
   defp bit?(map, n), do: (map >>> n &&& 1) == 1
 
-  @doc "Start reading every device for `target`."
-  def start(target) do
-    for {path, kind} <- devices(), do: spawn(fn -> read(path, kind, target) end)
+  @rescan 1_000
+
+  @doc """
+  Read every device for `target`, including ones plugged in later (a USB
+  keyboard or mouse, directly or through a hub): a watcher looks for new
+  devices every second and starts a reader for each. A reader stops when
+  its device goes away (the read fails), or after `target` has.
+  """
+  def start(target), do: spawn(fn -> watch(target, Process.monitor(target), %{}) end)
+
+  defp watch(target, ref, readers) do
+    devices = devices()
+    tablets = for {path, :tablet} <- devices, do: path
+
+    readers =
+      Enum.reduce(devices, readers, fn {path, kind}, readers ->
+        if Map.has_key?(readers, path) do
+          readers
+        else
+          kind = if kind == :tablet, do: {:tablet, Enum.find_index(tablets, &(&1 == path))}, else: kind
+          {pid, mref} = spawn_monitor(fn -> read(path, kind, target) end)
+          Map.put(readers, path, {pid, mref})
+        end
+      end)
+
+    receive do
+      {:DOWN, ^ref, _, _, _} ->
+        :ok
+
+      {:DOWN, mref, _, _, _} ->
+        watch(target, ref, Map.reject(readers, fn {_, {_, r}} -> r == mref end))
+    after
+      @rescan -> watch(target, ref, readers)
+    end
   end
 
   defp read(path, kind, target) do
@@ -88,7 +124,7 @@ defmodule Lepton.Photon.Input do
         case :file.read(f, 24) do
           {:ok, <<_sec::native-64, _usec::native-64, type::native-16, code::native-16, value::native-signed-32>>} ->
             {events, acc} = decode(type, code, value, kind, acc)
-            Enum.each(events, &send(target, {:input, &1}))
+            Enum.each(events, &send(target, {:input, tag(&1, kind)}))
             loop(f, kind, target, ref, acc)
 
           _ ->
@@ -96,6 +132,9 @@ defmodule Lepton.Photon.Input do
         end
     end
   end
+
+  defp tag({:abs, fx, fy}, {:tablet, n}), do: {:abs, fx, fy, n}
+  defp tag(event, _kind), do: event
 
   @doc """
   Turn one evdev event into Photon events. Motion is gathered until the
