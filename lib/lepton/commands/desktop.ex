@@ -242,6 +242,7 @@ defmodule Lepton.Commands.Desktop do
 
       case Photon.start(opts) do
         {:ok, pid} ->
+          own(Path.join(dir, "wayland-0"), ctx)
           ref = Process.monitor(pid)
           open.([])
           name = if wm == "classic", do: "The classic desktop", else: "Photon"
@@ -322,6 +323,19 @@ defmodule Lepton.Commands.Desktop do
     dir = if Lepton.Sys.native?(), do: "/run/user/#{uid}", else: Path.join(System.tmp_dir!(), "lepton-run-#{uid}")
     File.mkdir_p!(dir)
     File.chmod(dir, 0o700)
+    # The user's own: programs running as them (Firefox) connect here.
+    own(dir, ctx)
     dir
+  end
+
+  defp own(path, ctx) do
+    case Users.get(ctx.user) do
+      %Users{uid: uid, gid: gid} when uid != 0 ->
+        File.chown(path, uid)
+        File.chgrp(path, gid)
+
+      _ ->
+        :ok
+    end
   end
 end

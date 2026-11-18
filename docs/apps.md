@@ -30,6 +30,11 @@ Firefox runs on Photon, Lepton's Wayland compositor, so it needs the
 desktop (`photon` or `classic`). It shows Photon's window frame instead of
 drawing its own. Its output goes to `~/.cache/lepton/firefox.log`.
 
+Firefox runs as you: as your account's user ID, with its profile in your
+home (`~/.config/mozilla`). You don't need `sudo`, and Firefox refuses to
+run as root in your home anyway. `sudo firefox` runs it as root, with
+root's own profile in `/root`.
+
 ## What gets installed
 
 `app install firefox` reads the package index of

@@ -173,7 +173,9 @@ mix test                       # host-side test run
   draw `Lepton.Screen` with the Terminus PSF font. Descriptors received
   from clients are closed by `Lepton.FD`, a 700-byte NIF whose ELF and
   aarch64 code Lepton writes itself (OTP has no way to close a descriptor
-  it didn't open). Window managers
+  it didn't open). Native apps run as the logged-in user through
+  `Lepton.RunAs`, a 340-byte static executable Lepton also writes itself
+  (setgroups, setgid, setuid, execve). Window managers
   (`Lepton.Photon.WM`) decide decorations and the desktop around the
   windows: Photon's own, or the Windows 95-style classic desktop
   (`classic`: taskbar, Start menu, desktop icons).
@@ -212,9 +214,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 148 tests, 0 failures inside the VM (run from the live
+Current results: 151 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-150 passing plus 11 excluded (native/network) on the host.
+151 passing plus 13 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -272,6 +274,7 @@ lib/lepton/            the operating system
   services.ex power.ex            svc service manager, power button
   photon.ex photon/ wayland/      Photon: Wayland compositor, window managers, terminal windows, protocol
   apps.ex alpine.ex fd.ex         native apps (Firefox) from Alpine packages; closing received descriptors
+  run_as.ex                       running native programs as the logged-in user
   selftest.ex                     lepton-test
 lib/lepton_build/      image and docs build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs

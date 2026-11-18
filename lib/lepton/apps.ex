@@ -30,7 +30,9 @@ defmodule Lepton.Apps do
       pins: %{"gdk-pixbuf" => "v3.23"},
       exclude:
         ~r/^(mesa.*|llvm.*|spirv-.*|ffmpeg-.*|x26[45]-libs|aom-libs|libSvtAv1Enc|rav1e-libs|libdav1d|xvidcore|lame-libs|libtheora|libvorbis|opus|libogg|soxr|libva|libvdpau|libjxl|libhwy|busybox.*|bubblewrap|pkgconf|hwdata-.*|pciutils-libs|libpciaccess|libdrm|libxshmfence|libxxf86vm|mkfontscale|libgomp)$/,
-      exe: "usr/lib/firefox/firefox"
+      exe: "usr/lib/firefox/firefox",
+      # Where it keeps its files in the home (made the user's if root's).
+      home: [".mozilla", ".config/mozilla", ".cache/mozilla", ".cache/fontconfig"]
     }
   }
 
@@ -350,8 +352,8 @@ defmodule Lepton.Apps do
   end
 
   @doc """
-  Start app `name` with `args` in a Lepton process of its own (call
-  `maintain/1` first for updates); its output
+  Start app `name` with `args` in a Lepton process of its own, as the
+  user `ctx` runs as (call `maintain/1` first for updates); its output
   goes to `~/.cache/lepton/NAME.log`. `ctx` gives the environment
   (`WAYLAND_DISPLAY`, `HOME`). Returns `{:ok, lepton_pid}`.
   """
@@ -359,18 +361,50 @@ defmodule Lepton.Apps do
     prefix = dir(name)
     app = get(name)
     home = ctx.env["HOME"] || "/root"
+    user = Lepton.Users.get(ctx.user) || Lepton.Users.get("root")
     log = Path.join([home, ".cache", "lepton", name <> ".log"])
     File.mkdir_p!(Path.dirname(log))
+    prepare_home(home, user, app)
     env = env(prefix, ctx.env) |> Map.put("HOME", home)
+    # As the user, not as root (the VM's own user): see Lepton.RunAs.
+    {exe, argv} = Lepton.RunAs.command(user, Path.join(prefix, app.exe), args)
 
     {lpid, _beam} =
       Lepton.Proc.spawn(name, [], fn _pid ->
         {:ok, out} = File.open(log, [:write, :binary])
-        port = Port.open({:spawn_executable, Path.join(prefix, app.exe)}, [:binary, :exit_status, :use_stdio, :stderr_to_stdout, args: args, cd: home, env: charlists(env)])
+        own(log, user)
+        port = Port.open({:spawn_executable, exe}, [:binary, :exit_status, :use_stdio, :stderr_to_stdout, args: argv, cd: home, env: charlists(env)])
         relay(port, out)
       end)
 
     {:ok, lpid}
+  end
+
+  @doc """
+  Make the parts of `home` an app writes the user's: `.cache` and
+  `.config` (and Lepton's log folder), and the app's own folders when a
+  program running as root made them root's.
+  """
+  def prepare_home(home, %Lepton.Users{uid: uid} = user, app) when uid != 0 do
+    for dir <- [".cache", ".cache/lepton", ".config"], path = Path.join(home, dir) do
+      File.mkdir_p(path)
+      if root_owned?(path), do: own(path, user)
+    end
+
+    for dir <- Map.get(app, :home, []), path = Path.join(home, dir), root_owned?(path) do
+      for p <- [path | Path.wildcard(Path.join(path, "**"), match_dot: true)], do: own(p, user)
+    end
+
+    :ok
+  end
+
+  def prepare_home(_home, _user, _app), do: :ok
+
+  defp root_owned?(path), do: match?({:ok, %File.Stat{uid: 0}}, File.lstat(path))
+
+  defp own(path, %Lepton.Users{uid: uid, gid: gid}) do
+    File.chown(path, uid)
+    File.chgrp(path, gid)
   end
 
   defp relay(port, out) do
