@@ -66,6 +66,10 @@ To update right away, close Firefox and run `sudo app update firefox`.
 If Firefox is running, the update waits for its next start. Firefox's own
 updater is turned off in Alpine's build, so these are the only updates.
 
+Alpine updates Firefox only in its current release, so when Alpine makes
+a new stable release (about twice a year), a new Lepton release moves to
+it.
+
 ## What's different from Firefox elsewhere
 
 - It draws with the CPU: the VM has no GPU, and the GPU drivers are

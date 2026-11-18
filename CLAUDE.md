@@ -52,6 +52,17 @@ layout); feature documentation lives in `docs/`, not in the README.
 - `mix lepton.publish` refuses to run with uncommitted changes in this
   repository, the site checkout or `../lepton.iso`.
 
+## Apps follow an Alpine release
+
+Native apps (Firefox; `Lepton.Apps`) install from one Alpine branch,
+`@branch` in `lib/lepton/alpine.ex`. Alpine's community repository, where
+Firefox lives, gets updates only until the next stable release (about
+every six months), so move `@branch` when one comes out. Check what the
+app definition pins and excludes (gdk-pixbuf is pinned to v3.23: newer
+builds decode images through glycin's sandboxed helpers), update
+docs/apps.md, and test Firefox in a VM before publishing. A scheduled
+routine opens a pull request for v3.25 on 2026-12-15.
+
 ## Repositories
 
 - this repo: git@github.com:danieljaouen/lepton.git
