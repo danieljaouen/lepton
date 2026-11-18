@@ -34,3 +34,6 @@ The graphical desktop, [Photon](desktop.html), runs terminal windows and
 Wayland programs that draw with shared memory; see its guide for what it
 doesn't do yet. The web browser is [Firefox](apps.html), installed on
 demand; Lepton's own `www` is text-only.
+
+Some pages make Firefox freeze and then crash. GitHub when you're signed
+in is one of them. This is a known problem that isn't fixed yet.
