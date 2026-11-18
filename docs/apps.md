@@ -34,7 +34,7 @@ drawing its own. Its output goes to `~/.cache/lepton/firefox.log`.
 
 `app install firefox` reads the package index of
 [Alpine Linux](https://alpinelinux.org/) 3.24, follows Firefox's
-dependencies (GTK, fonts, and so on: about 87 packages), downloads them
+dependencies (GTK, fonts, and so on: about 85 packages), downloads them
 over HTTPS (about 130 MB) and unpacks them into
 `/var/lib/lepton/apps/firefox` (about 350 MB). Then it does the setup the
 packages' install scripts would: GSettings schemas, the MIME database and
@@ -47,10 +47,24 @@ ISO it is kept in memory and is gone after a reboot; give the VM at least
 
 | Command | What it does |
 |---|---|
-| `app` | the apps there are, and which are installed |
+| `app` | the apps there are, their versions, and when they were last checked for updates |
 | `sudo app install NAME` | download and install an app |
+| `sudo app update [NAME]` | update an app (or all of them) now |
 | `sudo app remove NAME` | remove it |
 | `firefox [URL...]` | start Firefox (installing it first, as root) |
+
+## Updates
+
+Firefox keeps itself up to date. Alpine rebuilds it for every Firefox
+release, about every four weeks, and sooner for security fixes. Every
+10 days, starting Firefox also checks for a newer build. If there is one,
+Lepton downloads it in the background, next to the one you're using. The
+next time you start Firefox, the new version takes over before the window
+opens. If its setup fails, the old version stays.
+
+To update right away, close Firefox and run `sudo app update firefox`.
+If Firefox is running, the update waits for its next start. Firefox's own
+updater is turned off in Alpine's build, so these are the only updates.
 
 ## What's different from Firefox elsewhere
 

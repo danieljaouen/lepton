@@ -22,8 +22,8 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
-  defcmd "app", "native Linux apps (from Alpine's packages): list, install, remove",
-    usage: "app [list] | install NAME | remove NAME" do
+  defcmd "app", "native Linux apps (from Alpine's packages): list, install, update, remove",
+    usage: "app [list] | install NAME | update [NAME] | remove NAME" do
     app(args, ctx)
   end
 
@@ -40,6 +40,7 @@ defmodule Lepton.Commands.Desktop do
       true ->
         case session_env(ctx) do
           {:ok, env} ->
+            with {:updated, version} <- Apps.maintain("firefox"), do: IO.puts(ctx, "Updated Firefox to #{version}.")
             {:ok, pid} = Apps.launch("firefox", args, %{ctx | env: env})
             IO.puts(ctx, "Firefox is starting (process #{pid}; log: ~/.cache/lepton/firefox.log).")
             0
@@ -57,8 +58,13 @@ defmodule Lepton.Commands.Desktop do
 
       status =
         case Apps.info(name) do
-          %{packages: pkgs, size: size} -> "installed (#{length(pkgs)} packages, #{div(size, 1_048_576)} MiB)"
-          nil -> "not installed"
+          %{packages: pkgs, size: size} ->
+            checked = if t = Apps.checked_at(name), do: ", checked for updates #{Calendar.strftime(DateTime.from_unix!(t), "%Y-%m-%d")}", else: ""
+            ready = if Apps.staged?(name), do: "; an update is ready (applies when it next starts)", else: ""
+            "#{Apps.version(name)} (#{length(pkgs)} packages, #{div(size, 1_048_576)} MiB#{checked})#{ready}"
+
+          nil ->
+            "not installed"
         end
 
       IO.puts(ctx, "#{String.pad_trailing(name, 12)} #{String.pad_trailing(app.summary, 28)} #{status}")
@@ -67,7 +73,50 @@ defmodule Lepton.Commands.Desktop do
     0
   end
 
-  defp app([cmd | _], ctx) when cmd in ~w(install remove) and ctx.user != "root", do: Users.denied(ctx, "app #{cmd}")
+  defp app([cmd | _], ctx) when cmd in ~w(install update remove) and ctx.user != "root", do: Users.denied(ctx, "app #{cmd}")
+
+  defp app(["update"], ctx) do
+    Apps.names() |> Enum.filter(&Apps.installed?/1) |> Enum.map(&app(["update", &1], ctx)) |> Enum.max(fn -> 0 end)
+  end
+
+  defp app(["update", name], ctx) do
+    cond do
+      not Apps.installed?(name) ->
+        IO.err(ctx, "app: #{name} is not installed")
+        1
+
+      true ->
+        case Apps.stage(name, &IO.puts(ctx, &1)) do
+          {:ok, :current} ->
+            IO.puts(ctx, "#{name} is up to date (#{Apps.version(name)}).")
+            0
+
+          {:ok, {:staged, changes}} ->
+            for {pkg, old, new} <- changes, do: IO.puts(ctx, "  #{pkg}: #{old || "(new)"} -> #{new || "(removed)"}")
+
+            if Apps.running?(name) do
+              IO.puts(ctx, "#{name} is running: the update applies when it next starts.")
+              0
+            else
+              IO.puts(ctx, "Setting up...")
+
+              case Apps.apply_staged(name) do
+                :ok ->
+                  IO.puts(ctx, "Updated #{name} to #{Apps.version(name)}.")
+                  0
+
+                {:error, reason} ->
+                  IO.err(ctx, "app: #{reason} (#{name} was left as it was)")
+                  1
+              end
+            end
+
+          {:error, reason} ->
+            IO.err(ctx, "app: #{reason}")
+            1
+        end
+    end
+  end
 
   defp app(["install", name], ctx) do
     if Apps.installed?(name) do
@@ -99,7 +148,7 @@ defmodule Lepton.Commands.Desktop do
   end
 
   defp app(_args, ctx) do
-    IO.err(ctx, "usage: app [list] | install NAME | remove NAME")
+    IO.err(ctx, "usage: app [list] | install NAME | update [NAME] | remove NAME")
     2
   end
 
@@ -220,6 +269,7 @@ defmodule Lepton.Commands.Desktop do
 
     cond do
       app && Apps.installed?(app) ->
+        Apps.maintain(app)
         Apps.launch(app, [], %{ctx | env: env})
 
       app ->

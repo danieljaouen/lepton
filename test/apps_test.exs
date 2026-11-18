@@ -93,6 +93,66 @@ defmodule Lepton.AppsTest do
     assert env["FONTCONFIG_FILE"] == "/apps/firefox/etc/fonts/lepton.conf"
   end
 
+  defp app_index(firefox_version) do
+    text = """
+    P:firefox
+    V:#{firefox_version}
+    S:100
+    I:200
+
+    P:font-dejavu
+    V:2.37-r6
+    S:10
+    I:20
+
+    P:icu-data-en
+    V:78.1-r0
+    S:10
+    I:20
+    """
+
+    pkgs = Alpine.parse_index(text, "community")
+    %{packages: Map.new(pkgs, &{&1.name, &1}), provides: %{}}
+  end
+
+  defp record(dir, versions) do
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, ".lepton-app"), Base.encode64(:erlang.term_to_binary(%{packages: versions, size: 1, branch: "v3.24"})))
+  end
+
+  test "updates: checks every 10 days, stages a newer build, applies it (or rolls back)" do
+    System.put_env("LEPTON_STATE_DIR", tmp_dir("updstate"))
+    on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
+    installed = [{"firefox", "160.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}]
+    record(Apps.dir("firefox"), installed)
+    File.write!(Path.join(Apps.dir("firefox"), "old"), "")
+
+    assert Apps.changes(installed, [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"nss", "3.1"}]) ==
+             [{"firefox", "160.0-r0", "161.0-r0"}, {"icu-data-en", "78.1-r0", nil}, {"nss", nil, "3.1"}]
+
+    # Never checked: due. Checking with the same versions: up to date, and not due for 10 days.
+    assert Apps.check_due?("firefox")
+    now = System.os_time(:second)
+    assert {:ok, :current} = Apps.stage("firefox", fn _ -> :ok end, index: app_index("160.0-r0"))
+    refute Apps.check_due?("firefox", now + 9 * 86_400)
+    assert Apps.check_due?("firefox", now + 10 * 86_400 + 60)
+
+    # A newer build, already downloaded (staged): stage reports it without downloading again.
+    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}])
+    File.write!(Path.join(Apps.staged_dir("firefox"), "new"), "")
+    assert {:ok, {:staged, [{"firefox", "160.0-r0", "161.0-r0"}]}} = Apps.stage("firefox", fn _ -> :ok end, index: app_index("161.0-r0"))
+    assert Apps.staged?("firefox")
+
+    # Setup failing puts the old version back; succeeding swaps the new one in.
+    assert {:error, "boom"} = Apps.apply_staged("firefox", fn _, _ -> {:error, "boom"} end)
+    assert Apps.version("firefox") == "160.0-r0" and File.exists?(Path.join(Apps.dir("firefox"), "old"))
+    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}])
+    assert :ok = Apps.apply_staged("firefox", fn _, prefix -> if File.exists?(Path.join(prefix, ".lepton-app")), do: :ok end)
+    assert Apps.version("firefox") == "161.0-r0"
+    refute Apps.staged?("firefox") or File.exists?(Path.join(Apps.dir("firefox"), "old"))
+    assert :none = Apps.apply_staged("firefox")
+  end
+
   test "app and firefox: listing, and installing needs root" do
     state = tmp_dir("appstate")
     System.put_env("LEPTON_STATE_DIR", state)
@@ -107,6 +167,9 @@ defmodule Lepton.AppsTest do
     {:ok, err} = StringIO.open("")
     assert {"", 1} = sh("firefox", user: "alice", stderr: err)
     assert StringIO.flush(err) =~ "sudo app install firefox"
+    {:ok, err} = StringIO.open("")
+    assert {"", 1} = sh("app update", user: "alice", stderr: err)
+    assert StringIO.flush(err) =~ "permission denied"
     assert {"", 2} = sh("app frobnicate")
   end
 end

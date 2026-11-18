@@ -41,56 +41,95 @@ defmodule Lepton.Apps do
   def dir(name), do: Path.join(root(), name)
   def installed?(name), do: File.exists?(Path.join(dir(name), ".lepton-app"))
 
-  @doc "What is installed: `%{name => %{packages: n, size: bytes}}` from the app's record."
-  def info(name) do
-    case File.read(Path.join(dir(name), ".lepton-app")) do
-      {:ok, text} -> :erlang.binary_to_term(Base.decode64!(text))
-      _ -> nil
-    end
-  end
+  @doc "What is installed: `%{packages: [{name, version}], size: bytes, branch: branch}`, or nil."
+  def info(name), do: read_record(dir(name))
 
   @doc """
   Install app `name`: resolve its packages, download and unpack them, set
   them up. `say` reports progress (a function of a string).
   """
   def install(name, say \\ fn _ -> :ok end) do
+    with {:ok, _} <- stage(name, say, force: true) do
+      say.("Setting up...")
+      apply_staged(name)
+    end
+  end
+
+  def remove(name) do
+    if installed?(name) do
+      File.rm_rf(dir(name))
+      File.rm_rf(staged_dir(name))
+      File.rm(checked_file(name))
+      :ok
+    else
+      {:error, "#{name} is not installed"}
+    end
+  end
+
+  # -- updates ----------------------------------------------------------------------------------------
+  #
+  # Alpine rebuilds Firefox for each release (every four weeks, more often
+  # for security fixes). Starting an app checks for a newer build every
+  # 10 days and downloads it beside the installed one ("staged"); the
+  # next start, with the app not running, swaps it in. `app update` does
+  # both at once.
+
+  @check_every 10 * 24 * 60 * 60
+
+  def staged_dir(name), do: dir(name) <> ".staged"
+  def staged?(name), do: File.exists?(Path.join(staged_dir(name), ".lepton-app"))
+  defp checked_file(name), do: Path.join(root(), name <> ".checked")
+
+  @doc "When app `name` was last checked for updates (Unix seconds), or nil."
+  def checked_at(name) do
+    case File.read(checked_file(name)) do
+      {:ok, text} -> text |> String.trim() |> Integer.parse() |> then(fn {n, _} -> n; :error -> nil end)
+      _ -> nil
+    end
+  end
+
+  @doc "Is a check for updates due (none yet, or the last 10 or more days ago)?"
+  def check_due?(name, now \\ System.os_time(:second)) do
+    case checked_at(name) do
+      nil -> true
+      t -> now - t >= @check_every
+    end
+  end
+
+  @doc "The packages that differ between two package lists: `[{name, old_version | nil, new_version | nil}]`."
+  def changes(old, new) do
+    old = Map.new(old)
+    new = Map.new(new)
+
+    for name <- Enum.sort(Enum.uniq(Map.keys(old) ++ Map.keys(new))), old[name] != new[name], do: {name, old[name], new[name]}
+  end
+
+  @doc """
+  Download app `name`'s current packages into its staging directory if
+  they differ from what is installed (or always, with `force: true`).
+  Returns `{:ok, :current}` or `{:ok, {:staged, changes}}`. `index:`
+  supplies the package index (tests).
+  """
+  def stage(name, say \\ fn _ -> :ok end, opts \\ []) do
     with %{} = app <- get(name) || {:error, "no app called #{name} (apps: #{Enum.join(names(), ", ")})"},
          _ = say.("Reading the Alpine #{Alpine.branch()} package index..."),
-         {:ok, index} <- Alpine.index(),
-         {:ok, index} <- Alpine.pin(index, Map.get(app, :pins, %{})),
+         {:ok, index} <- if(opts[:index], do: {:ok, opts[:index]}, else: Alpine.index()),
+         {:ok, index} <- if(opts[:index], do: {:ok, index}, else: Alpine.pin(index, Map.get(app, :pins, %{}))),
          {:ok, pkgs} <- Alpine.resolve(index, app.packages, app.exclude) do
-      total = Enum.sum(Enum.map(pkgs, & &1.size))
-      installed = Enum.sum(Enum.map(pkgs, & &1.installed_size))
-      say.("#{app.title}: #{length(pkgs)} packages, #{mib(total)} to download, #{mib(installed)} installed.")
-      tmp = dir(name) <> ".new"
-      File.rm_rf!(tmp)
+      File.mkdir_p!(root())
+      File.write!(checked_file(name), Integer.to_string(System.os_time(:second)))
+      versions = Enum.map(pkgs, &{&1.name, &1.version})
+      changes = changes((info(name) || %{packages: []}).packages, versions)
 
-      result =
-        pkgs
-        |> Enum.with_index(1)
-        |> Enum.reduce_while(:ok, fn {pkg, i}, :ok ->
-          say.("[#{i}/#{length(pkgs)}] #{pkg.name} #{pkg.version} (#{mib(pkg.size)})")
+      cond do
+        changes == [] and !opts[:force] ->
+          {:ok, :current}
 
-          case Alpine.install(pkg, tmp) do
-            :ok -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, "#{pkg.name}: #{inspect(reason)}"}}
-          end
-        end)
+        staged?(name) and changes(staged_info(name).packages, versions) == [] and !opts[:force] ->
+          {:ok, {:staged, changes}}
 
-      # Setup writes absolute paths (loader caches, fonts.conf): do it in place.
-      with :ok <- result,
-           _ = File.rm_rf!(dir(name)),
-           :ok <- File.rename(tmp, dir(name)),
-           _ = say.("Setting up..."),
-           :ok <- setup(name, dir(name)) do
-        record = %{packages: Enum.map(pkgs, &{&1.name, &1.version}), size: installed, branch: Alpine.branch()}
-        File.write!(Path.join(dir(name), ".lepton-app"), Base.encode64(:erlang.term_to_binary(record)))
-        :ok
-      else
-        err ->
-          File.rm_rf(tmp)
-          File.rm_rf(dir(name))
-          err
+        true ->
+          download(app, name, pkgs, versions, say) |> then(&if(&1 == :ok, do: {:ok, {:staged, changes}}, else: &1))
       end
     else
       {:error, {:unresolved, dep}} -> {:error, "cannot resolve #{dep}"}
@@ -99,8 +138,99 @@ defmodule Lepton.Apps do
     end
   end
 
-  def remove(name) do
-    if installed?(name), do: File.rm_rf(dir(name)) |> then(fn _ -> :ok end), else: {:error, "#{name} is not installed"}
+  defp download(app, name, pkgs, versions, say) do
+    total = Enum.sum(Enum.map(pkgs, & &1.size))
+    installed = Enum.sum(Enum.map(pkgs, & &1.installed_size))
+    say.("#{app.title}: #{length(pkgs)} packages, #{mib(total)} to download, #{mib(installed)} installed.")
+    staged = staged_dir(name)
+    File.rm_rf!(staged)
+
+    result =
+      pkgs
+      |> Enum.with_index(1)
+      |> Enum.reduce_while(:ok, fn {pkg, i}, :ok ->
+        say.("[#{i}/#{length(pkgs)}] #{pkg.name} #{pkg.version} (#{mib(pkg.size)})")
+
+        case Alpine.install(pkg, staged) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, "#{pkg.name}: #{inspect(reason)}"}}
+        end
+      end)
+
+    case result do
+      :ok ->
+        # The record is written last: a staging directory without one is incomplete.
+        write_record(staged, %{packages: versions, size: installed, branch: Alpine.branch()})
+
+      err ->
+        File.rm_rf(staged)
+        err
+    end
+  end
+
+  defp staged_info(name), do: read_record(staged_dir(name))
+  defp write_record(dir, record), do: File.write(Path.join(dir, ".lepton-app"), Base.encode64(:erlang.term_to_binary(record)))
+
+  defp read_record(dir) do
+    case File.read(Path.join(dir, ".lepton-app")) do
+      {:ok, text} -> :erlang.binary_to_term(Base.decode64!(text))
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Swap a staged version of app `name` in and set it up; the old one comes
+  back if setup fails. `:none` when nothing is staged. Not while the app
+  runs (callers check `running?/1`).
+  """
+  def apply_staged(name, setup \\ &setup/2) do
+    if staged?(name) do
+      old = dir(name) <> ".old"
+      File.rm_rf!(old)
+      had_old = File.dir?(dir(name))
+      if had_old, do: :ok = File.rename(dir(name), old)
+      :ok = File.rename(staged_dir(name), dir(name))
+
+      # Setup writes absolute paths (loader caches, fonts.conf): it runs in place.
+      case setup.(name, dir(name)) do
+        :ok ->
+          File.rm_rf(old)
+          :ok
+
+        err ->
+          File.rm_rf(dir(name))
+          if had_old, do: File.rename(old, dir(name))
+          err
+      end
+    else
+      :none
+    end
+  end
+
+  @doc "Is app `name` running (a Lepton process of that name)?"
+  def running?(name), do: Enum.any?(Lepton.Proc.list(), &(&1.cmd == name))
+
+  @doc """
+  What starting an app does about updates: apply a staged one (if the app
+  isn't running), and, when a check is due, look for a newer build in the
+  background. Returns what was applied: `{:updated, version}` or `:none`.
+  """
+  def maintain(name) do
+    applied =
+      if staged?(name) and not running?(name) do
+        version = staged_info(name).packages |> List.keyfind(name, 0) |> then(&(&1 && elem(&1, 1)))
+        if apply_staged(name) == :ok, do: {:updated, version}, else: :none
+      else
+        :none
+      end
+
+    if check_due?(name), do: Lepton.Proc.spawn("#{name}-update", [], fn _ -> stage(name) end)
+    applied
+  end
+
+  @doc "The installed version of app `name`'s main package."
+  def version(name) do
+    with %{packages: pkgs} <- info(name), {_, v} <- List.keyfind(pkgs, name, 0), do: v, else: (_ -> nil)
   end
 
   defp mib(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MiB"
@@ -220,7 +350,8 @@ defmodule Lepton.Apps do
   end
 
   @doc """
-  Start app `name` with `args` in a Lepton process of its own; its output
+  Start app `name` with `args` in a Lepton process of its own (call
+  `maintain/1` first for updates); its output
   goes to `~/.cache/lepton/NAME.log`. `ctx` gives the environment
   (`WAYLAND_DISPLAY`, `HOME`). Returns `{:ok, lepton_pid}`.
   """
