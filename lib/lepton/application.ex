@@ -10,6 +10,7 @@ defmodule Lepton.Application do
       Lepton.Clipboard,
       Lepton.Net,
       Lepton.USB,
+      Lepton.Media,
       Lepton.Wifi,
       Lepton.Users,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},

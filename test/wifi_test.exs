@@ -65,10 +65,12 @@ defmodule Lepton.WifiTest do
       alias usb:v148Fp7601d*dc*dsc*dp*ic*isc*ip*in* mt7601u
       alias usb:v0BDAp8179d*dc*dsc*dp*icFFiscFFipFFin* rtl8xxxu
       alias usb:v0BDAp*d*dc*dsc*dp*ic[0-9A]*isc*ip*in* rtw88-8822bu
-      alias pci:v00001AF4d00001050sv*sd*bc*sc*i* virtio_gpu
+      alias pci:v00001B36d00000007sv*sd*bc*sc*i* sdhci-pci
+      alias acpi:QEMU0002:* fw_cfg
       """)
 
-    assert length(table) == 3
+    assert length(table) == 4
+    assert Kmod.modules_for("pci:v00001B36d00000007sv00001AF4sd00001100bc08sc05i01", table) == ["sdhci_pci"]
     assert Kmod.modules_for("usb:v148Fp7601d0000dc00dsc00dp00icFFiscFFipFFin00", table) == ["mt7601u"]
     assert Kmod.modules_for("usb:v0BDAp8179d0200dc00dsc00dp00icFFiscFFipFFin00", table) == ["rtl8xxxu"]
     assert Kmod.modules_for("usb:v0BDAp1234d0000dc00dsc00dp00icAisc00ip00in00", table) == ["rtw88_8822bu"]

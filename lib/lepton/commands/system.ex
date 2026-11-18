@@ -335,6 +335,48 @@ defmodule Lepton.Commands.System do
     end
   end
 
+  defcmd "lsblk", "disks, USB drives and SD cards: partitions, filesystems and where they're mounted", usage: "lsblk" do
+    mounts = Map.new(Sys.mounts(), &{String.replace_prefix(&1.device, "/dev/", ""), &1.dir})
+    IO.puts(ctx, "NAME          SIZE  BUS  FSTYPE   LABEL             MOUNTPOINT")
+
+    for d <- Lepton.Media.block_devices(), d.size > 0 do
+      {type, label} = Lepton.Media.FS.probe("/dev/" <> d.name)
+      name = if d.partition?, do: "  " <> d.name, else: d.name
+
+      IO.puts(
+        ctx,
+        String.pad_trailing(name, 11) <> String.pad_leading(Lepton.Install.Disk.human(d.size), 7) <> "  " <>
+          String.pad_trailing(to_string(d.bus || ""), 5) <> String.pad_trailing(type || "", 9) <>
+          String.pad_trailing(label || "", 18) <> (mounts[d.name] || "")
+      )
+    end
+
+    0
+  end
+
+  defcmd "eject", "unmount a USB drive or SD card so it's safe to remove", usage: "eject [DEVICE|DIR]" do
+    target =
+      case {args, Lepton.Media.mounted()} do
+        {[t], _} -> t
+        {[], [only]} -> only.device
+        {[], []} -> {:error, "no USB drive or SD card is mounted"}
+        {[], many} -> {:error, "which one? " <> Enum.map_join(many, ", ", & &1.dir)}
+        _ -> {:error, "usage: eject [DEVICE|DIR]"}
+      end
+
+    # A mount point (or a directory in one), else a device name (sdb1, /dev/sdb).
+    dir = fn t -> if File.dir?(Ctx.path(ctx, t)), do: Ctx.path(ctx, t), else: t end
+
+    with t when is_binary(t) <- target, {:ok, dirs} <- Lepton.Media.eject(dir.(t)) do
+      IO.puts(ctx, "Ejected #{Enum.join(dirs, ", ")}: it's safe to remove.")
+      0
+    else
+      {:error, msg} ->
+        IO.err(ctx, "eject: #{msg}")
+        1
+    end
+  end
+
   defcmd "umount", "unmount a filesystem", usage: "umount DIR...", root: true do
     Enum.reduce(args, 0, fn dir, st ->
       case Sys.umount(Ctx.path(ctx, dir)) do

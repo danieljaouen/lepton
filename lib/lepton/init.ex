@@ -45,6 +45,7 @@ defmodule Lepton.Init do
     # installed systems: USB / SCSI / NVMe disks, ext2 data partition
     "usb-storage",
     "uas",
+    "mmc_block",
     "sd_mod",
     "nvme",
     "ext4",

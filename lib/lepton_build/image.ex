@@ -38,6 +38,13 @@ defmodule LeptonBuild.Image do
     r8152 ax88179_178a cdc_ether cdc_ncm asix
   )
 
+  # Removable storage (Lepton.Media): SD card slots and USB card readers,
+  # and the filesystems USB drives and SD cards come with.
+  @storage_modules ~w(
+    mmc_block sdhci-pci sdhci-pltfm sdhci-iproc bcm2835 rtsx_usb_sdmmc ums-realtek
+    vfat exfat ntfs3 udf nls_cp437 nls_utf8 nls_iso8859-1
+  )
+
   # Wi-Fi: the 802.11 stack, the crypto WPA uses (the kernel would request
   # these on demand), the simulated radios the self-tests use, and drivers
   # for common USB Wi-Fi adapters and SDIO chips (Raspberry Pi). They are
@@ -369,7 +376,7 @@ defmodule LeptonBuild.Image do
     root = modules_root(src, kver)
 
     deps = module_deps(root)
-    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @wifi_modules)
+    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @storage_modules ++ @wifi_modules)
     shipped = MapSet.new(wanted, &module_name/1)
 
     # Aliases of the shipped modules only, for loading drivers by hardware

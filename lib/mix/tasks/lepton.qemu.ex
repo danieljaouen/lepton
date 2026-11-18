@@ -13,7 +13,8 @@ defmodule Mix.Tasks.Lepton.Qemu do
   The machine matches UTM's defaults for ARM64 Linux guests: `virt`,
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
   keyboard and tablet. The keyboard is plugged into a USB hub, as on a
-  desk, so hubs are always exercised.
+  desk, so hubs are always exercised; `--test` plugs a USB stick into the
+  hub too.
   """
   use Mix.Task
 
@@ -37,7 +38,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
 
       opts[:test] ->
         commands = ["lepton-test"]
-        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts), commands, opts[:timeout] || 300_000, login)
+        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts) ++ usb_stick(), commands, opts[:timeout] || 300_000, login)
         IO.write(output)
         unless output =~ ~r/\d+ tests?, 0 failures/, do: Mix.raise("in-OS test suite failed")
 
@@ -112,6 +113,15 @@ defmodule Mix.Tasks.Lepton.Qemu do
         "-device",
         "ramfb"
       ]
+  end
+
+  # The self-tests' USB stick, behind the hub: a fresh FAT image labelled
+  # LEPTONSTICK with one file (test/media_test.exs mounts and ejects it).
+  defp usb_stick do
+    path = Path.join([File.cwd!(), "_build", "lepton", "usbstick.img"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, LeptonBuild.FAT.image([{"HELLO.TXT", "hello from a USB stick\n"}], nil, "LEPTONSTICK"))
+    ["-drive", "if=none,id=stick,format=raw,file=#{path}", "-device", "usb-storage,bus=xhci.0,port=1.2,drive=stick"]
   end
 
   defp arm_host?, do: :erlang.system_info(:system_architecture) |> to_string() |> String.starts_with?("aarch64")

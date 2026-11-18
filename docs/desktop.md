@@ -65,8 +65,9 @@ Photon with a different window manager, styled after Windows 95:
   **maximize** and **close** buttons (double-click a title bar to
   maximize or restore)
 - a teal desktop with icons for [Firefox](apps.html), the Terminal, the
-  Text Editor (`le`) and the System Monitor (`top`): double-click one to
-  open it
+  Text Editor (`le`) and the System Monitor (`top`), and one for each
+  [USB drive or SD card](storage.html) that is mounted: double-click one
+  to open it
 - a **taskbar** with a button for each window (click to bring it to the
   front, click again to minimize it) and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),

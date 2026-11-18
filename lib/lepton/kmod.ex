@@ -6,8 +6,9 @@ defmodule Lepton.Kmod do
   `finit_module(2)` goes through `Lepton.Sys.insmod/2`.
 
   There is no udev: `load_for_hardware/0` matches the `modalias` of every
-  USB and SDIO device against `modules.alias` and loads the drivers, which
-  is how Wi-Fi adapters (including ones plugged in later) get theirs.
+  USB, SDIO, PCI and platform device against `modules.alias` and loads
+  the drivers, which is how Wi-Fi adapters (including ones plugged in
+  later), SD card slots and card readers get theirs.
   """
 
   def modules_dir do
@@ -90,9 +91,11 @@ defmodule Lepton.Kmod do
     end
   end
 
-  @hotplug_buses ~w(usb sdio)
+  @hotplug_buses ~w(usb sdio pci platform)
+  # Platform devices' aliases are by name or by device tree compatible string.
+  @alias_prefixes ~w(usb sdio pci platform of)
 
-  @doc "Load the drivers for USB and SDIO devices present now. Returns the modules loaded."
+  @doc "Load the drivers for USB, SDIO, PCI and platform devices present now. Returns the modules loaded."
   def load_for_hardware do
     table = alias_table()
 
@@ -141,7 +144,7 @@ defmodule Lepton.Kmod do
   def parse_aliases(text) do
     for line <- String.split(text, "\n"),
         ["alias", pattern, mod] <- [String.split(line)],
-        String.starts_with?(pattern, Enum.map(@hotplug_buses, &(&1 <> ":"))),
+        String.starts_with?(pattern, Enum.map(@alias_prefixes, &(&1 <> ":"))),
         do: {glob_regex(pattern), normalize(mod)}
   end
 

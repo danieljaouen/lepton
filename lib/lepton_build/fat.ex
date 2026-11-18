@@ -4,7 +4,9 @@ defmodule LeptonBuild.FAT do
   partition that holds `EFI/BOOT/BOOTAA64.EFI`.
 
   `files` is a list of `{"EFI/BOOT/BOOTAA64.EFI", binary}`; names must
-  already be valid 8.3 names (they are upper-cased here).
+  already be valid 8.3 names (they are upper-cased here). The volume
+  label is `label` (11 characters at most; the test VM's USB stick has
+  its own).
   """
 
   import Bitwise
@@ -16,7 +18,8 @@ defmodule LeptonBuild.FAT do
   @reserved 1
   @nfats 2
 
-  def image(files, total_sectors \\ nil) do
+  def image(files, total_sectors \\ nil, label \\ "LEPTON EFI") do
+    Process.put({__MODULE__, :label}, label |> String.upcase() |> String.pad_trailing(11) |> binary_part(0, 11))
     tree = build_tree(files)
     data_bytes = tree_size(tree)
     total_sectors = total_sectors || max(4096, div(data_bytes, @sector) * 2 + 512)
@@ -115,7 +118,7 @@ defmodule LeptonBuild.FAT do
       if self_cluster do
         [entry(".          ", 0x10, self_cluster, 0), entry("..         ", 0x10, parent_cluster || 0, 0)]
       else
-        [entry("LEPTON EFI ", 0x08, 0, 0)]
+        [entry(Process.get({__MODULE__, :label}), 0x08, 0, 0)]
       end
 
     items =
@@ -169,7 +172,7 @@ defmodule LeptonBuild.FAT do
     bpb =
       <<0xEB, 0x3C, 0x90, "LEPTON  ", @sector::little-16, @spc, @reserved::little-16, @nfats, @root_entries::little-16,
         total_sectors::little-16, 0xF8, fat_sectors::little-16, 32::little-16, 64::little-16, 0::little-32,
-        0::little-32, 0x80, 0, 0x29, 0x4C455054::little-32, "LEPTON EFI ", "FAT12   ">>
+        0::little-32, 0x80, 0, 0x29, 0x4C455054::little-32, Process.get({__MODULE__, :label})::binary, "FAT12   ">>
 
     pad_to(bpb, 510) <> <<0x55, 0xAA>>
   end

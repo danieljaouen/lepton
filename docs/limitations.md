@@ -1,6 +1,6 @@
 ---
 title: Limitations
-order: 16
+order: 17
 summary: What Lepton doesn't do yet.
 ---
 

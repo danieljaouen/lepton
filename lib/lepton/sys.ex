@@ -65,8 +65,9 @@ defmodule Lepton.Sys do
     end
   end
 
-  def umount(target) do
-    case shim("umount", [target]) do
+  @doc "Unmount `target`; `lazy: true` detaches it even while busy (a device that is gone)."
+  def umount(target, opts \\ []) do
+    case shim("umount", if(opts[:lazy], do: ["-l", target], else: [target])) do
       {_, 0} -> :ok
       {out, _} -> {:error, String.trim(out)}
     end

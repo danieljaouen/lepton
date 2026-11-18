@@ -304,7 +304,7 @@ defmodule Lepton.Commands.Desktop do
         Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: command, title: "Installing #{opts[:title] || app}")
 
       true ->
-        Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: opts[:command], title: opts[:title])
+        Term.start(env: env, user: ctx.user, cwd: opts[:cwd] || env["HOME"], command: opts[:command], title: opts[:title])
     end
   end
 

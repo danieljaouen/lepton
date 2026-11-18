@@ -269,6 +269,7 @@ lib/lepton/            the operating system
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
   wifi.ex                         Wi-Fi: saved networks, wpa_supplicant manager
   usb.ex                          USB: device tree (hubs), hotplug driver loading
+  media.ex media/                 USB drives and SD cards: filesystem detection, automount, eject
   users.ex                        accounts, login, sudo and permission checks
   setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates

@@ -15,7 +15,7 @@ appears, Lepton loads its driver within a second:
 | Device | Driver | What you get |
 |---|---|---|
 | keyboards, mice, tablets | `usbhid` | they work at the console and in [Photon](desktop.html) at once |
-| USB sticks and disks | `usb-storage`, `uas` | a disk (`sda`, ...) for `mount` and `lepton-install` |
+| USB sticks, drives and card readers | `usb-storage`, `uas` | mounted under `/media` ([USB drives and SD cards](storage.html)) |
 | Wi-Fi adapters | see [Networking](networking.html) | a wireless interface |
 | Ethernet ports (docks, adapters) | `r8152`, `ax88179_178a`, `asix`, `cdc_ether`, `cdc_ncm` | an interface, configured with DHCP |
 | USB display adapters | `udl`, `gud` | another display for the desktop (below) |

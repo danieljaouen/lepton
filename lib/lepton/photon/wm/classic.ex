@@ -148,13 +148,13 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def signature(s, info) do
-    {s.menu, s.hover, s.selected, s.w, s.h, s.bar_w, clock(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
+    {s.menu, s.hover, s.selected, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
   end
 
   @impl true
   def layers(s, info) do
     icons =
-      for {{label, kind, _}, i} <- Enum.with_index(@icons) do
+      for {{label, kind, _}, i} <- Enum.with_index(icons()) do
         {x, y, w, h} = icon_rect(i)
         selected? = s.selected == i
         bg = Render.rgb(@desktop)
@@ -169,6 +169,13 @@ defmodule Lepton.Photon.WM.Classic do
 
     above = [taskbar(s, info)] ++ if(s.menu, do: [menu(s)], else: [])
     {icons, above}
+  end
+
+  # The desktop's icons: the apps, then a drive for each USB drive or SD
+  # card that is mounted (Lepton.Media), which opens a terminal there.
+  defp icons do
+    drives = for m <- Lepton.Media.mounted(), name = Path.basename(m.dir), do: {name, :drive, [title: name, cwd: m.dir]}
+    @icons ++ drives
   end
 
   defp label(c, text, w, y, selected?) do
@@ -331,7 +338,7 @@ defmodule Lepton.Photon.WM.Classic do
   @impl true
   def desktop_click(s, _info, {px, py}, double?) do
     hit =
-      Enum.find(Enum.with_index(@icons), fn {_, i} ->
+      Enum.find(Enum.with_index(icons()), fn {_, i} ->
         {x, y, w, h} = icon_rect(i)
         px >= x and px < x + w and py >= y and py < y + h
       end)
@@ -445,6 +452,16 @@ defmodule Lepton.Photon.WM.Classic do
     s = div(size, 16)
     art = for row <- @globe, line = Enum.map_join(String.graphemes(row), &String.duplicate(&1, s)), _ <- 1..s, do: line
     Canvas.art(c, x, y, art, %{"b" => "#2060c0", "g" => "#30a030"})
+  end
+
+  # A drive: a grey box with a slot and a green light.
+  defp icon(c, x, y, :drive, size) do
+    s = div(size, 16)
+
+    c
+    |> Canvas.bevel(x, y + 4 * s, 16 * s, 9 * s, :raised)
+    |> Canvas.fill(x + 2 * s, y + 7 * s, 9 * s, max(s, 1), Render.rgb(@dark))
+    |> Canvas.fill(x + 12 * s, y + 9 * s, 2 * s, 2 * s, Render.rgb("#00c000"))
   end
 
   defp icon(c, x, y, :help, size) do
