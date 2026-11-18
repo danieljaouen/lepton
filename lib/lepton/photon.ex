@@ -30,13 +30,13 @@ defmodule Lepton.Photon do
 
   require Logger
 
-  alias Lepton.Photon.{Output, Render}
+  alias Lepton.Photon.{Output, Render, WM}
   alias Lepton.Wayland.{Conn, Keymap, Protocol, Wire}
 
   import Bitwise
 
   @frame_ms 16
-  @help "Photon   Alt+Return: terminal   Alt+Tab: next window   Alt+F4: close   Ctrl+Alt+Backspace: quit"
+  @double_click_ms 400
 
   @globals [{1, "wl_compositor"}, {2, "wl_shm"}, {3, "wl_seat"}, {4, "wl_output"}, {5, "xdg_wm_base"}, {6, "lepton_shm"}]
 
@@ -71,7 +71,8 @@ defmodule Lepton.Photon do
   defmodule Win do
     @moduledoc false
     # x, y: the frame's top-left (toplevels) or the content's (popups)
-    defstruct [:key, :kind, :x, :y, :title_rows, :parent, maximized: nil]
+    # seq: the order windows opened in (taskbars keep it)
+    defstruct [:key, :kind, :x, :y, :title_rows, :parent, :seq, maximized: nil, minimized: false]
   end
 
   defstruct [
@@ -98,7 +99,12 @@ defmodule Lepton.Photon do
     place: 0,
     started: 0,
     owner: nil,
-    console: false
+    console: false,
+    wm: WM.Default,
+    wm_state: nil,
+    wm_sig: nil,
+    wm_layers: {[], []},
+    last_click: nil
   ]
 
   # -- API ---------------------------------------------------------------------------------
@@ -109,7 +115,10 @@ defmodule Lepton.Photon do
     * `:output` - a `Lepton.Photon.Output` (required)
     * `:socket` - the socket path (required)
     * `:input` - `:evdev` to read the kernel's input devices (default: none)
-    * `:spawn` - a function Alt+Return calls to open a terminal
+    * `:spawn` - a function of options (`:command`) that opens a terminal
+      (Alt+Return, and the window manager's menus)
+    * `:wm` - the window manager: `"photon"` (default) or `"classic"`
+      (`Lepton.Photon.WM`)
     * `:name` - register under this name
     * `:console` - take the display from the text console: stop fbcon
       drawing and mute `/dev/tty1` while Photon runs
@@ -159,13 +168,16 @@ defmodule Lepton.Photon do
           listener: listener,
           keymap: keymap_file(path),
           spawn: opts[:spawn],
-          background: Render.background(out.width, out.height, @help),
+          wm: WM.get(opts[:wm]),
+          wm_state: WM.get(opts[:wm]).init(out.width, out.height),
           pointer: {out.width / 2, out.height / 2},
           started: System.monotonic_time(:millisecond),
           owner: opts[:owner],
           console: opts[:console] == true
         }
 
+        st = %{st | background: st.wm.background(st.wm_state)}
+        Process.send_after(self(), :wm_tick, 5000)
         {:ok, damage(st, {0, 0, out.width, out.height})}
 
       {:error, reason} ->
@@ -200,10 +212,10 @@ defmodule Lepton.Photon do
     windows =
       for w <- Enum.reverse(st.windows) do
         s = surface(st, w.key)
-        %{title: s.title, app_id: s.app_id, kind: w.kind, x: w.x, y: w.y, width: s.w, height: s.h, focused: w.key == st.keyboard_focus}
+        %{title: s.title, app_id: s.app_id, kind: w.kind, x: w.x, y: w.y, width: s.w, height: s.h, focused: w.key == st.keyboard_focus, minimized: w.minimized, maximized: w.maximized != nil}
       end
 
-    {:reply, %{socket: st.socket_path, clients: clients, windows: windows, output: {st.output.width, st.output.height}}, st}
+    {:reply, %{socket: st.socket_path, clients: clients, windows: windows, output: {st.output.width, st.output.height}, wm: st.wm}, st}
   end
 
   def handle_call(:screenshot, _from, st) do
@@ -238,6 +250,12 @@ defmodule Lepton.Photon do
 
   def handle_info(:repaint, st), do: {:noreply, repaint(%{st | repaint: nil})}
   def handle_info(:quit, st), do: {:stop, :normal, st}
+
+  # The window manager's clock.
+  def handle_info(:wm_tick, st) do
+    Process.send_after(self(), :wm_tick, 5000)
+    {:noreply, schedule(st)}
+  end
 
   def handle_info({:EXIT, _pid, _reason}, st), do: {:noreply, st}
   def handle_info({:DOWN, _, :process, _session, _}, st), do: {:stop, :normal, st}
@@ -708,12 +726,12 @@ defmodule Lepton.Photon do
   defp map_window(st, key, :toplevel) do
     s = surface(st, key)
     {cw, ch} = content_size(s)
-    {fw, fh} = Render.frame_size(cw, ch)
-    %{width: ow, height: oh} = st.output
+    {fw, fh} = st.wm.frame_size(cw, ch)
+    {ax, ay, aw, ah} = st.wm.work_area(st.wm_state)
     n = st.place
-    x = max(div(ow - fw, 2) + rem(n, 8) * 32, 0)
-    y = max(div(oh - fh, 2) + rem(n, 8) * 32, 0)
-    win = %Win{key: key, kind: :toplevel, x: x, y: y}
+    x = ax + max(div(aw - fw, 2) + rem(n, 8) * 32, 0)
+    y = ay + max(div(ah - fh, 2) + rem(n, 8) * 32, 0)
+    win = %Win{key: key, kind: :toplevel, x: x, y: y, seq: n}
     st = %{st | windows: st.windows ++ [win], place: n + 1}
     st |> focus(key) |> redecorate(key) |> damage_window(key)
   end
@@ -781,7 +799,7 @@ defmodule Lepton.Photon do
         st = if st.pointer_focus == key, do: %{st | pointer_focus: nil}, else: st
 
         if st.keyboard_focus == key do
-          next = st.windows |> Enum.filter(&(&1.kind == :toplevel)) |> List.last()
+          next = st.windows |> Enum.filter(&(&1.kind == :toplevel and not &1.minimized)) |> List.last()
           %{st | keyboard_focus: nil} |> focus(next && next.key)
         else
           st
@@ -793,7 +811,10 @@ defmodule Lepton.Photon do
   defp content_size(%Surface{w: w, h: h}), do: {w, h}
 
   defp content_origin(_st, %Win{kind: :popup, x: x, y: y}), do: {x, y}
-  defp content_origin(_st, %Win{x: x, y: y}), do: Render.content_origin(x, y)
+  defp content_origin(st, %Win{x: x, y: y}) do
+    {dx, dy} = st.wm.content_offset()
+    {x + dx, y + dy}
+  end
 
   # -- focus and decorations ----------------------------------------------------------------
 
@@ -860,10 +881,10 @@ defmodule Lepton.Photon do
     case {window(st, key), surface(st, key)} do
       {%Win{kind: :toplevel} = w, %Surface{} = s} ->
         {cw, ch} = content_size(s)
-        {fw, _} = Render.frame_size(cw, ch)
-        rows = Render.title_rows(s.title || s.app_id || "", fw, key == st.keyboard_focus)
+        {fw, _} = st.wm.frame_size(cw, ch)
+        rows = st.wm.decorations(s.title || s.app_id || "", fw, key == st.keyboard_focus, w.maximized != nil)
         st = put_window(st, %{w | title_rows: {fw, rows}})
-        damage(st, {w.x, w.y, fw, Render.border() + Render.title_height()})
+        damage(st, {w.x, w.y, fw, length(rows)})
 
       _ ->
         st
@@ -875,18 +896,18 @@ defmodule Lepton.Photon do
   defp maximize(st, key, on?) do
     case window(st, key) do
       %Win{} = w ->
-        %{width: ow, height: oh} = st.output
+        {ax, ay, aw, ah} = st.wm.work_area(st.wm_state)
         {cw, ch} = content_size(surface(st, key))
 
         if on? do
-          st = put_window(st, %{w | maximized: {w.x, w.y, cw, ch}, x: 0, y: 0})
-          {bw, bh} = Render.frame_size(0, 0)
-          configure(st, key, ow - bw, oh - bh, [@maximized, @activated]) |> damage_window(key)
+          st = damage_window(st, key) |> put_window(%{w | maximized: {w.x, w.y, cw, ch}, x: ax, y: ay})
+          {bw, bh} = st.wm.frame_size(0, 0)
+          configure(st, key, aw - bw, ah - bh, [@maximized, @activated]) |> redecorate(key) |> damage_window(key)
         else
           case w.maximized do
             {x, y, pw, ph} ->
               st = damage_window(st, key) |> put_window(%{w | maximized: nil, x: x, y: y})
-              configure(st, key, pw, ph, [@activated])
+              configure(st, key, pw, ph, [@activated]) |> redecorate(key)
 
             nil ->
               st
@@ -911,16 +932,16 @@ defmodule Lepton.Photon do
 
   defp damage_window(st, key) do
     case {window(st, key), surface(st, key)} do
-      {%Win{} = w, %Surface{} = s} -> damage(st, window_rect(w, s))
+      {%Win{} = w, %Surface{} = s} -> damage(st, window_rect(st, w, s))
       _ -> st
     end
   end
 
-  defp window_rect(%Win{kind: :popup, x: x, y: y}, s), do: Tuple.insert_at(Tuple.insert_at(content_size(s), 0, y), 0, x)
+  defp window_rect(_st, %Win{kind: :popup, x: x, y: y}, s), do: Tuple.insert_at(Tuple.insert_at(content_size(s), 0, y), 0, x)
 
-  defp window_rect(%Win{x: x, y: y}, s) do
+  defp window_rect(st, %Win{x: x, y: y}, s) do
     {cw, ch} = content_size(s)
-    {fw, fh} = Render.frame_size(cw, ch)
+    {fw, fh} = st.wm.frame_size(cw, ch)
     {x, y, fw, fh}
   end
 
@@ -944,8 +965,10 @@ defmodule Lepton.Photon do
   defp schedule(st), do: st
 
   defp repaint(st) do
+    st = refresh_wm(st)
     if st.repaint, do: Process.cancel_timer(st.repaint)
-    layers = layers(st)
+    {below, above} = st.wm_layers
+    layers = below ++ layers(st) ++ above
     cursor = cursor(st)
 
     rows = Enum.flat_map(merge(st.damage), &Render.compose(&1, st.background, layers, cursor))
@@ -962,6 +985,26 @@ defmodule Lepton.Photon do
     end)
 
     %{st | damage: [], frame_callbacks: [], repaint: nil}
+  end
+
+  # The window manager's own surfaces are redrawn when what they show changes.
+  defp refresh_wm(st) do
+    sig = st.wm.signature(st.wm_state, wm_info(st))
+
+    if sig == st.wm_sig do
+      st
+    else
+      {below, above} = st.wm.layers(st.wm_state, wm_info(st))
+      {old_below, old_above} = st.wm_layers
+      rects = for l <- old_below ++ old_above ++ below ++ above, do: {l.x, l.y, l.w, l.h}
+      Enum.reduce(rects, %{st | wm_sig: sig, wm_layers: {below, above}}, &damage(&2, &1))
+    end
+  end
+
+  defp wm_info(st) do
+    for %Win{kind: :toplevel} = w <- Enum.sort_by(st.windows, & &1.seq), s = surface(st, w.key), s != nil do
+      %{key: w.key, title: s.title || s.app_id || "", focused: w.key == st.keyboard_focus, minimized: w.minimized}
+    end
   end
 
   # Overlapping or touching rectangles become their bounding box.
@@ -982,7 +1025,7 @@ defmodule Lepton.Photon do
   end
 
   defp layers(st) do
-    for w <- st.windows, s = surface(st, w.key), s != nil and s.content != nil do
+    for w <- st.windows, not w.minimized, s = surface(st, w.key), s != nil and s.content != nil do
       {cw, ch} = content_size(s)
       {gx, gy} = case s.geometry do
         {gx, gy, gw, gh} when gw > 0 and gh > 0 -> {min(max(gx, 0), s.w - cw), min(max(gy, 0), s.h - ch)}
@@ -999,9 +1042,9 @@ defmodule Lepton.Photon do
 
         :toplevel ->
           {fw, rows} = w.title_rows || {0, nil}
-          {need, _} = Render.frame_size(cw, ch)
-          rows = if fw == need and rows, do: rows, else: Render.title_rows(s.title || "", need, w.key == st.keyboard_focus)
-          Render.frame_layer(w.x, w.y, cw, ch, rows, w.key == st.keyboard_focus, row)
+          {need, _} = st.wm.frame_size(cw, ch)
+          rows = if fw == need and rows, do: rows, else: st.wm.decorations(s.title || "", need, w.key == st.keyboard_focus, w.maximized != nil)
+          st.wm.frame_layer(w.x, w.y, cw, ch, rows, w.key == st.keyboard_focus, row)
       end
     end
   end
@@ -1071,7 +1114,7 @@ defmodule Lepton.Photon do
         configure(st, key, w, h, [@resizing, @activated])
 
       _ ->
-        pointer_motion(st)
+        %{st | wm_state: st.wm.motion(st.wm_state, wm_info(st), st.pointer)} |> pointer_motion()
     end
   end
 
@@ -1081,12 +1124,13 @@ defmodule Lepton.Photon do
 
     st.windows
     |> Enum.reverse()
+    |> Enum.reject(& &1.minimized)
     |> Enum.find_value(fn w ->
       s = surface(st, w.key)
-      {x, y, ww, wh} = window_rect(w, s)
+      {x, y, ww, wh} = window_rect(st, w, s)
 
       if px >= x and px < x + ww and py >= y and py < y + wh do
-        part = if w.kind == :popup, do: :content, else: Render.frame_part(ww, wh, trunc(px - x), trunc(py - y))
+        part = if w.kind == :popup, do: :content, else: st.wm.frame_part(ww, wh, trunc(px - x), trunc(py - y))
         {ox, oy} = content_origin(st, w)
         {gx, gy} = geometry_origin(s)
         {w, part, {px - ox + gx, py - oy + gy}}
@@ -1164,24 +1208,95 @@ defmodule Lepton.Photon do
 
   defp press(st, code) do
     alt? = band(st.mods, Keymap.alt()) != 0
+    {double?, st} = double_click(st, code)
 
-    case under_pointer(st) do
-      nil ->
-        dismiss_popups(st, nil)
+    # The window manager's own surfaces (taskbar, menus) come first.
+    case st.wm.click(st.wm_state, wm_info(st), st.pointer, code, double?) do
+      {:handled, wm_state, actions} ->
+        run_actions(%{st | wm_state: wm_state}, actions)
 
-      {w, part, _pos} ->
-        st = dismiss_popups(st, w)
-        st = if w.kind == :toplevel, do: focus(st, w.key), else: st
+      {:pass, wm_state, actions} ->
+        st = run_actions(%{st | wm_state: wm_state}, actions)
 
-        cond do
-          alt? and code == @btn_left and w.kind == :toplevel -> start_move(st, w)
-          alt? and code == @btn_right and w.kind == :toplevel -> start_resize(st, w.key)
-          part == :title and code == @btn_left -> start_move(st, w)
-          part == :corner and code == @btn_left -> start_resize(st, w.key)
-          part == :close and code == @btn_left -> close(st, w.key)
-          part == :content -> st |> pointer_motion() |> send_button(code, 1)
-          true -> st
+        case under_pointer(st) do
+          nil ->
+            st = dismiss_popups(st, nil)
+            {wm_state, actions} = st.wm.desktop_click(st.wm_state, wm_info(st), st.pointer, double?)
+            run_actions(%{st | wm_state: wm_state}, actions)
+
+          {w, part, _pos} ->
+            st = dismiss_popups(st, w)
+            st = if w.kind == :toplevel, do: focus(st, w.key), else: st
+
+            cond do
+              alt? and code == @btn_left and w.kind == :toplevel -> start_move(st, w)
+              alt? and code == @btn_right and w.kind == :toplevel -> start_resize(st, w.key)
+              part == :title and code == @btn_left and double? -> maximize(st, w.key, w.maximized == nil)
+              part == :title and code == @btn_left -> start_move(st, w)
+              part == :corner and code == @btn_left -> start_resize(st, w.key)
+              part == :close and code == @btn_left -> close(st, w.key)
+              part == :maximize and code == @btn_left -> maximize(st, w.key, w.maximized == nil)
+              part == :minimize and code == @btn_left -> minimize(st, w.key)
+              part == :content -> st |> pointer_motion() |> send_button(code, 1)
+              true -> st
+            end
         end
+    end
+  end
+
+  # A second press of the same button, close by and soon after the first.
+  defp double_click(st, code) do
+    now = System.monotonic_time(:millisecond)
+    {px, py} = st.pointer
+
+    double? =
+      case st.last_click do
+        {t, ^code, {lx, ly}} -> now - t < @double_click_ms and abs(px - lx) < 5 and abs(py - ly) < 5
+        _ -> false
+      end
+
+    {double?, %{st | last_click: if(double?, do: nil, else: {now, code, st.pointer})}}
+  end
+
+  defp run_actions(st, actions) do
+    Enum.reduce(actions, st, fn
+      {:focus, key}, st -> st |> restore(key) |> focus(key)
+      {:minimize, key}, st -> minimize(st, key)
+      {:spawn, opts}, st -> launch(st, opts)
+      :quit, st -> run_binding(st, :quit)
+    end)
+  end
+
+  defp minimize(st, key) do
+    case window(st, key) do
+      %Win{minimized: false} = w ->
+        st = damage_window(st, key) |> put_window(%{w | minimized: true})
+
+        if st.keyboard_focus == key do
+          next = st.windows |> Enum.filter(&(&1.kind == :toplevel and not &1.minimized)) |> List.last()
+          st |> focus(next && next.key) |> then(&if(next, do: &1, else: unfocus(&1)))
+        else
+          st
+        end
+
+      _ ->
+        st
+    end
+  end
+
+  # No window has the keyboard (the last one was minimized).
+  defp unfocus(%{keyboard_focus: nil} = st), do: st
+
+  defp unfocus(st) do
+    {sock, sid} = old = st.keyboard_focus
+    for k <- keyboards(st, sock), do: emit(st, sock, k, "wl_keyboard", :leave, [next_serial(st), sid])
+    %{bump(st) | keyboard_focus: nil} |> reconfigure(old) |> redecorate(old)
+  end
+
+  defp restore(st, key) do
+    case window(st, key) do
+      %Win{minimized: true} = w -> st |> put_window(%{w | minimized: false}) |> damage_window(key)
+      _ -> st
     end
   end
 
@@ -1259,6 +1374,7 @@ defmodule Lepton.Photon do
   @key_tab 15
   @key_return 28
   @key_f4 62
+  @key_esc 1
 
   defp key(st, code, pressed?) do
     st =
@@ -1278,6 +1394,7 @@ defmodule Lepton.Photon do
         alt? and code == @key_return -> :terminal
         alt? and code == @key_tab -> :next
         alt? and code == @key_f4 -> :close
+        ctrl? and code == @key_esc -> :menu
         true -> nil
       end
 
@@ -1299,20 +1416,25 @@ defmodule Lepton.Photon do
     st
   end
 
-  defp run_binding(st, :terminal) do
-    # The new client talks to us: start it from another process.
-    if st.spawn, do: spawn(st.spawn)
-    st
-  end
+  defp run_binding(st, :terminal), do: launch(st, [])
+  defp run_binding(st, :menu), do: %{st | wm_state: st.wm.menu(st.wm_state, wm_info(st))} |> schedule()
 
   defp run_binding(st, :next) do
     case Enum.filter(st.windows, &(&1.kind == :toplevel)) do
-      [first | _] when length(st.windows) > 1 -> focus(st, first.key)
+      [first | _] = all when length(all) > 1 -> st |> restore(first.key) |> focus(first.key)
+      [only] -> st |> restore(only.key) |> focus(only.key)
       _ -> st
     end
   end
 
+
   defp run_binding(st, :close), do: if(st.keyboard_focus, do: close(st, st.keyboard_focus), else: st)
+
+  # The new client talks to us: start it from another process.
+  defp launch(st, opts) do
+    if st.spawn, do: spawn(fn -> st.spawn.(opts) end)
+    st
+  end
 
   defp send_key(st, code, pressed?) do
     case st.keyboard_focus do

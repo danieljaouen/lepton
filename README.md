@@ -168,7 +168,10 @@ mix test                       # host-side test run
   decorated windows, pointer) and `pwrite`s them to `/dev/fb0`. Input comes
   from evdev devices read as files. Terminal windows
   (`Lepton.Photon.Term`) are Wayland clients that run `lsh` on a TTY and
-  draw `Lepton.Screen` with the Terminus PSF font.
+  draw `Lepton.Screen` with the Terminus PSF font. Window managers
+  (`Lepton.Photon.WM`) decide decorations and the desktop around the
+  windows: Photon's own, or the Windows 95-style classic desktop
+  (`classic`: taskbar, Start menu, desktop icons).
 
 ## Repositories
 
@@ -204,9 +207,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 139 tests, 0 failures inside the VM (run from the live
+Current results: 140 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-141 passing plus 11 excluded (native/network) on the host.
+142 passing plus 11 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -262,7 +265,7 @@ lib/lepton/            the operating system
   setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates
   services.ex power.ex            svc service manager, power button
-  photon.ex photon/ wayland/      Photon: Wayland compositor, terminal windows, protocol
+  photon.ex photon/ wayland/      Photon: Wayland compositor, window managers, terminal windows, protocol
   selftest.ex                     lepton-test
 lib/lepton_build/      image and docs build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs

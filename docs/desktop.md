@@ -1,7 +1,7 @@
 ---
 title: The desktop (Photon)
 order: 12
-summary: Photon, Lepton's Wayland compositor: terminal windows on the display, with the mouse and keyboard.
+summary: Photon, Lepton's Wayland compositor, and the classic desktop: windows on the display, with the mouse and keyboard.
 ---
 
 # The desktop (Photon)
@@ -54,6 +54,25 @@ photon screenshot shot.png  # save the screen as a PNG
 photon stop                 # quit
 ```
 
+## The classic desktop
+
+For something more familiar, type `classic` instead of `photon`. It's
+Photon with a different window manager, styled after Windows 95:
+
+- grey 3D window frames with a navy title bar and **minimize**,
+  **maximize** and **close** buttons (double-click a title bar to
+  maximize or restore)
+- a teal desktop with icons for the Terminal, the Text Editor (`le`) and
+  the System Monitor (`top`): double-click one to open it
+- a **taskbar** with a button for each window (click to bring it to the
+  front, click again to minimize it) and a clock
+- the **Start** menu (click Start, or Ctrl+Esc): Terminal, Text Editor,
+  System Monitor, Help and Exit Desktop
+
+The keys from the table above work here too. Exit Desktop (or
+Ctrl+Alt+Backspace) returns you to the console. Lepton never starts a
+desktop at boot; you choose `photon` or `classic` when you want one.
+
 ## Wayland
 
 Photon speaks the standard Wayland protocol on
@@ -85,4 +104,4 @@ and leave nothing behind.
 - Keyboard layouts other than US.
 - A web browser: [`www`](commands.html) is text-only for now.
 
-<!-- commands: photon -->
+<!-- commands: photon classic -->

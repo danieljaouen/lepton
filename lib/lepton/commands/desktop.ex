@@ -10,36 +10,19 @@ defmodule Lepton.Commands.Desktop do
     photon(args, ctx)
   end
 
-  defp photon(args, ctx) when args in [[], ["start"]] do
-    with nil <- Process.whereis(Photon),
-         {:ok, out} <- Output.framebuffer() do
-      dir = runtime_dir(ctx)
-      env = Map.merge(ctx.env, %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0"})
-      open = fn -> Term.start(env: env, user: ctx.user, cwd: env["HOME"]) end
+  defcmd "classic", "the classic desktop: Photon with a Windows 95-style window manager",
+    usage: "classic" do
+    case args do
+      [] ->
+        start(ctx, "classic")
 
-      opts = [output: out, socket: Path.join(dir, "wayland-0"), input: :evdev, spawn: open, name: Photon, console: true, session: self()]
-
-      case Photon.start(opts) do
-        {:ok, pid} ->
-          ref = Process.monitor(pid)
-          open.()
-          IO.puts(ctx, "Photon is running on the display (#{out.width}x#{out.height}). Ctrl+Alt+Backspace quits.")
-          wait(ref, pid, ctx)
-
-        {:error, reason} ->
-          IO.err(ctx, "photon: #{reason}")
-          1
-      end
-    else
-      pid when is_pid(pid) ->
-        IO.err(ctx, "photon: already running (open a terminal with: photon term)")
-        1
-
-      {:error, reason} ->
-        IO.err(ctx, "photon: #{reason}")
-        1
+      _ ->
+        IO.err(ctx, "usage: classic")
+        2
     end
   end
+
+  defp photon(args, ctx) when args in [[], ["start"]], do: start(ctx, "photon")
 
   defp photon(["term" | command], ctx) do
     with {:ok, env} <- session_env(ctx),
@@ -65,11 +48,16 @@ defmodule Lepton.Commands.Desktop do
       pid ->
         info = Photon.info(pid)
         {w, h} = info.output
-        IO.puts(ctx, "Photon: #{w}x#{h}, socket #{info.socket}")
+        style = if info.wm == Lepton.Photon.WM.Classic, do: "classic", else: "photon"
+        IO.puts(ctx, "Photon: #{w}x#{h}, #{style} window manager, socket #{info.socket}")
         IO.puts(ctx, "#{info.clients} client(s), #{length(info.windows)} window(s)")
 
         for win <- info.windows do
-          mark = if win.focused, do: "*", else: " "
+          mark = cond do
+            win.focused -> "*"
+            win[:minimized] -> "_"
+            true -> " "
+          end
           IO.puts(ctx, " #{mark} #{String.pad_trailing(win.title || "(untitled)", 30)} #{String.pad_trailing(win.app_id || "", 14)} #{win.width}x#{win.height} at #{win.x},#{win.y}")
         end
 
@@ -111,6 +99,38 @@ defmodule Lepton.Commands.Desktop do
   defp photon(_args, ctx) do
     IO.err(ctx, "usage: photon [start] | term [COMMAND...] | info | screenshot FILE.png | stop")
     2
+  end
+
+  defp start(ctx, wm) do
+    with nil <- Process.whereis(Photon),
+         {:ok, out} <- Output.framebuffer() do
+      dir = runtime_dir(ctx)
+      env = Map.merge(ctx.env, %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0"})
+      open = fn opts -> Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: opts[:command], title: opts[:title]) end
+
+      opts = [output: out, socket: Path.join(dir, "wayland-0"), input: :evdev, spawn: open, name: Photon, console: true, session: self(), wm: wm]
+
+      case Photon.start(opts) do
+        {:ok, pid} ->
+          ref = Process.monitor(pid)
+          open.([])
+          name = if wm == "classic", do: "The classic desktop", else: "Photon"
+          IO.puts(ctx, "#{name} is running on the display (#{out.width}x#{out.height}). Ctrl+Alt+Backspace quits.")
+          wait(ref, pid, ctx)
+
+        {:error, reason} ->
+          IO.err(ctx, "photon: #{reason}")
+          1
+      end
+    else
+      pid when is_pid(pid) ->
+        IO.err(ctx, "photon: already running (open a terminal with: photon term)")
+        1
+
+      {:error, reason} ->
+        IO.err(ctx, "photon: #{reason}")
+        1
+    end
   end
 
   defp wait(ref, pid, ctx) do

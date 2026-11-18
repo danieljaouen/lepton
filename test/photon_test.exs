@@ -37,6 +37,17 @@ defmodule Lepton.PhotonTest do
     end
   end
 
+  # Events until `done?` holds for them (or 3 seconds pass).
+  defp events_until(c, done?, acc \\ [], deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 3000
+    {evs, c} = events(c, 50)
+    acc = acc ++ evs
+
+    if done?.(acc) or System.monotonic_time(:millisecond) > deadline,
+      do: {acc, c},
+      else: events_until(c, done?, acc, deadline)
+  end
+
   defp names(evs), do: Enum.map(evs, fn {_, iface, name, _} -> {iface, name} end)
 
   # A client with a mapped xdg_toplevel showing a w x h buffer of `pixel`.
@@ -63,7 +74,7 @@ defmodule Lepton.PhotonTest do
     c = c |> Client.request(surf, :attach, [buf, 0, 0]) |> Client.request(surf, :damage_buffer, [0, 0, w, h])
     {c, cb} = Client.create(c, surf, :frame, "wl_callback")
     c = Client.request(c, surf, :commit, [])
-    {evs, c} = events(c)
+    {evs, c} = events_until(c, fn evs -> Enum.any?(evs, &match?({^cb, "wl_callback", :done, _}, &1)) end)
     assert {buf, "wl_buffer", :release, []} in evs
     assert Enum.any?(evs, &match?({^cb, "wl_callback", :done, _}, &1))
     %{c: c, seat: seat, surface: surf, top: top, xdg: xdg, buffer: buf, file: file, pool: pool, w: w, h: h}
@@ -244,7 +255,7 @@ defmodule Lepton.PhotonTest do
 
   test "window management: move by the title bar, close button, Alt+Return, Alt+Tab, Ctrl+Alt+Backspace" do
     me = self()
-    {ph, _out, env} = start_photon(spawn: fn -> send(me, :spawned) end)
+    {ph, _out, env} = start_photon(spawn: fn _ -> send(me, :spawned) end)
     a = window(env, 80, 40, Render.px(9, 9, 9))
     _b = window(env, 80, 40, Render.px(8, 8, 8))
     [%{title: "test window", focused: true}, %{focused: false, x: ax, y: ay}] = Photon.info(ph).windows
@@ -281,6 +292,75 @@ defmodule Lepton.PhotonTest do
 
     ref = Process.monitor(ph)
     for {k, down} <- [{29, true}, {56, true}, {14, true}], do: Photon.input(ph, {:key, k, down})
+    assert_receive {:DOWN, ^ref, _, _, :normal}, 2000
+  end
+
+  test "the classic desktop: frames, taskbar, minimize and restore, maximize, Start menu, icons" do
+    alias Lepton.Photon.WM.Classic
+    me = self()
+    {ph, out, env} = start_photon(wm: "classic", spawn: fn opts -> send(me, {:spawned, opts}) end)
+    click = fn x, y ->
+      Photon.input(ph, {:abs, x / 639, y / 399})
+      Photon.input(ph, {:button, 0x110, true})
+      Photon.input(ph, {:button, 0x110, false})
+      Photon.sync(ph)
+    end
+
+    # The teal desktop and the grey taskbar at the bottom.
+    Photon.sync(ph)
+    assert pixel_at(out, 300, 150) == Render.rgb("#008080")
+    assert pixel_at(out, 320, 390) == Render.rgb("#c0c0c0")
+
+    a = window(env, 100, 50, Render.px(1, 1, 1))
+    _b = window(env, 100, 50, Render.px(2, 2, 2))
+    [%{focused: true} = top, %{focused: false}] = Photon.info(ph).windows
+    # The content sits inside the bevelled frame and below the navy title bar.
+    {dx, dy} = Classic.content_offset()
+    assert pixel_at(out, top.x + dx, top.y + dy) == Render.px(2, 2, 2)
+    assert pixel_at(out, top.x + 10, top.y + 4) == Render.rgb("#000080")
+    assert top.y + elem(Classic.frame_size(100, 50), 1) <= 400 - 28
+
+    # The minimize button hides the window; the other one gets the keyboard.
+    {fw, _} = Classic.frame_size(100, 50)
+    click.(top.x + fw - 48, top.y + 10)
+    assert [%{focused: true}, %{minimized: true, focused: false}] = Photon.info(ph).windows
+    assert pixel_at(out, top.x + dx, top.y + dy) != Render.px(2, 2, 2)
+
+    # Its taskbar button (the second) brings it back; clicking again minimizes it.
+    click.(74 + 164 + 20, 390)
+    assert [%{minimized: false, focused: true}, _] = Photon.info(ph).windows
+    click.(74 + 164 + 20, 390)
+    assert [_, %{minimized: true}] = Photon.info(ph).windows
+    click.(74 + 164 + 20, 390)
+
+    # The maximize button fills the work area above the taskbar.
+    [top | _] = Photon.info(ph).windows
+    click.(top.x + fw - 32, top.y + 10)
+    {evs, _} = events(a.c)
+    {bw, bh} = Classic.frame_size(0, 0)
+    assert Enum.any?(evs, &match?({_, "xdg_toplevel", :configure, [w, h, _]} when w == 640 - bw and h == 400 - 28 - bh, &1)) or
+             match?([%{maximized: true, x: 0, y: 0} | _], Photon.info(ph).windows)
+
+    # The Start menu: its first item opens a terminal; Ctrl+Esc opens it too.
+    click.(20, 390)
+    Photon.sync(ph)
+    assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
+    click.(80, 400 - 28 - 134 + 2 + 10)
+    assert_receive {:spawned, []}, 1000
+    for {k, down} <- [{29, true}, {1, true}, {1, false}, {29, false}], do: Photon.input(ph, {:key, k, down})
+    Photon.sync(ph)
+    assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
+
+    # Double-clicking the Text Editor icon opens le.
+    click.(500, 300)
+    click.(60, 110)
+    click.(60, 110)
+    assert_receive {:spawned, [command: "le", title: "Text Editor"]}, 1000
+
+    # Exit Desktop... quits.
+    ref = Process.monitor(ph)
+    click.(20, 390)
+    click.(80, 400 - 28 - 10)
     assert_receive {:DOWN, ^ref, _, _, :normal}, 2000
   end
 
