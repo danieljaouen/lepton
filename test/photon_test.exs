@@ -238,6 +238,30 @@ defmodule Lepton.PhotonTest do
     assert [[2], [2]] = for({^deco, _, :mode, args} <- evs, do: args)
   end
 
+  test "a maximized window keeps its size when it loses and regains the focus" do
+    {ph, _out, env} = start_photon()
+    a = window(env, 100, 50, Render.px(1, 1, 1))
+    c = Client.request(a.c, a.top, :set_maximized, [])
+    {evs, c} = events(c)
+    {bw, bh} = Render.frame_size(0, 0)
+    max = [640 - bw, 400 - bh]
+    assert Enum.any?(evs, fn {id, _, :configure, [w, h, _]} -> id == a.top and [w, h] == max; _ -> false end)
+
+    # Another window takes the focus, then the first gets it back: every
+    # configure it receives still says maximized, at the maximized size.
+    b = window(env, 80, 40, Render.px(2, 2, 2))
+    Photon.input(ph, {:key, 56, true})
+    Photon.input(ph, {:key, 15, true})
+    Photon.input(ph, {:key, 15, false})
+    Photon.input(ph, {:key, 56, false})
+    {evs, _} = events(c)
+    configures = for {id, "xdg_toplevel", :configure, [w, h, states]} <- evs, id == a.top, do: {[w, h], for(<<x::native-32 <- states>>, do: x)}
+    assert length(configures) >= 2
+    for {size, states} <- configures, do: assert(size == max and 1 in states)
+    assert [%{maximized: true, x: 0, y: 0} | _] = Enum.sort_by(Photon.info(ph).windows, &(&1.title != "test window" or &1.width == 80))
+    _ = b
+  end
+
   test "a window bigger than the screen is asked to fit it" do
     {ph, _out, env} = start_photon()
     win = window(env, 700, 500, Render.px(9, 9, 9))

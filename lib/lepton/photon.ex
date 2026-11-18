@@ -996,7 +996,10 @@ defmodule Lepton.Photon do
       %Surface{role: {:toplevel, _}} ->
         w = window(st, key)
         states = if(key == st.keyboard_focus, do: [@activated], else: []) ++ if(w && w.maximized, do: [@maximized], else: [])
-        configure(st, key, 0, 0, states)
+        # A maximized window must be told its size every time: for GTK,
+        # "maximized" with 0x0 means "pick a size", and it picks 1x1.
+        {cw, ch} = if w && w.maximized, do: maximized_size(st), else: {0, 0}
+        configure(st, key, cw, ch, states)
 
       _ ->
         st
@@ -1034,16 +1037,23 @@ defmodule Lepton.Photon do
 
   defp put_window(st, w), do: %{st | windows: Enum.map(st.windows, &if(&1.key == w.key, do: w, else: &1))}
 
+  # The content size of a window that fills the work area.
+  defp maximized_size(st) do
+    {_ax, _ay, aw, ah} = st.wm.work_area(st.wm_state)
+    {bw, bh} = st.wm.frame_size(0, 0)
+    {aw - bw, ah - bh}
+  end
+
   defp maximize(st, key, on?) do
     case window(st, key) do
       %Win{} = w ->
-        {ax, ay, aw, ah} = st.wm.work_area(st.wm_state)
+        {ax, ay, _, _} = st.wm.work_area(st.wm_state)
         {cw, ch} = content_size(surface(st, key))
 
         if on? do
           st = damage_window(st, key) |> put_window(%{w | maximized: {w.x, w.y, cw, ch}, x: ax, y: ay})
-          {bw, bh} = st.wm.frame_size(0, 0)
-          configure(st, key, aw - bw, ah - bh, [@maximized, @activated]) |> redecorate(key) |> damage_window(key)
+          {mw, mh} = maximized_size(st)
+          configure(st, key, mw, mh, [@maximized, @activated]) |> redecorate(key) |> damage_window(key)
         else
           case w.maximized do
             {x, y, pw, ph} ->
