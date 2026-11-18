@@ -29,6 +29,7 @@ pre-built, unmodified substrate that is downloaded at build time
 |---|---|---|
 | Linux kernel + modules + Wi-Fi firmware | Alpine `linux-lts` (v3.24), only the modules Lepton uses | the BEAM needs a kernel |
 | `wpa_supplicant` (+ `hostapd` for the self-tests) | Alpine (musl, in `/usr/lib/musl`) | WPA authentication for Wi-Fi |
+| Firefox and its libraries (GTK, fonts) | Alpine, downloaded when first used (`Lepton.Apps`, `Lepton.Alpine`) | a complete web browser |
 | ERTS / OTP 29.1.2 | Hex.pm prebuilt for arm64 | "Erlang, and so on down the line" |
 | glibc, libstdc++, zlib, libtinfo, libcrypto | Ubuntu 24.04 arm64 | ERTS links against them |
 | GRUB EFI | Debian `grub-efi-arm64-unsigned` | firmware → kernel loader |
@@ -72,6 +73,7 @@ The user documentation is at **<https://trylepton.app/docs/>**:
   [networking](https://trylepton.app/docs/networking.html),
   [system](https://trylepton.app/docs/system.html),
   [the desktop](https://trylepton.app/docs/desktop.html),
+  [Firefox and apps](https://trylepton.app/docs/apps.html),
   [your dotfiles](https://trylepton.app/docs/dotfiles.html) and
   [limitations](https://trylepton.app/docs/limitations.html)
 - Reference: [every command](https://trylepton.app/docs/commands.html),
@@ -168,7 +170,10 @@ mix test                       # host-side test run
   decorated windows, pointer) and `pwrite`s them to `/dev/fb0`. Input comes
   from evdev devices read as files. Terminal windows
   (`Lepton.Photon.Term`) are Wayland clients that run `lsh` on a TTY and
-  draw `Lepton.Screen` with the Terminus PSF font. Window managers
+  draw `Lepton.Screen` with the Terminus PSF font. Descriptors received
+  from clients are closed by `Lepton.FD`, a 700-byte NIF whose ELF and
+  aarch64 code Lepton writes itself (OTP has no way to close a descriptor
+  it didn't open). Window managers
   (`Lepton.Photon.WM`) decide decorations and the desktop around the
   windows: Photon's own, or the Windows 95-style classic desktop
   (`classic`: taskbar, Start menu, desktop icons).
@@ -207,9 +212,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 140 tests, 0 failures inside the VM (run from the live
+Current results: 146 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-142 passing plus 11 excluded (native/network) on the host.
+148 passing plus 11 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -226,11 +231,11 @@ The CLI layers were built so a graphical stack can sit on top of them:
    clipboard, and native Wayland programs from Alpine.
 4. **Text**: a bitmap font (Terminus, PSF) is done. Next: a TrueType
    rasterizer in Elixir.
-5. **Browser**: `www` is the first slice. It already has HTTP(S) fetching,
-   an HTML tokenizer and a text layout pass with link navigation. Next come
-   a CSS parser and cascade, a box-model layout engine targeting the
-   compositor, and images (PNG decoding via `:zlib`). JavaScript is a much
-   later milestone.
+5. **Browser** (done, natively): Firefox runs on Photon, installed on
+   demand from Alpine's packages
+   ([guide](https://trylepton.app/docs/apps.html)). Lepton's own `www`
+   stays a text browser (HTTP(S), an HTML tokenizer, text layout and
+   links).
 
 ## Credits
 
@@ -266,6 +271,7 @@ lib/lepton/            the operating system
   pkg.ex official.ex              lpm, signed official updates
   services.ex power.ex            svc service manager, power button
   photon.ex photon/ wayland/      Photon: Wayland compositor, window managers, terminal windows, protocol
+  apps.ex alpine.ex fd.ex         native apps (Firefox) from Alpine packages; closing received descriptors
   selftest.ex                     lepton-test
 lib/lepton_build/      image and docs build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs

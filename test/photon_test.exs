@@ -77,7 +77,7 @@ defmodule Lepton.PhotonTest do
     {evs, c} = events_until(c, fn evs -> Enum.any?(evs, &match?({^cb, "wl_callback", :done, _}, &1)) end)
     assert {buf, "wl_buffer", :release, []} in evs
     assert Enum.any?(evs, &match?({^cb, "wl_callback", :done, _}, &1))
-    %{c: c, seat: seat, surface: surf, top: top, xdg: xdg, buffer: buf, file: file, pool: pool, w: w, h: h}
+    %{c: c, seat: seat, surface: surf, top: top, xdg: xdg, buffer: buf, file: file, pool: pool, w: w, h: h, events: evs}
   end
 
   defp eventually(fun, tries \\ 50) do
@@ -100,6 +100,11 @@ defmodule Lepton.PhotonTest do
     assert {^args, []} = Wire.decode(types, payload, [42])
     assert_raise ArgumentError, fn -> Wire.decode([:string], <<9::native-32, "ab">>, []) end
     assert_raise ArgumentError, fn -> Wire.decode([:fd], <<>>, []) end
+
+    # The header's second word is size << 16 | opcode, as libwayland writes it:
+    # wl_display.get_registry(new id 2), little-endian.
+    assert IO.iodata_to_binary(elem(Wire.encode(1, 1, [{:new_id, "wl_registry"}], [2]), 0)) == <<1, 0, 0, 0, 1, 0, 12, 0, 2, 0, 0, 0>>
+    assert {[{1, 1, <<2, 0, 0, 0>>}], ""} = Wire.split(<<1, 0, 0, 0, 1, 0, 12, 0, 2, 0, 0, 0>>)
   end
 
   test "the US keymap: keys for clients, and the XKB keymap sent to them" do
@@ -147,7 +152,7 @@ defmodule Lepton.PhotonTest do
     {ph, out, env} = start_photon()
     {:ok, c} = Client.connect(Lepton.Wayland.Conn.socket_path(env))
     {c, globals} = Client.registry(c)
-    assert globals |> Map.new(fn {k, {_, v}} -> {k, v} end) == %{"wl_compositor" => 4, "wl_shm" => 1, "wl_seat" => 5, "wl_output" => 2, "xdg_wm_base" => 1, "lepton_shm" => 1}
+    assert globals |> Map.new(fn {k, {_, v}} -> {k, v} end) == %{"wl_compositor" => 4, "wl_shm" => 1, "wl_seat" => 5, "wl_output" => 2, "xdg_wm_base" => 1, "lepton_shm" => 1, "wl_subcompositor" => 1, "wl_data_device_manager" => 3, "org_kde_kwin_server_decoration_manager" => 1}
     {c, shm} = Client.bind(c, "wl_shm", 1)
     {c, output} = Client.bind(c, "wl_output", 2)
     {evs, _c} = events(c)
@@ -181,12 +186,86 @@ defmodule Lepton.PhotonTest do
     assert pixel_at(out, cx, cy) != red
   end
 
+  test "subsurfaces are drawn over their window, where they are put" do
+    {ph, out, env} = start_photon()
+    # (the pointer starts at the centre, over the window: move it aside)
+    Photon.input(ph, {:abs, 0.0, 0.0})
+    win = window(env, 60, 40, Render.px(255, 0, 0))
+    {c, comp} = Client.bind(win.c, "wl_compositor", 4)
+    {c, subc} = Client.bind(c, "wl_subcompositor", 1)
+    {c, shm} = Client.bind(c, "wl_shm", 1)
+    {c, child} = Client.create(c, comp, :create_surface, "wl_surface")
+    {c, sub} = Client.create(c, subc, :get_subsurface, "wl_subsurface", [:new, child, win.surface])
+    c = Client.request(c, sub, :set_position, [10, 5])
+    {c, pool, file} = Client.shm_pool(c, shm, 8 * 4 * 4, env["XDG_RUNTIME_DIR"])
+    green = Render.px(0, 255, 0)
+    :ok = :file.pwrite(file, 0, :binary.copy(green, 32))
+    {c, buf} = Client.create(c, pool, :create_buffer, "wl_buffer", [:new, 0, 8, 4, 32, 1])
+    c = c |> Client.request(child, :attach, [buf, 0, 0]) |> Client.request(child, :damage_buffer, [0, 0, 8, 4]) |> Client.request(child, :commit, [])
+    {c, _} = Client.roundtrip(c)
+    Photon.sync(ph)
+    [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    assert pixel_at(out, cx + 10, cy + 5) == green
+    assert pixel_at(out, cx + 17, cy + 8) == green
+    assert pixel_at(out, cx + 18, cy + 5) == Render.px(255, 0, 0)
+    assert pixel_at(out, cx + 9, cy + 5) == Render.px(255, 0, 0)
+
+    # Moving it redraws both places; destroying it uncovers the window.
+    c = Client.request(c, sub, :set_position, [30, 20])
+    {c, _} = Client.roundtrip(c)
+    Photon.sync(ph)
+    assert pixel_at(out, cx + 10, cy + 5) == Render.px(255, 0, 0)
+    assert pixel_at(out, cx + 30, cy + 20) == green
+    c = Client.request(c, sub, :destroy, [])
+    {c, _} = Client.roundtrip(c)
+    Photon.sync(ph)
+    assert pixel_at(out, cx + 30, cy + 20) == Render.px(255, 0, 0)
+
+    # The data device manager exists (toolkits bind it), with no clipboard yet.
+    {c, ddm} = Client.bind(c, "wl_data_device_manager", 3)
+    {c, _dev} = Client.create(c, ddm, :get_data_device, "wl_data_device", [:new, win.seat])
+    {c, src} = Client.create(c, ddm, :create_data_source, "wl_data_source")
+    c = Client.request(c, src, :offer, ["text/plain"])
+    assert {c, _} = Client.roundtrip(c)
+
+    # Server-side decorations: the default, and the answer to any request.
+    {c, mgr} = Client.bind(c, "org_kde_kwin_server_decoration_manager", 1)
+    {c, deco} = Client.create(c, mgr, :create, "org_kde_kwin_server_decoration", [:new, win.surface])
+    c = Client.request(c, deco, :request_mode, [1])
+    {evs, _} = events_until(c, fn evs -> length(for {^deco, _, :mode, _} <- evs, do: 1) == 2 end)
+    assert {mgr, "org_kde_kwin_server_decoration_manager", :default_mode, [2]} in evs
+    assert [[2], [2]] = for({^deco, _, :mode, args} <- evs, do: args)
+  end
+
+  test "a window bigger than the screen is asked to fit it" do
+    {ph, _out, env} = start_photon()
+    win = window(env, 700, 500, Render.px(9, 9, 9))
+    {bw, bh} = Render.frame_size(0, 0)
+    assert {win.top, "xdg_toplevel", :configure, [640 - bw, 400 - bh, <<4::native-32>>]} in win.events
+    assert [%{x: 0, y: 0}] = Photon.info(ph).windows
+
+    # One that grows later moves back up into the screen.
+    small = window(env, 100, 50, Render.px(8, 8, 8))
+    {c, shm} = Client.bind(small.c, "wl_shm", 1)
+    {c, pool, _file} = Client.shm_pool(c, shm, 100 * 340 * 4, env["XDG_RUNTIME_DIR"])
+    {c, buf} = Client.create(c, pool, :create_buffer, "wl_buffer", [:new, 0, 100, 340, 400, 1])
+    c = c |> Client.request(small.surface, :attach, [buf, 0, 0]) |> Client.request(small.surface, :commit, [])
+    {_c, _} = Client.roundtrip(c)
+    [%{y: y, height: 340} | _] = Photon.info(ph).windows
+    assert y + elem(Render.frame_size(100, 340), 1) <= 400
+
+    # The cascade of new windows stays inside it too.
+    for _ <- 1..6, do: window(env, 300, 330, Render.px(7, 7, 7))
+    for w <- Photon.info(ph).windows, w.height == 330, do: assert(w.y + elem(Render.frame_size(300, 330), 1) <= 400)
+  end
+
   test "protocol errors are reported and end the connection" do
     {_ph, _out, env} = start_photon()
     {:ok, c} = Client.connect(Lepton.Wayland.Conn.socket_path(env))
     {c, _} = Client.registry(c)
     # A request on an object that does not exist.
-    :ok = Lepton.Wayland.Conn.send_data(c.sock, <<77::native-32, 8::native-16, 0::native-16>>)
+    :ok = Lepton.Wayland.Conn.send_data(c.sock, <<77::native-32, 8 * 65536::native-32>>)
     assert_raise RuntimeError, ~r/invalid object 77/, fn -> events(c) end
     assert_receive {:wl_closed, _}, 2000
   end
@@ -341,20 +420,24 @@ defmodule Lepton.PhotonTest do
     assert Enum.any?(evs, &match?({_, "xdg_toplevel", :configure, [w, h, _]} when w == 640 - bw and h == 400 - 28 - bh, &1)) or
              match?([%{maximized: true, x: 0, y: 0} | _], Photon.info(ph).windows)
 
-    # The Start menu: its first item opens a terminal; Ctrl+Esc opens it too.
+    # The Start menu: Firefox first, then Terminal; Ctrl+Esc opens it too.
+    menu_top = 400 - 28 - 158 + 2
     click.(20, 390)
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
-    click.(80, 400 - 28 - 134 + 2 + 10)
+    click.(80, menu_top + 10)
+    assert_receive {:spawned, [app: "firefox", title: "Firefox"]}, 1000
+    click.(20, 390)
+    click.(80, menu_top + 3 + 24 + 10)
     assert_receive {:spawned, []}, 1000
     for {k, down} <- [{29, true}, {1, true}, {1, false}, {29, false}], do: Photon.input(ph, {:key, k, down})
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
 
-    # Double-clicking the Text Editor icon opens le.
+    # Double-clicking the Text Editor icon (the third) opens le.
     click.(500, 300)
-    click.(60, 110)
-    click.(60, 110)
+    click.(60, 12 + 2 * 76 + 20)
+    click.(60, 12 + 2 * 76 + 20)
     assert_receive {:spawned, [command: "le", title: "Text Editor"]}, 1000
 
     # Exit Desktop... quits.
@@ -431,6 +514,18 @@ defmodule Lepton.PhotonTest do
     assert Output.read(fb, cx, cy, 1, 1) == yellow
 
     # A lepton_shm client leaves no descriptors behind.
+    Client.close(win.c)
+    :file.close(win.file)
+    assert eventually(fn -> Photon.info(ph).windows == [] end)
+    assert eventually(fn -> fds.() -- before == [] end), "left open: #{inspect(fds.() -- before)}"
+
+    # Nor does a wl_shm client, whose pools arrive as descriptors (closed by Lepton.FD).
+    win = window(env, 64, 32, yellow, "wl_shm")
+    {c, kbd} = Client.create(win.c, win.seat, :get_keyboard, "wl_keyboard")
+    {evs, _} = events(c)
+    {_, _, :keymap, [_, keymap_fd, _]} = Enum.find(evs, &match?({^kbd, _, :keymap, _}, &1))
+    assert Lepton.FD.close(keymap_fd) == :ok
+    assert Lepton.FD.close(keymap_fd) == {:error, :ebadf}
     Client.close(win.c)
     :file.close(win.file)
     assert eventually(fn -> Photon.info(ph).windows == [] end)

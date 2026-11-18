@@ -38,7 +38,17 @@ defmodule Lepton.Photon do
   @frame_ms 16
   @double_click_ms 400
 
-  @globals [{1, "wl_compositor"}, {2, "wl_shm"}, {3, "wl_seat"}, {4, "wl_output"}, {5, "xdg_wm_base"}, {6, "lepton_shm"}]
+  @globals [
+    {1, "wl_compositor"},
+    {2, "wl_shm"},
+    {3, "wl_seat"},
+    {4, "wl_output"},
+    {5, "xdg_wm_base"},
+    {6, "lepton_shm"},
+    {7, "wl_subcompositor"},
+    {8, "wl_data_device_manager"},
+    {9, "org_kde_kwin_server_decoration_manager"}
+  ]
 
   # wl_shm formats: ARGB8888 and XRGB8888 (alpha is ignored: windows are opaque).
   @formats [0, 1]
@@ -65,7 +75,11 @@ defmodule Lepton.Photon do
               configured: false,
               title: nil,
               app_id: nil,
-              geometry: nil
+              geometry: nil,
+              # subsurfaces: the parent's ID and position; children, bottom to top
+              parent: nil,
+              position: {0, 0},
+              children: []
   end
 
   defmodule Win do
@@ -235,6 +249,7 @@ defmodule Lepton.Photon do
   def handle_info({:wl_data, sock, data, fds}, st) do
     case st.clients[sock] do
       nil ->
+        Enum.each(fds, &Conn.close_fd/1)
         {:noreply, st}
 
       c ->
@@ -510,6 +525,65 @@ defmodule Lepton.Photon do
   defp request(st, _sock, _id, %{iface: "xdg_toplevel"}, op, _args) when op in [:set_parent, :show_window_menu, :set_max_size, :set_min_size, :set_minimized], do: st
   defp request(st, _sock, _id, %{iface: "xdg_popup"}, :grab, _args), do: st
 
+  # wl_subcompositor: a surface becomes part of another's window.
+  defp request(st, sock, _id, _obj, :get_subsurface, [new, sid, parent]) do
+    cond do
+      sid == parent or surface(st, {sock, sid}) == nil or surface(st, {sock, parent}) == nil ->
+        protocol_error(st, sock, new, 0, "wl_subcompositor.get_subsurface: bad surface or parent")
+
+      surface(st, {sock, sid}).role != nil ->
+        protocol_error(st, sock, new, 0, "wl_surface@#{sid} already has a role")
+
+      true ->
+        st = new_object(st, sock, new, "wl_subsurface", 1, %{surface: sid, parent: parent})
+        st = update_surface(st, sock, sid, &%{&1 | role: {:subsurface, new}, parent: parent})
+        update_surface(st, sock, parent, &%{&1 | children: &1.children ++ [sid]})
+    end
+  end
+
+  # wl_subsurface (state applies at once: Photon has no synchronized mode)
+  defp request(st, sock, _id, obj, :set_position, [x, y]) do
+    st = damage_tree(st, sock, obj.data.surface)
+    update_surface(st, sock, obj.data.surface, &%{&1 | position: {x, y}}) |> damage_tree(sock, obj.data.surface)
+  end
+
+  defp request(st, sock, _id, obj, op, [sibling]) when op in [:place_above, :place_below] do
+    %{surface: sid, parent: parent} = obj.data
+
+    st =
+      update_surface(st, sock, parent, fn p ->
+        rest = List.delete(p.children, sid)
+
+        children =
+          case {op, Enum.find_index(rest, &(&1 == sibling))} do
+            # Relative to the parent: just above it (bottom of the children) or below (not drawn under it: also the bottom).
+            {_, nil} -> [sid | rest]
+            {:place_above, i} -> List.insert_at(rest, i + 1, sid)
+            {:place_below, i} -> List.insert_at(rest, i, sid)
+          end
+
+        %{p | children: children}
+      end)
+
+    damage_tree(st, sock, sid)
+  end
+
+  defp request(st, _sock, _id, %{iface: "wl_subsurface"}, op, []) when op in [:set_sync, :set_desync], do: st
+
+  # wl_data_device_manager: no clipboard yet; the objects exist so toolkits can start.
+  defp request(st, sock, _id, obj, :create_data_source, [new]), do: new_object(st, sock, new, "wl_data_source", obj.version)
+  defp request(st, sock, _id, obj, :get_data_device, [new, _seat]), do: new_object(st, sock, new, "wl_data_device", obj.version)
+  defp request(st, _sock, _id, %{iface: "wl_data_source"}, op, _args) when op in [:offer, :set_actions], do: st
+  defp request(st, _sock, _id, %{iface: "wl_data_device"}, op, _args) when op in [:start_drag, :set_selection], do: st
+
+  # Decorations are always Photon's ("server", mode 2), whatever a client asks.
+  defp request(st, sock, _id, _obj, :create, [new, _surface]) do
+    st = new_object(st, sock, new, "org_kde_kwin_server_decoration", 1)
+    emit(st, sock, new, "org_kde_kwin_server_decoration", :mode, [2])
+  end
+
+  defp request(st, sock, id, _obj, :request_mode, [_mode]), do: emit(st, sock, id, "org_kde_kwin_server_decoration", :mode, [2])
+
   # destructors: the object goes in destroy/3
   defp request(st, _sock, _id, _obj, :destroy, []), do: st
 
@@ -540,6 +614,7 @@ defmodule Lepton.Photon do
     st
   end
 
+  defp bound(st, sock, id, "org_kde_kwin_server_decoration_manager", _v), do: emit(st, sock, id, "org_kde_kwin_server_decoration_manager", :default_mode, [2])
   defp bound(st, _sock, _id, _iface, _v), do: st
 
   defp new_pool(st, sock, id, file, size) do
@@ -576,12 +651,50 @@ defmodule Lepton.Photon do
     maybe_close_pool(st, sock, ref)
   end
 
-  defp release_object(st, sock, id, %{iface: "wl_surface"}), do: unmap(st, {sock, id})
+  defp release_object(st, sock, id, %{iface: "wl_surface"}) do
+    st = damage_tree(st, sock, id) |> detach_subsurface(sock, id)
+    # Its subsurfaces lose their parent (and stop being drawn).
+    st = Enum.reduce(surface(st, {sock, id}).children, st, fn child, st -> update_surface(st, sock, child, &%{&1 | parent: nil}) end)
+    unmap(st, {sock, id})
+  end
+
+  defp release_object(st, sock, _id, %{iface: "wl_subsurface", data: %{surface: sid}}) do
+    st = damage_tree(st, sock, sid) |> detach_subsurface(sock, sid)
+    update_surface(st, sock, sid, &%{&1 | role: nil, parent: nil, position: {0, 0}})
+  end
   defp release_object(st, sock, _id, %{iface: "xdg_toplevel", data: %{surface: sid}}), do: unmap(st, {sock, sid}) |> clear_role(sock, sid)
   defp release_object(st, sock, _id, %{iface: "xdg_popup", data: %{surface: sid}}), do: unmap(st, {sock, sid}) |> clear_role(sock, sid)
   defp release_object(st, _sock, _id, _obj), do: st
 
   defp clear_role(st, sock, sid), do: update_surface(st, sock, sid, &%{&1 | role: nil, configured: false, content: nil})
+
+  defp detach_subsurface(st, sock, sid) do
+    case surface(st, {sock, sid}) do
+      %Surface{parent: parent} when parent != nil -> update_surface(st, sock, parent, &%{&1 | children: List.delete(&1.children, sid)})
+      _ -> st
+    end
+  end
+
+  # The window a surface belongs to, and the surface's offset in it: `{root_sid, {dx, dy}}`.
+  defp root(st, sock, sid, {dx, dy} \\ {0, 0}, depth \\ 0) do
+    case surface(st, {sock, sid}) do
+      %Surface{parent: parent, position: {x, y}} when parent != nil and depth < 32 -> root(st, sock, parent, {dx + x, dy + y}, depth + 1)
+      _ -> {sid, {dx, dy}}
+    end
+  end
+
+  # Damage everything a surface (and its subsurfaces) covers in its window.
+  defp damage_tree(st, sock, sid) do
+    case surface(st, {sock, sid}) do
+      %Surface{} = s ->
+        {root_sid, {dx, dy}} = root(st, sock, sid)
+        st = if root_sid != sid, do: damage_content(st, {sock, root_sid}, {dx, dy, s.w, s.h}), else: damage_window(st, {sock, sid})
+        Enum.reduce(s.children, st, &damage_tree(&2, sock, &1))
+
+      nil ->
+        st
+    end
+  end
 
   defp maybe_close_pool(st, sock, ref) do
     case st.clients[sock].pools[ref] do
@@ -623,10 +736,13 @@ defmodule Lepton.Photon do
     st = %{st | frame_callbacks: Enum.map(Enum.reverse(p.frames), &{sock, &1}) ++ st.frame_callbacks}
 
     st =
-      case area do
-        :all -> st |> redecorate(key) |> damage_window(key)
-        {x, y, w, h} -> damage_content(st, key, {x, y, w, h})
-        nil -> st
+      case {area, root(st, sock, sid)} do
+        {nil, _} -> st
+        {:all, {^sid, _}} -> st |> redecorate(key) |> keep_in_work_area(key) |> damage_window(key)
+        {{x, y, w, h}, {^sid, _}} -> damage_content(st, key, {x, y, w, h})
+        # A subsurface: damage its part of the window (all of it when its size changed).
+        {:all, {root_sid, {dx, dy}}} -> damage_content(st, {sock, root_sid}, {dx, dy, max(s.w, old.w), max(s.h, old.h)})
+        {{x, y, w, h}, {root_sid, {dx, dy}}} -> damage_content(st, {sock, root_sid}, {dx + x, dy + y, w, h})
       end
 
     st = role_commit(st, sock, sid, s)
@@ -733,7 +849,17 @@ defmodule Lepton.Photon do
     y = ay + max(div(ah - fh, 2) + rem(n, 8) * 32, 0)
     win = %Win{key: key, kind: :toplevel, x: x, y: y, seq: n}
     st = %{st | windows: st.windows ++ [win], place: n + 1}
-    st |> focus(key) |> redecorate(key) |> damage_window(key)
+    # (the cascade must not push it past the work area's edge)
+    st = st |> keep_in_work_area(key) |> focus(key) |> redecorate(key) |> damage_window(key)
+
+    # A window bigger than the work area is asked to fit it.
+    if fw > aw or fh > ah do
+      {bw, bh} = st.wm.frame_size(0, 0)
+      st = put_window(st, %{win | x: ax, y: ay})
+      configure(st, key, min(cw, aw - bw), min(ch, ah - bh), [@activated])
+    else
+      st
+    end
   end
 
   defp map_window(st, key, :popup) do
@@ -891,6 +1017,21 @@ defmodule Lepton.Photon do
     end
   end
 
+  # A window that grew past the bottom or right of the work area moves back into it.
+  defp keep_in_work_area(st, key) do
+    case {window(st, key), surface(st, key)} do
+      {%Win{kind: :toplevel, maximized: nil} = w, %Surface{} = s} ->
+        {ax, ay, aw, ah} = st.wm.work_area(st.wm_state)
+        {_, _, fw, fh} = window_rect(st, w, s)
+        x = w.x |> min(ax + aw - fw) |> max(ax)
+        y = w.y |> min(ay + ah - fh) |> max(ay)
+        if {x, y} == {w.x, w.y}, do: st, else: st |> damage_window(key) |> put_window(%{w | x: x, y: y})
+
+      _ ->
+        st
+    end
+  end
+
   defp put_window(st, w), do: %{st | windows: Enum.map(st.windows, &if(&1.key == w.key, do: w, else: &1))}
 
   defp maximize(st, key, on?) do
@@ -1032,9 +1173,7 @@ defmodule Lepton.Photon do
         _ -> {0, 0}
       end
 
-      content = s.content
-      stride = s.w * 4
-      row = fn r -> binary_part(content, (gy + r) * stride + gx * 4, cw * 4) end
+      row = content_rows(st, w.key, s, gx, gy, cw)
 
       case w.kind do
         :popup ->
@@ -1046,6 +1185,58 @@ defmodule Lepton.Photon do
           rows = if fw == need and rows, do: rows, else: st.wm.decorations(s.title || "", need, w.key == st.keyboard_focus, w.maximized != nil)
           st.wm.frame_layer(w.x, w.y, cw, ch, rows, w.key == st.keyboard_focus, row)
       end
+    end
+  end
+
+  # Row `r` of a window's content (`cw` wide from `{gx, gy}` of its root
+  # surface), with its subsurfaces drawn over it.
+  defp content_rows(st, {sock, _} = key, s, gx, gy, cw) do
+    content = s.content
+    stride = s.w * 4
+    base = fn r -> binary_part(content, (gy + r) * stride + gx * 4, cw * 4) end
+
+    case subsurfaces(st, sock, elem(key, 1), {0, 0}) do
+      [] ->
+        base
+
+      subs ->
+        fn r ->
+          y = gy + r
+
+          Enum.reduce(subs, base.(r), fn {sx, sy, sub}, row ->
+            a = max(sx, gx)
+            b = min(sx + sub.w, gx + cw)
+
+            if y >= sy and y < sy + sub.h and a < b do
+              seg = binary_part(sub.content, (y - sy) * sub.w * 4 + (a - sx) * 4, (b - a) * 4)
+              off = (a - gx) * 4
+              len = byte_size(seg)
+              <<pre::binary-size(^off), _::binary-size(^len), post::binary>> = row
+              <<pre::binary, seg::binary, post::binary>>
+            else
+              row
+            end
+          end)
+        end
+    end
+  end
+
+  # A surface's mapped subsurfaces, bottom to top, with positions relative to the root.
+  defp subsurfaces(st, sock, sid, {ox, oy}, depth \\ 0) do
+    case surface(st, {sock, sid}) do
+      %Surface{children: children} when depth < 32 ->
+        Enum.flat_map(children, fn child ->
+          case surface(st, {sock, child}) do
+            %Surface{content: c, position: {x, y}} = sub when c != nil ->
+              [{ox + x, oy + y, sub} | subsurfaces(st, sock, child, {ox + x, oy + y}, depth + 1)]
+
+            _ ->
+              []
+          end
+        end)
+
+      _ ->
+        []
     end
   end
 
@@ -1495,6 +1686,7 @@ defmodule Lepton.Photon do
       c ->
         st = Enum.reduce(st.windows, st, fn w, st -> if elem(w.key, 0) == sock, do: unmap(st, w.key), else: st end)
         for {_, %{file: f}} <- c.pools, do: :file.close(f)
+        Enum.each(c.fds, &Conn.close_fd/1)
         :socket.close(sock)
         st = %{st | clients: Map.delete(st.clients, sock), frame_callbacks: Enum.reject(st.frame_callbacks, &(elem(&1, 0) == sock))}
         st = if match?({^sock, _}, st.pointer_focus), do: %{st | pointer_focus: nil}, else: st

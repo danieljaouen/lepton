@@ -3,7 +3,8 @@ defmodule Lepton.Wayland.Wire do
   The Wayland wire format.
 
   A message is a header, the object ID and then `size << 16 | opcode`
-  (32-bit words, host byte order), followed by its arguments, each padded
+  (two 32-bit words, host byte order: on a little-endian machine the
+  opcode's bytes come first), followed by its arguments, each padded
   to 32 bits. File descriptors travel out of band (`SCM_RIGHTS`) in the
   order the `fd` arguments appear. Argument types come from
   `Lepton.Wayland.Protocol`:
@@ -17,10 +18,14 @@ defmodule Lepton.Wayland.Wire do
     * `:fd` - no bytes; taken from the received descriptors
   """
 
+  import Bitwise
+
   @doc "Split complete messages off `buf`: `{[{id, opcode, payload}], rest}`."
   def split(buf), do: split(buf, [])
 
-  defp split(<<id::native-32, size::native-16, op::native-16, rest::binary>> = all, acc) when size >= 8 do
+  defp split(<<id::native-32, word::native-32, rest::binary>> = all, acc) when word >>> 16 >= 8 do
+    size = word >>> 16
+    op = word &&& 0xFFFF
     body = size - 8
 
     case rest do
@@ -29,7 +34,7 @@ defmodule Lepton.Wayland.Wire do
     end
   end
 
-  defp split(<<_id::native-32, size::native-16, _::native-16, _::binary>>, _acc) when size < 8, do: raise(ArgumentError, "bad message size #{size}")
+  defp split(<<_id::native-32, word::native-32, _::binary>>, _acc), do: raise(ArgumentError, "bad message size #{word >>> 16}")
   defp split(rest, acc), do: {Enum.reverse(acc), rest}
 
   @doc """
@@ -101,7 +106,7 @@ defmodule Lepton.Wayland.Wire do
       end)
 
     size = IO.iodata_length(body) + 8
-    {[<<id::native-32, size::native-16, opcode::native-16>> | body], Enum.reverse(fds)}
+    {[<<id::native-32, size <<< 16 ||| opcode::native-32>> | body], Enum.reverse(fds)}
   end
 
   defp arg(:int, v), do: <<v::native-signed-32>>

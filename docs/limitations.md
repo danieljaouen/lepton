@@ -1,6 +1,6 @@
 ---
 title: Limitations
-order: 14
+order: 15
 summary: What Lepton doesn't do yet.
 ---
 
@@ -32,5 +32,5 @@ summary: What Lepton doesn't do yet.
 
 The graphical desktop, [Photon](desktop.html), runs terminal windows and
 Wayland programs that draw with shared memory; see its guide for what it
-doesn't do yet. There's no full web browser yet; see the
-[roadmap](../#roadmap).
+doesn't do yet. The web browser is [Firefox](apps.html), installed on
+demand; Lepton's own `www` is text-only.

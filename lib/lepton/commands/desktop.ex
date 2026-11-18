@@ -2,7 +2,7 @@ defmodule Lepton.Commands.Desktop do
   @moduledoc "The graphical desktop: Photon, Lepton's Wayland compositor."
 
   use Lepton.Command
-  alias Lepton.{Photon, Users}
+  alias Lepton.{Apps, Photon, Users}
   alias Lepton.Photon.{Output, Term}
 
   defcmd "photon", "the graphical desktop (Photon, a Wayland compositor) and its terminal windows",
@@ -20,6 +20,87 @@ defmodule Lepton.Commands.Desktop do
         IO.err(ctx, "usage: classic")
         2
     end
+  end
+
+  defcmd "app", "native Linux apps (from Alpine's packages): list, install, remove",
+    usage: "app [list] | install NAME | remove NAME" do
+    app(args, ctx)
+  end
+
+  defcmd "firefox", "the Firefox web browser (installs it the first time; needs Photon)",
+    usage: "firefox [URL...]" do
+    cond do
+      not Apps.installed?("firefox") and not Users.root?(ctx) ->
+        IO.err(ctx, "firefox: Firefox isn't installed yet. Install it with: sudo app install firefox")
+        1
+
+      not Apps.installed?("firefox") and app(["install", "firefox"], ctx) != 0 ->
+        1
+
+      true ->
+        case session_env(ctx) do
+          {:ok, env} ->
+            {:ok, pid} = Apps.launch("firefox", args, %{ctx | env: env})
+            IO.puts(ctx, "Firefox is starting (process #{pid}; log: ~/.cache/lepton/firefox.log).")
+            0
+
+          {:error, reason} ->
+            IO.err(ctx, "firefox: #{reason}; Firefox runs on the desktop")
+            1
+        end
+    end
+  end
+
+  defp app(args, ctx) when args in [[], ["list"]] do
+    for name <- Apps.names() do
+      app = Apps.get(name)
+
+      status =
+        case Apps.info(name) do
+          %{packages: pkgs, size: size} -> "installed (#{length(pkgs)} packages, #{div(size, 1_048_576)} MiB)"
+          nil -> "not installed"
+        end
+
+      IO.puts(ctx, "#{String.pad_trailing(name, 12)} #{String.pad_trailing(app.summary, 28)} #{status}")
+    end
+
+    0
+  end
+
+  defp app([cmd | _], ctx) when cmd in ~w(install remove) and ctx.user != "root", do: Users.denied(ctx, "app #{cmd}")
+
+  defp app(["install", name], ctx) do
+    if Apps.installed?(name) do
+      IO.puts(ctx, "#{name} is already installed.")
+      0
+    else
+      case Apps.install(name, &IO.puts(ctx, &1)) do
+        :ok ->
+          IO.puts(ctx, "Installed #{name}.")
+          0
+
+        {:error, reason} ->
+          IO.err(ctx, "app: #{reason}")
+          1
+      end
+    end
+  end
+
+  defp app(["remove", name], ctx) do
+    case Apps.remove(name) do
+      :ok ->
+        IO.puts(ctx, "Removed #{name}.")
+        0
+
+      {:error, reason} ->
+        IO.err(ctx, "app: #{reason}")
+        1
+    end
+  end
+
+  defp app(_args, ctx) do
+    IO.err(ctx, "usage: app [list] | install NAME | remove NAME")
+    2
   end
 
   defp photon(args, ctx) when args in [[], ["start"]], do: start(ctx, "photon")
@@ -106,7 +187,7 @@ defmodule Lepton.Commands.Desktop do
          {:ok, out} <- Output.framebuffer() do
       dir = runtime_dir(ctx)
       env = Map.merge(ctx.env, %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0"})
-      open = fn opts -> Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: opts[:command], title: opts[:title]) end
+      open = fn opts -> open(opts, env, ctx) end
 
       opts = [output: out, socket: Path.join(dir, "wayland-0"), input: :evdev, spawn: open, name: Photon, console: true, session: self(), wm: wm]
 
@@ -130,6 +211,24 @@ defmodule Lepton.Commands.Desktop do
       {:error, reason} ->
         IO.err(ctx, "photon: #{reason}")
         1
+    end
+  end
+
+  # Open a terminal, or an app (in a terminal the first time, to show it installing).
+  defp open(opts, env, ctx) do
+    app = opts[:app]
+
+    cond do
+      app && Apps.installed?(app) ->
+        Apps.launch(app, [], %{ctx | env: env})
+
+      app ->
+        install = if Users.root?(ctx), do: "app install #{app}", else: "sudo app install #{app}"
+        command = "#{install} && #{app} || read -p 'Press Enter to close this window. ' answer"
+        Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: command, title: "Installing #{opts[:title] || app}")
+
+      true ->
+        Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: opts[:command], title: opts[:title])
     end
   end
 

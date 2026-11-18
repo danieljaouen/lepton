@@ -1,16 +1,16 @@
 defmodule Lepton.Wayland.Protocol do
   @moduledoc """
-  The interfaces Photon speaks: the core protocol (`wayland.xml`) and the
-  stable `xdg-shell`, as far as the versions below, plus one Lepton
-  extension, `lepton_shm`.
+  The interfaces Photon speaks: the core protocol (`wayland.xml`, with
+  subsurfaces and a data device that holds no clipboard yet), the stable
+  `xdg-shell` and KDE's server-side decoration protocol (Photon draws the
+  title bars), as far as the versions below, plus one Lepton extension,
+  `lepton_shm`.
 
   `lepton_shm` is `wl_shm` for clients inside Lepton's own VM:
   `create_pool(id, path, size)` names a file in the compositor's
   `XDG_RUNTIME_DIR` instead of passing a descriptor. Photon opens the file
-  and removes it. Descriptors received over `SCM_RIGHTS` can't be closed
-  from Erlang (no ERTS primitive closes a descriptor it didn't open), so a
-  pool passed the standard way keeps its memory until reboot; through a
-  path nothing is left behind. A client that binds `lepton_shm` gets no
+  and removes it, which saves the descriptor round trip (descriptors
+  that do arrive are closed with `Lepton.FD`). A client that binds `lepton_shm` gets no
   `wl_keyboard.keymap` (no descriptor): its keys are the US layout of
   `Lepton.Wayland.Keymap`.
 
@@ -72,6 +72,61 @@ defmodule Lepton.Wayland.Protocol do
       events: [enter: [{:object, "wl_output"}], leave: [{:object, "wl_output"}]]
     },
     "wl_region" => %{version: 1, requests: [destroy: [], add: rect, subtract: rect], events: []},
+    "wl_subcompositor" => %{
+      version: 1,
+      requests: [destroy: [], get_subsurface: [{:new_id, "wl_subsurface"}, {:object, "wl_surface"}, {:object, "wl_surface"}]],
+      events: []
+    },
+    "wl_subsurface" => %{
+      version: 1,
+      requests: [
+        destroy: [],
+        set_position: [:int, :int],
+        place_above: [{:object, "wl_surface"}],
+        place_below: [{:object, "wl_surface"}],
+        set_sync: [],
+        set_desync: []
+      ],
+      events: []
+    },
+    "wl_data_device_manager" => %{
+      version: 3,
+      requests: [create_data_source: [{:new_id, "wl_data_source"}], get_data_device: [{:new_id, "wl_data_device"}, {:object, "wl_seat"}]],
+      events: []
+    },
+    # KDE's server-side decoration protocol: GTK 3 draws no title bar of
+    # its own when the compositor's default mode is server (2).
+    "org_kde_kwin_server_decoration_manager" => %{
+      version: 1,
+      requests: [create: [{:new_id, "org_kde_kwin_server_decoration"}, {:object, "wl_surface"}]],
+      events: [default_mode: [:uint]]
+    },
+    "org_kde_kwin_server_decoration" => %{
+      version: 1,
+      requests: [release: [], request_mode: [:uint]],
+      events: [mode: [:uint]]
+    },
+    "wl_data_source" => %{
+      version: 3,
+      requests: [offer: [:string], destroy: [], set_actions: [:uint]],
+      events: [target: [:string], send: [:string, :fd], cancelled: [], dnd_drop_performed: [], dnd_finished: [], action: [:uint]]
+    },
+    "wl_data_device" => %{
+      version: 3,
+      requests: [
+        start_drag: [{:object, "wl_data_source"}, {:object, "wl_surface"}, {:object, "wl_surface"}, :uint],
+        set_selection: [{:object, "wl_data_source"}, :uint],
+        release: []
+      ],
+      events: [
+        data_offer: [{:new_id, "wl_data_offer"}],
+        enter: [:uint, {:object, "wl_surface"}, :fixed, :fixed, {:object, "wl_data_offer"}],
+        leave: [],
+        motion: [:uint, :fixed, :fixed],
+        drop: [],
+        selection: [{:object, "wl_data_offer"}]
+      ]
+    },
     "wl_seat" => %{
       version: 5,
       requests: [get_pointer: [{:new_id, "wl_pointer"}], get_keyboard: [{:new_id, "wl_keyboard"}], get_touch: [{:new_id, "wl_touch"}], release: []],
@@ -180,6 +235,11 @@ defmodule Lepton.Wayland.Protocol do
   @destructors MapSet.new([
                  {"wl_shm_pool", :destroy},
                  {"lepton_shm", :destroy},
+                 {"wl_subcompositor", :destroy},
+                 {"wl_subsurface", :destroy},
+                 {"wl_data_source", :destroy},
+                 {"wl_data_device", :release},
+                 {"org_kde_kwin_server_decoration", :release},
                  {"wl_buffer", :destroy},
                  {"wl_surface", :destroy},
                  {"wl_region", :destroy},

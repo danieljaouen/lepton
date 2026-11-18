@@ -99,13 +99,15 @@ defmodule Lepton.Wayland.Conn do
 
   @doc """
   Open a received descriptor as a file (`/proc/self/fd/N`, `/dev/fd/N` on
-  macOS). Returns `{:ok, file}`.
-
-  The received descriptor itself stays open: ERTS can close only the
-  descriptors it opened (see `Lepton.Wayland.Protocol` on `lepton_shm`).
+  macOS) and close the received one (`Lepton.FD`). Returns `{:ok, file}`.
   """
   def open_fd(fd, modes \\ [:read]) do
     path = if File.dir?("/proc/self/fd"), do: "/proc/self/fd/#{fd}", else: "/dev/fd/#{fd}"
-    :file.open(String.to_charlist(path), [:raw, :binary | modes])
+    result = :file.open(String.to_charlist(path), [:raw, :binary | modes])
+    close_fd(fd)
+    result
   end
+
+  @doc "Close a received descriptor the VM has no handle for."
+  def close_fd(fd), do: Lepton.FD.close(fd)
 end

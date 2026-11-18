@@ -35,6 +35,7 @@ defmodule Lepton.Photon.WM.Classic do
   @banner 22
 
   @menu [
+    {"Firefox", :web, [app: "firefox", title: "Firefox"]},
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
@@ -44,6 +45,7 @@ defmodule Lepton.Photon.WM.Classic do
   ]
 
   @icons [
+    {"Firefox", :web, [app: "firefox", title: "Firefox"]},
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]}
@@ -417,6 +419,31 @@ defmodule Lepton.Photon.WM.Classic do
     |> Canvas.fill(x + 6 * s, y + 4 * s, 2 * s, 8 * s, Render.rgb("#008000"))
     |> Canvas.fill(x + 9 * s, y + 6 * s, 2 * s, 6 * s, Render.rgb(@navy))
     |> Canvas.fill(x + 12 * s, y + 3 * s, 2 * s, 9 * s, Render.rgb("#808000"))
+  end
+
+  # A globe (for the web browser).
+  @globe [
+    "     bbbbbb     ",
+    "   bbggbbbbbb   ",
+    "  bggggbbbbggb  ",
+    " bbggggbbbgggbb ",
+    " bbbgggbbbbggbb ",
+    "bbbbggbbbbbbbbbb",
+    "bbbbbgbbbbggbbbb",
+    "bbbbbbbbbggggbbb",
+    "bbbbbbbbbbgggbbb",
+    "bbggbbbbbbbggbbb",
+    " bgggbbbbbbbgbb ",
+    " bbgggbbbbbbbbb ",
+    "  bbggbbbbbbbb  ",
+    "   bbbbbbbbbb   ",
+    "     bbbbbb     "
+  ]
+
+  defp icon(c, x, y, :web, size) do
+    s = div(size, 16)
+    art = for row <- @globe, line = Enum.map_join(String.graphemes(row), &String.duplicate(&1, s)), _ <- 1..s, do: line
+    Canvas.art(c, x, y, art, %{"b" => "#2060c0", "g" => "#30a030"})
   end
 
   defp icon(c, x, y, :help, size) do

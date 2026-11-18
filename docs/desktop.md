@@ -62,12 +62,13 @@ Photon with a different window manager, styled after Windows 95:
 - grey 3D window frames with a navy title bar and **minimize**,
   **maximize** and **close** buttons (double-click a title bar to
   maximize or restore)
-- a teal desktop with icons for the Terminal, the Text Editor (`le`) and
-  the System Monitor (`top`): double-click one to open it
+- a teal desktop with icons for [Firefox](apps.html), the Terminal, the
+  Text Editor (`le`) and the System Monitor (`top`): double-click one to
+  open it
 - a **taskbar** with a button for each window (click to bring it to the
   front, click again to minimize it) and a clock
-- the **Start** menu (click Start, or Ctrl+Esc): Terminal, Text Editor,
-  System Monitor, Help and Exit Desktop
+- the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
+  Terminal, Text Editor, System Monitor, Help and Exit Desktop
 
 The keys from the table above work here too. Exit Desktop (or
 Ctrl+Alt+Backspace) returns you to the console. Lepton never starts a
@@ -86,15 +87,16 @@ protocol and `xdg-shell`:
 | `wl_seat`, `wl_pointer`, `wl_keyboard` | 5 | US keymap (XKB), key repeat info |
 | `wl_output` | 2 | |
 | `xdg_wm_base`, `xdg_surface`, `xdg_toplevel`, `xdg_popup` | 1 | |
+| `wl_subcompositor`, `wl_subsurface` | 1 | |
+| `wl_data_device_manager` | 3 | no clipboard yet |
+| `org_kde_kwin_server_decoration_manager` | 1 | Photon draws the title bars |
 | `lepton_shm` | 1 | Lepton's own programs: shared memory by path |
 
 Inside Photon, terminals set `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`, so
 a Wayland program that draws with shared-memory buffers can connect to
-it. Photon draws the title bar and border itself, so programs that draw
-their own decorations get both. Lepton can't close a descriptor it
-receives, so each shared-memory pool such a program creates stays in
-memory until you reboot; Lepton's own windows use `lepton_shm` instead
-and leave nothing behind.
+it; [Firefox](apps.html) does. Photon draws the title bar and border
+itself and tells GTK so (KDE's server-side decoration protocol), so GTK
+programs leave theirs out.
 
 ## What it doesn't do yet
 
@@ -102,6 +104,6 @@ and leave nothing behind.
   touch, and HiDPI scaling.
 - Fonts other than the built-in 8x16 Terminus bitmap font.
 - Keyboard layouts other than US.
-- A web browser: [`www`](commands.html) is text-only for now.
+- Video drivers: programs draw with the CPU.
 
 <!-- commands: photon classic -->
