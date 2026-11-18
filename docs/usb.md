@@ -14,7 +14,7 @@ appears, Lepton loads its driver within a second:
 
 | Device | Driver | What you get |
 |---|---|---|
-| keyboards, mice, tablets | `usbhid` | they work at the console and in [Photon](desktop.html) at once |
+| keyboards, mice, touchpads, tablets | `usbhid` and others | they work at once (below) |
 | USB sticks, drives and card readers | `usb-storage`, `uas` | mounted under `/media` ([USB drives and SD cards](storage.html)) |
 | Wi-Fi adapters | see [Networking](networking.html) | a wireless interface |
 | Ethernet ports (docks, adapters) | `r8152`, `ax88179_178a`, `asix`, `cdc_ether`, `cdc_ncm` | an interface, configured with DHCP |
@@ -37,11 +37,48 @@ usb1  xHCI Host Controller (root hub, 4 ports) [480 Mbit/s]
 usb2  xHCI Host Controller (root hub, 4 ports) [5 Gbit/s]
 ```
 
+## Keyboards and mice
+
+Any USB keyboard works, at the console and on the desktop. Mice,
+trackballs, touchpads, drawing tablets and touchscreens work on the
+desktop ([Photon](desktop.html) and the classic desktop). Plug them in
+at any time, directly, through a hub, or through a wireless receiver.
+
+Most devices need only the standard HID driver. Lepton also has the
+drivers for Apple keyboards, Magic Mouse and Magic Trackpad, Logitech's
+Unifying and Bolt receivers, Microsoft, Lenovo, Cherry, ASUS and Elan
+devices, Wacom tablets and multi-touch touchpads, and loads them when one
+appears.
+
+- **Mice**: the wheel scrolls, a tilting or second wheel scrolls sideways,
+  and every button (side buttons too) reaches the program under the
+  pointer.
+- **Touchpads** move the pointer as you slide one finger. Click by
+  pressing the pad (or its buttons). Tap-to-click and two-finger scrolling
+  aren't supported yet.
+- **Tablets and touchscreens** map their surface onto the display.
+- **Keyboards**: every key, with the US layout.
+
+`input` lists the input devices, what Lepton takes each for, and the USB
+port it's on:
+
+```text
+$ input
+event0   other     Power Button
+event1   tablet    QEMU QEMU USB Tablet  (USB 1-2)
+event2   keyboard  QEMU QEMU USB Keyboard  (USB 1-1.1)
+```
+
+At the text console a mouse does nothing (there is no console pointer).
+
 **In UTM**, USB devices reach the VM one at a time. Turn on **Input → USB
 Sharing** in the VM's settings, then click the **USB** icon in the
 toolbar and choose a device. macOS keeps the hubs themselves, so a
 device behind a hub on your desk shows up in the VM as if it were
-plugged in directly. Hubs show up as hubs on real hardware and in QEMU
+plugged in directly. You rarely need to pass a keyboard or mouse: UTM
+already gives the VM a keyboard and pointer that follow your Mac's. A
+device you do pass belongs to the VM until you take it back, so keep
+another one for the Mac. Hubs show up as hubs on real hardware and in QEMU
 (`mix lepton.qemu` plugs its keyboard into a virtual hub).
 
 ## Displays
@@ -102,4 +139,4 @@ differently:
   most USB 3 docks) need DisplayLink's closed-source driver, which Lepton
   doesn't have.
 
-<!-- commands: usb -->
+<!-- commands: usb input -->

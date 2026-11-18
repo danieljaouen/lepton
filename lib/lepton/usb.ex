@@ -76,7 +76,7 @@ defmodule Lepton.USB do
     interfaces =
       for i <- all, String.starts_with?(i, name <> ":") do
         idir = Path.join(root, i)
-        %{name: i, class: attr(idir, "bInterfaceClass"), driver: driver(idir), nodes: nodes(idir)}
+        %{name: i, class: attr(idir, "bInterfaceClass"), protocol: attr(idir, "bInterfaceProtocol"), driver: driver(idir), nodes: nodes(idir)}
       end
 
     %__MODULE__{
@@ -171,9 +171,15 @@ defmodule Lepton.USB do
     cond do
       Enum.any?(d.drivers, &(&1 in ["udl", "gud"])) or Enum.any?(d.nodes, &String.starts_with?(&1, "fb")) -> "display"
       d.class == "09" -> "hub"
+      hid_kinds(d) != [] -> Enum.join(hid_kinds(d), ", ")
       d.class not in [nil, "00", "ef"] -> @classes[d.class] || "class #{d.class}"
       true -> d.interfaces |> Enum.map(&@classes[&1.class]) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.join(", ") |> blank("device")
     end
+  end
+
+  # HID interfaces that speak the boot protocol say what they are.
+  defp hid_kinds(d) do
+    for %{class: "03", protocol: p} <- d.interfaces, k = %{"01" => "keyboard", "02" => "mouse"}[p], uniq: true, do: k
   end
 
   defp blank("", default), do: default
@@ -252,7 +258,7 @@ defmodule Lepton.USB do
         added = MapSet.difference(names, st.seen)
         removed = MapSet.difference(st.seen, names)
         for d <- devices(), MapSet.member?(added, d.name), do: Logger.info("usb: #{d.name} connected: #{label(d)} (#{kind(d)})")
-        for n <- removed, do: Logger.info("usb: #{n} disconnected")
+        for n <- removed, !String.starts_with?(n, "hid:"), do: Logger.info("usb: #{n} disconnected")
         # Drivers for what was plugged in (hubs need none: the USB core enumerates their ports).
         loaded = Lepton.Kmod.load_for_hardware()
         if loaded != [], do: Logger.info("usb: loaded #{Enum.join(loaded, ", ")}")
@@ -281,10 +287,19 @@ defmodule Lepton.USB do
     %{st | ethernet: now}
   end
 
+  # USB devices, and the HID devices their drivers create a moment later
+  # (some need a driver of their own: an Apple keyboard, a Logitech receiver).
   defp present do
-    case File.ls(@sysfs) do
-      {:ok, names} -> names |> Enum.filter(&device_name?/1) |> MapSet.new()
-      _ -> MapSet.new()
+    usb = case File.ls(@sysfs) do
+      {:ok, names} -> Enum.filter(names, &device_name?/1)
+      _ -> []
     end
+
+    hid = case File.ls("/sys/bus/hid/devices") do
+      {:ok, names} -> Enum.map(names, &("hid:" <> &1))
+      _ -> []
+    end
+
+    MapSet.new(usb ++ hid)
   end
 end

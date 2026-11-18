@@ -1401,16 +1401,23 @@ defmodule Lepton.Photon do
     move_pointer(st, if(fx, do: rx + fx * (rw - 1), else: x), if(fy, do: ry + fy * (rh - 1), else: y))
   end
 
+  defp handle_input({:wheel, steps}, st), do: scroll(st, 0, steps)
+  defp handle_input({:hwheel, steps}, st), do: scroll(st, 1, steps)
+
   defp handle_input({:button, code, pressed?}, st) do
     st = %{st | buttons: if(pressed?, do: MapSet.put(st.buttons, code), else: MapSet.delete(st.buttons, code))}
     if pressed?, do: press(st, code), else: release(st, code)
   end
 
-  defp handle_input({:wheel, steps}, st) do
+  defp handle_input({:key, code, pressed?}, st), do: key(st, code, pressed?)
+  defp handle_input(_event, st), do: st
+
+  # wl_pointer.axis: 0 vertical, 1 horizontal.
+  defp scroll(st, axis, steps) do
     case st.pointer_focus do
       {sock, _} ->
         for p <- pointers(st, sock) do
-          emit(st, sock, p, "wl_pointer", :axis, [now(st), 0, steps * 10.0])
+          emit(st, sock, p, "wl_pointer", :axis, [now(st), axis, steps * 10.0])
           pointer_frame(st, sock, p)
         end
 
@@ -1420,9 +1427,6 @@ defmodule Lepton.Photon do
         st
     end
   end
-
-  defp handle_input({:key, code, pressed?}, st), do: key(st, code, pressed?)
-  defp handle_input(_event, st), do: st
 
   defp move_pointer(st, x, y) do
     x = x |> max(0) |> min(st.output.width - 1)

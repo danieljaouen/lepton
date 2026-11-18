@@ -9,6 +9,7 @@ summary: What Lepton doesn't do yet.
 - The live ISO keeps everything in RAM. An installed system persists
   `/root` and `/var/lib/lepton` only; changes elsewhere (for example
   `/etc`) reset at boot.
+- Touchpads: no tap-to-click, two-finger scrolling or gestures yet.
 - USB display adapters: DisplayLink's USB 2.0 chips and Generic USB
   Display gadgets only; newer DisplayLink docks need a closed-source
   driver. A USB-C hub's HDMI port (DisplayPort Alternate Mode) belongs to

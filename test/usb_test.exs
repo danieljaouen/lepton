@@ -36,6 +36,7 @@ defmodule Lepton.USBTest do
     iface.("1-1:1.0", "09", "hub", ["1-1-port1"])
     dev.("1-1.2", %{"busnum" => "1", "idVendor" => "0627", "idProduct" => "0001", "product" => "QEMU USB Keyboard", "bDeviceClass" => "00", "speed" => "12"})
     iface.("1-1.2:1.0", "03", "usbhid", ["0003:0627:0001.0001/input/input3/event2"])
+    File.write!(Path.join(root, "1-1.2:1.0/bInterfaceProtocol"), "01\n")
     dev.("1-1.10", %{"busnum" => "1", "idVendor" => "17e9", "idProduct" => "02a9", "bDeviceClass" => "ff", "speed" => "480"})
     iface.("1-1.10:1.0", "ff", "udl", ["drm/card1", "graphics/fb1"])
     dev.("1-2", %{"busnum" => "1", "idVendor" => "0781", "idProduct" => "5581", "manufacturer" => "SanDisk", "product" => "Ultra", "bDeviceClass" => "00", "speed" => "5000"})
@@ -57,7 +58,7 @@ defmodule Lepton.USBTest do
     by = Map.new(devices, &{&1.name, &1})
     assert USB.kind(by["usb1"]) == "root hub"
     assert USB.kind(by["1-1"]) == "hub" and by["1-1"].ports == 8
-    assert USB.kind(by["1-1.2"]) == "HID"
+    assert USB.kind(by["1-1.2"]) == "keyboard"
     assert by["1-1.2"].drivers == ["usbhid"] and by["1-1.2"].nodes == ["event2"]
     assert USB.kind(by["1-1.10"]) == "display"
     assert by["1-1.10"].nodes == ["fb1"]
@@ -70,7 +71,7 @@ defmodule Lepton.USBTest do
     assert USB.describe(devices) == [
              "usb1  xHCI Host Controller (root hub, 4 ports) [480 Mbit/s]",
              "  1-1 0409:55aa  QEMU USB Hub (hub, 8 ports) [12 Mbit/s]",
-             "    1-1.2 0627:0001  QEMU USB Keyboard (HID) [12 Mbit/s; usbhid] -> event2",
+             "    1-1.2 0627:0001  QEMU USB Keyboard (keyboard) [12 Mbit/s; usbhid] -> event2",
              "    1-1.10 17e9:02a9  17e9:02a9 (display) [480 Mbit/s; udl] -> fb1",
              "  1-2 0781:5581  Ultra (storage) [5 Gbit/s; usb-storage] -> " <> Enum.join(by["1-2"].nodes, " ")
            ]
@@ -96,5 +97,15 @@ defmodule Lepton.USBTest do
     assert {out, 0} = sh("usb")
     assert out =~ "(hub, "
     assert out =~ ~r/#{Regex.escape(kbd.name)} .*usbhid/
+
+    # The input devices: the keyboard behind the hub, and the tablet, whose
+    # range the kernel reports (EVIOCGABS through Lepton.FD.ioctl/3).
+    assert {out, 0} = sh("input")
+    assert out =~ ~r/keyboard\s+.*QEMU USB Keyboard\s+\(USB #{Regex.escape(kbd.name)}\)/
+    assert out =~ ~r/tablet\s+.*QEMU USB Tablet/
+    tablet = Enum.find(Lepton.Photon.Input.all(), &(&1.kind == :tablet))
+    {:ok, f} = :file.open(String.to_charlist(tablet.path), [:raw, :binary, :read])
+    assert {:ok, 0, <<_::32, 0::native-32, 32767::native-32, _::binary>>} = Lepton.FD.ioctl(f, 0x80184540, <<0::size(24 * 8)>>)
+    :file.close(f)
   end
 end

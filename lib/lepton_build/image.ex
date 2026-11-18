@@ -31,11 +31,14 @@ defmodule LeptonBuild.Image do
 
   # USB devices loaded by hardware ID when they appear (directly or through
   # a hub or dock; Lepton.USB): display adapters (DisplayLink's older
-  # DL-1x0/1x5 chips, and Generic USB Display gadgets) and the Ethernet
-  # ports of docks and adapters.
+  # DL-1x0/1x5 chips, and Generic USB Display gadgets), the Ethernet ports
+  # of docks and adapters, and keyboards, mice, touchpads and tablets that
+  # need more than hid-generic.
   @usb_modules ~w(
     udl gud
     r8152 ax88179_178a cdc_ether cdc_ncm asix
+    hid-apple hid-magicmouse hid-logitech-dj hid-logitech-hidpp hid-microsoft
+    hid-multitouch hid-lenovo hid-cherry hid-asus hid-elan wacom
   )
 
   # Removable storage (Lepton.Media): SD card slots and USB card readers,

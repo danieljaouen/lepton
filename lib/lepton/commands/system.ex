@@ -459,6 +459,21 @@ defmodule Lepton.Commands.System do
     end
   end
 
+  defcmd "input", "keyboards, mice, touchpads and tablets: the input devices and what each is", usage: "input" do
+    case Lepton.Photon.Input.all() do
+      [] ->
+        IO.puts(ctx, "No input devices.")
+
+      devices ->
+        for d <- devices do
+          where = if d.usb, do: "  (USB #{d.usb})", else: ""
+          IO.puts(ctx, String.pad_trailing(Path.basename(d.path), 9) <> String.pad_trailing(to_string(d.kind || "other"), 10) <> (d.name || "?") <> where)
+        end
+    end
+
+    0
+  end
+
   defcmd "lsmod", "show the status of modules in the Linux kernel", usage: "lsmod" do
     IO.puts(ctx, "Module                  Size  Used by")
 

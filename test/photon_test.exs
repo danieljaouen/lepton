@@ -135,6 +135,34 @@ defmodule Lepton.PhotonTest do
     assert {[{:motion, 5, -3}, {:wheel, 1}], %{}} = Input.decode(0, 0, 0, :mouse, acc)
     {[], acc} = Input.decode(3, 0, 32767, :tablet, %{})
     assert {[{:abs, 1.0, nil}], %{}} = Input.decode(0, 0, 0, :tablet, acc)
+    # A drawing tablet's own range; its pen's buttons aren't keys.
+    pen = %{kind: :tablet, index: 0, x: {0, 1000}, y: {-50, 50}, res: {0, 0}}
+    {[], acc} = Input.decode(3, 0, 250, pen, %{})
+    {[], acc} = Input.decode(3, 1, 0, pen, acc)
+    assert {[], ^acc} = Input.decode(1, 0x14A, 1, pen, acc)
+    assert {[{:abs, 0.25, 0.5}], %{}} = Input.decode(0, 0, 0, pen, acc)
+    # A horizontal wheel.
+    {[], acc} = Input.decode(2, 6, -2, :mouse, %{})
+    assert {[{:hwheel, -2}], %{}} = Input.decode(0, 0, 0, :mouse, acc)
+
+    # A touchpad moves the pointer by the finger's movement (10 units per
+    # mm here: 6 pixels per mm), and not when a finger lands.
+    pad = %{kind: :touchpad, index: 0, x: {0, 1000}, y: {0, 700}, res: {10, 10}}
+    feed = fn events, acc ->
+      Enum.reduce(events, {[], acc}, fn {t, c, v}, {out, acc} ->
+        {evs, acc} = Input.decode(t, c, v, pad, acc)
+        {out ++ evs, acc}
+      end)
+    end
+
+    {[], acc} = feed.([{1, 0x14A, 1}, {3, 0, 100}, {3, 1, 100}, {0, 0, 0}], %{})
+    {moved, acc} = feed.([{3, 0, 150}, {3, 1, 80}, {0, 0, 0}], acc)
+    assert [{:motion, dx, dy}] = moved
+    assert_in_delta dx, 30.0, 0.001
+    assert_in_delta dy, -12.0, 0.001
+    {[], acc} = feed.([{1, 0x14A, 0}, {0, 0, 0}, {1, 0x14A, 1}, {3, 0, 900}, {0, 0, 0}], acc)
+    assert {[{:button, 0x110, true}], _} = feed.([{1, 0x110, 1}, {0, 0, 0}], acc)
+
     assert Input.bitmap("120013") == 0x120013
     assert Input.bitmap("1 0") == Bitwise.bsl(1, 64)
   end
