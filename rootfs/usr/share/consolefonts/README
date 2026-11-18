@@ -1,0 +1,6 @@
+ter-v16n.psf.gz, ter-v16b.psf.gz: Terminus Font 8x16, regular and bold
+(from kbd's console fonts). Photon, Lepton's Wayland compositor, and its
+terminal draw text with them.
+
+Terminus Font is Copyright (C) 2020 Dimitar Toshkov Zhekov, licensed under
+the SIL Open Font License, Version 1.1 (https://openfontlicense.org).

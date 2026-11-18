@@ -160,7 +160,8 @@ defmodule Lepton.Commands do
     Lepton.Commands.Network,
     Lepton.Commands.Dev,
     Lepton.Commands.Admin,
-    Lepton.Commands.Services
+    Lepton.Commands.Services,
+    Lepton.Commands.Desktop
   ]
 
   def all, do: Map.merge(builtins(), runtime())

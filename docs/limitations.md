@@ -1,6 +1,6 @@
 ---
 title: Limitations
-order: 13
+order: 14
 summary: What Lepton doesn't do yet.
 ---
 
@@ -30,5 +30,7 @@ summary: What Lepton doesn't do yet.
 - The Linux framebuffer console approximates 256-colour themes; a serial
   console in an xterm-compatible terminal renders them fully.
 
-There's no graphical desktop or full web browser yet; see the
+The graphical desktop, [Photon](desktop.html), runs terminal windows and
+Wayland programs that draw with shared memory; see its guide for what it
+doesn't do yet. There's no full web browser yet; see the
 [roadmap](../#roadmap).

@@ -71,6 +71,7 @@ The user documentation is at **<https://trylepton.app/docs/>**:
   [packages](https://trylepton.app/docs/packages.html),
   [networking](https://trylepton.app/docs/networking.html),
   [system](https://trylepton.app/docs/system.html),
+  [the desktop](https://trylepton.app/docs/desktop.html),
   [your dotfiles](https://trylepton.app/docs/dotfiles.html) and
   [limitations](https://trylepton.app/docs/limitations.html)
 - Reference: [every command](https://trylepton.app/docs/commands.html),
@@ -159,6 +160,15 @@ mix test                       # host-side test run
   uses `:ssl` with the bundled CA roots. `Lepton.SSH` is an SSH client on
   OTP's `:ssh`, with its own key callback for keys, known hosts (GitHub's
   built in) and `~/.ssh/config`. `ssh` and git's SSH transport use it.
+- **Desktop** (`Lepton.Photon`): a Wayland compositor. Clients connect to a
+  Unix socket and speak the wire protocol (`Lepton.Wayland`: the core
+  interfaces and `xdg-shell`). Shared-memory buffers arrive as file
+  descriptors over `SCM_RIGHTS` (`:socket`) and are read through
+  `/proc/self/fd`. Photon composes only damaged rectangles (background,
+  decorated windows, pointer) and `pwrite`s them to `/dev/fb0`. Input comes
+  from evdev devices read as files. Terminal windows
+  (`Lepton.Photon.Term`) are Wayland clients that run `lsh` on a TTY and
+  draw `Lepton.Screen` with the Terminus PSF font.
 
 ## Repositories
 
@@ -194,29 +204,25 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 127 tests, 0 failures inside the VM (run from the live
+Current results: 139 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-130 passing plus 10 excluded (native/network) on the host.
+141 passing plus 11 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
 The CLI layers were built so a graphical stack can sit on top of them:
 
-1. **Display**: the kernel already provides a DRM/fbdev framebuffer
-   (`virtio-gpu` at boot, or `simpledrm` when the machine has no virtio
-   GPU). Phase 1 writes pixels to `/dev/fb0` from Elixir (mode queried via
-   sysfs). Phase 2 uses DRM dumb
-   buffers and page flips, adding `DRM_IOCTL_*` calls to the syscall shim
-   boundary in `Lepton.Sys`.
-2. **Input**: `evdev` is loaded, so `/dev/input/event*` can be read as files
-   and decoded into the same key vocabulary used today, plus pointer events
-   (the tablet device UTM attaches).
-3. **Compositor / window system**: a supervised `Lepton.Display` process
-   owning the framebuffer, with windows as processes that send damage
-   rectangles (the multiplexer's dirty-row model, generalized to pixels).
-   Terminal windows reuse `Lepton.Screen`.
-4. **Text**: a bitmap font first (PSF, the same format the console uses),
-   then a TrueType rasterizer in Elixir.
+1. **Display** (done): Photon writes pixels to `/dev/fb0` from Elixir,
+   with the mode read from sysfs. Next: DRM dumb buffers and page flips,
+   adding `DRM_IOCTL_*` calls to the syscall shim boundary in `Lepton.Sys`.
+2. **Input** (done): `/dev/input/event*` is read as files and decoded
+   into keys and pointer events (including the tablet UTM attaches).
+3. **Compositor** (done): Photon, a Wayland compositor
+   ([guide](https://trylepton.app/docs/desktop.html)), with terminal
+   windows that reuse `Lepton.Screen`. Next: alpha blending, the
+   clipboard, and native Wayland programs from Alpine.
+4. **Text**: a bitmap font (Terminus, PSF) is done. Next: a TrueType
+   rasterizer in Elixir.
 5. **Browser**: `www` is the first slice. It already has HTTP(S) fetching,
    an HTML tokenizer and a text layout pass with link navigation. Next come
    a CSS parser and cascade, a box-model layout engine targeting the
@@ -243,7 +249,7 @@ lib/lepton/            the operating system
   tty.ex tty/ keys.ex pipe.ex     terminals, key decoding, pipes
   proc.ex io.ex application.ex    process table, I/O helpers, sessions
   shell.ex shell/                 lsh: parser, expansion, executor, ZLE, prompt
-  commands/                       coreutils, text, system, network, dev tools
+  commands/                       coreutils, text, system, network, dev tools, desktop
   editor.ex editor/               le: evil engine, keymaps, render, magit, ex
   mux.ex mux/                     tmux: server, client, layout, copy mode, config
   git.ex git/ gh.ex               git + GitHub (HTTPS and SSH remotes)
@@ -256,11 +262,13 @@ lib/lepton/            the operating system
   setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates
   services.ex power.ex            svc service manager, power button
+  photon.ex photon/ wayland/      Photon: Wayland compositor, terminal windows, protocol
   selftest.ex                     lepton-test
 lib/lepton_build/      image and docs build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs
 docs/                  the user guides (Markdown; published to trylepton.app/docs)
 rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ssh/ssh_known_hosts, ...)
+rootfs/usr/share/      the Terminus console fonts Photon draws text with
 test/                  ExUnit suite (host + in-OS)
 site/                  the website and generated docs (submodule: danieljaouen.github.io, read-only HTTPS)
 ```

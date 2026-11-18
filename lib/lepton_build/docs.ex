@@ -30,7 +30,8 @@ defmodule LeptonBuild.Docs do
     Lepton.Commands.Network => "Network",
     Lepton.Commands.Dev => "Development",
     Lepton.Commands.Admin => "Administration",
-    Lepton.Commands.Services => "Services"
+    Lepton.Commands.Services => "Services",
+    Lepton.Commands.Desktop => "Desktop"
   }
 
   defmodule Page do

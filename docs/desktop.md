@@ -1,0 +1,88 @@
+---
+title: The desktop (Photon)
+order: 12
+summary: Photon, Lepton's Wayland compositor: terminal windows on the display, with the mouse and keyboard.
+---
+
+# The desktop (Photon)
+
+Photon is Lepton's graphical desktop: a Wayland compositor written in
+Elixir, like the rest of Lepton. It takes over the VM's display and shows
+windows that you move, resize and type into with the mouse and keyboard.
+The first window is a terminal running your shell.
+
+```sh
+photon
+```
+
+Run it from the console in the VM window (UTM's display, or QEMU with a
+display). It needs the display's framebuffer, so it doesn't start from
+`mix lepton.shell` on a Mac or over a serial console without a display.
+
+When you quit, the text console comes back as you left it.
+
+## Keys and the mouse
+
+| Key or action | What it does |
+|---|---|
+| Alt+Return | open a terminal window |
+| Alt+Tab | focus the next window |
+| Alt+F4, or the × button | close the window |
+| Ctrl+Alt+Backspace | quit Photon |
+| click a window | focus it and bring it to the front |
+| drag the title bar (or Alt+drag anywhere) | move the window |
+| drag the bottom-right corner (or Alt+right-drag) | resize the window |
+
+Super (the Windows/Command key) works in place of Alt where the VM passes
+it through.
+
+## Terminal windows
+
+A terminal window runs `lsh` with your account, as your console does.
+Everything that works in a terminal works there, including `le`, `tmux`
+and the colours of your prompt. Resizing a window changes its rows and
+columns. Typing `exit` closes the window, and closing the window ends its
+shell.
+
+From a shell, inside Photon or on the console:
+
+```sh
+photon term                 # open another terminal window
+photon term le notes.txt    # a window running a command
+photon info                 # the display, clients and windows
+photon screenshot shot.png  # save the screen as a PNG
+photon stop                 # quit
+```
+
+## Wayland
+
+Photon speaks the standard Wayland protocol on
+`$XDG_RUNTIME_DIR/wayland-0` (`/run/user/UID`). It supports the core
+protocol and `xdg-shell`:
+
+| Interface | Version | Notes |
+|---|---|---|
+| `wl_compositor`, `wl_surface`, `wl_region` | 4 | |
+| `wl_shm`, `wl_shm_pool`, `wl_buffer` | 1 | ARGB8888 and XRGB8888, shown opaque |
+| `wl_seat`, `wl_pointer`, `wl_keyboard` | 5 | US keymap (XKB), key repeat info |
+| `wl_output` | 2 | |
+| `xdg_wm_base`, `xdg_surface`, `xdg_toplevel`, `xdg_popup` | 1 | |
+| `lepton_shm` | 1 | Lepton's own programs: shared memory by path |
+
+Inside Photon, terminals set `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`, so
+a Wayland program that draws with shared-memory buffers can connect to
+it. Photon draws the title bar and border itself, so programs that draw
+their own decorations get both. Lepton can't close a descriptor it
+receives, so each shared-memory pool such a program creates stays in
+memory until you reboot; Lepton's own windows use `lepton_shm` instead
+and leave nothing behind.
+
+## What it doesn't do yet
+
+- GPU-drawn (EGL) programs, transparency, clipboard and drag and drop,
+  touch, and HiDPI scaling.
+- Fonts other than the built-in 8x16 Terminus bitmap font.
+- Keyboard layouts other than US.
+- A web browser: [`www`](commands.html) is text-only for now.
+
+<!-- commands: photon -->

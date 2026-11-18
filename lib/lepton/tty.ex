@@ -46,7 +46,8 @@ defmodule Lepton.TTY do
             until_cont: [],
             auto_probe: false,
             probe_interval: 1500,
-            probe_sent: nil
+            probe_sent: nil,
+            muted: nil
 
   # -- API -----------------------------------------------------------------------
 
@@ -85,6 +86,19 @@ defmodule Lepton.TTY do
   @doc "Feed raw input bytes (used by backends)."
   def input(tty, bytes), do: send(tty, {:tty_input, bytes})
 
+  @doc """
+  Ignore input while `owner` lives (or until `unmute/1`). Photon mutes the
+  display's console: its keyboard is Photon's then, and the kernel still
+  types the same keys into the console.
+  """
+  def mute(tty, owner), do: GenServer.call(tty, {:mute, owner})
+  def unmute(tty), do: GenServer.call(tty, :unmute)
+
+  @doc "The TTY of a console device (`\"/dev/tty1\"`), if it has one."
+  def whereis(device), do: Process.whereis(device_name(device))
+
+  defp device_name(device), do: String.to_atom("lepton_tty:" <> device)
+
   @doc "Ask the terminal for its size with a cursor-position report."
   def probe_size(tty, timeout \\ 300) do
     GenServer.call(tty, {:probe_size, timeout}, timeout + 1000)
@@ -107,6 +121,8 @@ defmodule Lepton.TTY do
     backend = Keyword.fetch!(opts, :backend)
     {mod, arg} = backend
     {:ok, handle} = mod.open(arg, self())
+    name = opts[:name] || ""
+    if String.starts_with?(name, "/dev/") and Process.whereis(device_name(name)) == nil, do: Process.register(self(), device_name(name))
 
     reported = mod.size(handle)
 
@@ -133,6 +149,13 @@ defmodule Lepton.TTY do
   end
 
   def handle_call(:mode, _from, state), do: {:reply, state.mode, state}
+
+  def handle_call({:mute, owner}, _from, state) do
+    Process.monitor(owner)
+    {:reply, :ok, %{state | muted: owner}}
+  end
+
+  def handle_call(:unmute, _from, state), do: {:reply, :ok, %{state | muted: nil}}
 
   def handle_call({:write, data}, _from, state) do
     out(state, data)
@@ -162,6 +185,8 @@ defmodule Lepton.TTY do
   def handle_cast({:set_size, size}, state), do: {:noreply, %{state | size: size}}
 
   @impl true
+  def handle_info({:tty_input, _bytes}, %{muted: pid} = state) when is_pid(pid), do: {:noreply, state}
+
   def handle_info({:tty_input, bytes}, state) do
     if state.esc_timer, do: Process.cancel_timer(state.esc_timer)
     {keys, rest} = Keys.decode(state.pending <> bytes)
@@ -199,6 +224,7 @@ defmodule Lepton.TTY do
     {:noreply, serve(%{state | mode: :cooked, mode_owner: nil} |> requeue_keys_as_input())}
   end
 
+  def handle_info({:DOWN, _, :process, pid, _}, %{muted: pid} = state), do: {:noreply, %{state | muted: nil}}
   def handle_info({:DOWN, _, :process, _, _}, state), do: {:noreply, state}
 
   def handle_info({:backend_closed, _}, state), do: {:stop, :normal, state}
