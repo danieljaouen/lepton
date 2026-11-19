@@ -9,12 +9,14 @@ defmodule Lepton.Sound do
   last (plug in a USB headset and sound goes there).
 
   **The volume** (0 to 100, and muted or not) is kept here and saved
-  (`/var/lib/lepton/sound`). It is set on the card's
-  `Master Playback Volume` control. A card without one (virtio-sound)
-  gets a control of that name made by Lepton (`ELEM_ADD`), which works in
-  software: Lepton's own sounds are scaled by it, and so is Firefox's,
-  through ALSA's `softvol` plugin (`alsa_config/0`). Either way, every
-  program's sound follows the one volume.
+  (`/var/lib/lepton/sound`). It works in software, on every card: each
+  gets a `Lepton Playback Volume` control made by Lepton (`ELEM_ADD`),
+  Lepton's own sounds are scaled by it, and so is Firefox's, through
+  ALSA's `softvol` plugin (`alsa_config/0`). The card's own volume and
+  mute (`Master Playback Volume` and `Switch`) are held at full and on:
+  a virtual machine's sound card may only pass them on to its host
+  rather than apply them (QEMU's SPICE audio, which UTM uses, does), so
+  they can't be relied on to make anything quieter.
 
   **Playing** (`play_wav/2`, `tone/3`) converts to what the card plays
   (16-bit, its rate and channels) and writes to its PCM device
@@ -30,6 +32,7 @@ defmodule Lepton.Sound do
   @tick 2_000
   @master "Master Playback Volume"
   @switch "Master Playback Switch"
+  @soft "Lepton Playback Volume"
   # The software volume control: 0..255, from -51 dB to 0 dB (softvol's defaults).
   @soft_max 255
   @soft_min_db -51.0
@@ -60,7 +63,7 @@ defmodule Lepton.Sound do
 
   @doc """
   Where sound goes now: `{:ok, %{type: :alsa, card, device, gain}}`
-  (`gain` the software volume, 1.0 for a hardware control), or
+  (`gain` the software volume), or
   `{:ok, %{type: :bluetooth, pcm, rate, channels, gain}}` for headphones.
   """
   def output do
@@ -72,7 +75,6 @@ defmodule Lepton.Sound do
   end
 
   defp gain(%{muted: true}, _card), do: 0.0
-  defp gain(_st, %{software: false}), do: 1.0
   defp gain(%{volume: v}, _card), do: soft_gain(soft_value(v))
 
   @doc "The software control's value for a volume (0..100)."
@@ -339,30 +341,29 @@ defmodule Lepton.Sound do
 
   defp bluetooth_outputs do
     for o <- Lepton.Bluetooth.summary().outputs,
-        do: %{type: :bluetooth, index: nil, id: "bt:" <> o.address, name: o.name, pcm: o.pcm, rate: o.rate, channels: o.channels, playback: [], master: nil, switch: nil, software: false}
+        do: %{type: :bluetooth, index: nil, id: "bt:" <> o.address, name: o.name, pcm: o.pcm, rate: o.rate, channels: o.channels, playback: [], master: nil, hardware: [], software: false}
   end
 
-  # A card's volume control: its own Master, else one we add (software volume).
+  # A card's volume control, one we add (software volume), and its own
+  # volume and mute, `hardware`: `{control, value}`s held at full and on.
   defp setup(%{type: :bluetooth} = card), do: card
 
   defp setup(card) do
     controls = ALSA.controls(card.index)
 
-    master =
+    hw_master =
       Enum.find(controls, &(&1.name == @master and &1.type == :integer)) ||
         Enum.find(controls, &(&1.name in ["PCM Playback Volume", "Speaker Playback Volume", "Headphone Playback Volume"] and &1.type == :integer))
 
-    {master, controls} =
-      if master do
-        {master, controls}
-      else
-        ALSA.add_control(card.index, @master, @soft_max, @soft_min_db)
-        controls = ALSA.controls(card.index)
-        {Enum.find(controls, &(&1.name == @master)), controls}
-      end
+    hw_switch = Enum.find(controls, &(&1.name == @switch and &1.type == :boolean))
 
-    switch = Enum.find(controls, &(&1.name == @switch and &1.type == :boolean))
-    Map.merge(card, %{master: master, switch: switch, software: master != nil and master.user})
+    # (made already if the service started again, or by softvol)
+    soft =
+      Enum.find(controls, &(&1.name == @soft)) ||
+        (ALSA.add_control(card.index, @soft, @soft_max, @soft_min_db) && Enum.find(ALSA.controls(card.index), &(&1.name == @soft)))
+
+    hardware = for {c, v} <- [{hw_master, hw_master && hw_master.max}, {hw_switch, 1}], c != nil, do: {c, v}
+    Map.merge(card, %{master: soft, hardware: hardware, software: soft != nil})
   end
 
   # HD Audio codecs bind to a codec driver; load the generic one if none did.
@@ -378,9 +379,9 @@ defmodule Lepton.Sound do
 
     for %{master: m} = card <- st.cards, m != nil do
       ALSA.write_control(card.index, m, level(st, card))
-      if card.switch, do: ALSA.write_control(card.index, card.switch, if(st.muted, do: 0, else: 1))
     end
 
+    for %{hardware: hw} = card <- st.cards, {c, v} <- hw, do: ALSA.write_control(card.index, c, v)
     st
   end
 
@@ -389,21 +390,23 @@ defmodule Lepton.Sound do
   defp enforce(st) do
     drifted =
       Enum.any?(st.cards, fn
-        %{master: m} = card when m != nil ->
-          case ALSA.read(card.index, m) do
-            {:ok, values} -> Enum.any?(values, &(&1 != level(st, card)))
-            _ -> false
-          end
-
-        _ ->
-          false
+        %{master: m} = card when m != nil -> Enum.any?([{m, level(st, card)} | card.hardware], fn {c, v} -> differs?(card.index, c, v) end)
+        _ -> false
       end)
 
     if drifted, do: apply_volume(st), else: st
   end
 
-  defp level(st, %{master: m} = card) do
-    if st.muted and card.switch == nil, do: m.min, else: m.min + round((m.max - m.min) * st.volume / 100)
+  defp differs?(index, control, value) do
+    case ALSA.read(index, control) do
+      {:ok, values} -> Enum.any?(values, &(&1 != value))
+      _ -> false
+    end
+  end
+
+  # (muted: the software control at 0, which is silent)
+  defp level(st, %{master: m}) do
+    if st.muted, do: m.min, else: m.min + round((m.max - m.min) * st.volume / 100)
   end
 
   defp current(st) do
@@ -467,7 +470,7 @@ defmodule Lepton.Sound do
       %{card: %{index: n, software: true}} ->
         """
         pcm.!default { type plug; slave.pcm "lepton_volume" }
-        pcm.lepton_volume { type softvol; slave.pcm "hw:#{n}"; control { name "Master Playback Volume"; card #{n} }; min_dB #{@soft_min_db}; max_dB 0.0; resolution #{@soft_max + 1} }
+        pcm.lepton_volume { type softvol; slave.pcm "hw:#{n}"; control { name "#{@soft}"; card #{n} }; min_dB #{@soft_min_db}; max_dB 0.0; resolution #{@soft_max + 1} }
         ctl.!default { type hw; card #{n} }
         """
 

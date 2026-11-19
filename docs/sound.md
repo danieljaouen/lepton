@@ -37,8 +37,8 @@ muted. Click anywhere else to close the control.
 
 ```text
 $ sound
-  0  HDA Intel                    volume: Master Playback Volume
-* 1  USB Headset                  volume: PCM Playback Volume
+  0  HDA Intel                    volume: Lepton Playback Volume
+* 1  USB Headset                  volume: Lepton Playback Volume
 (* plays sound: the card added last)
 ```
 
@@ -48,9 +48,12 @@ plug it in and hands back when you unplug it, and so do
 `bt`). `sound use 0` keeps sound on card 0 instead, `sound use bluetooth`
 on the headphones; `sound use auto` goes back to the one added last.
 
-The volume is set on the card's own volume control. A card without one
-(virtio-sound) gets a volume control that works in software, marked
-"software volume". Lepton's sounds and Firefox's follow it just the same.
+The volume works in software: each card gets a volume control of
+Lepton's (`Lepton Playback Volume`), and Lepton's sounds and Firefox's
+are made quieter, or silent when muted, before they reach the card. The
+card's own volume and mute are kept at full and on, because a virtual
+machine's sound card may not apply them: UTM's passes them on to UTM,
+which doesn't use them.
 
 **Drivers**: Intel HD Audio (UTM's and QEMU's usual sound device),
 virtio-sound, and USB audio (headsets, speakers, sound cards, docks).

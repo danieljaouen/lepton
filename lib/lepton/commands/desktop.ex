@@ -72,7 +72,7 @@ defmodule Lepton.Commands.Desktop do
 
     case result do
       {:ok, st} ->
-        on = if st.card, do: " on #{st.card.name}#{if st.card[:software], do: " (software volume)"}", else: " (no sound card)"
+        on = if st.card, do: " on #{st.card.name}", else: " (no sound card)"
         IO.puts(ctx, "Volume: #{st.volume}%#{if st.muted, do: ", muted"}#{on}")
         0
 
@@ -155,8 +155,8 @@ defmodule Lepton.Commands.Desktop do
             {n, vol} =
               cond do
                 c[:type] == :bluetooth -> {"bt", "Bluetooth headphones"}
-                c[:software] -> {c.index, "software volume"}
-                true -> {c.index, "volume: #{c.master && c.master.name}"}
+                c[:software] -> {c.index, "volume: #{c.master.name}"}
+                true -> {c.index, "no volume control"}
               end
 
             IO.puts(ctx, "#{mark} #{String.pad_trailing(to_string(n), 2)} #{String.pad_trailing(c.name, 28)} #{vol}")

@@ -14,7 +14,8 @@ defmodule Mix.Tasks.Lepton.Qemu do
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
   keyboard and tablet. The keyboard is plugged into a USB hub, as on a
   desk, so hubs are always exercised; `--test` plugs a USB stick into the
-  hub too, and records the sound card to `_build/lepton/sound-test.wav`.
+  hub too, and records the sound card to `_build/lepton/sound-test.wav`
+  (`--run` to `_build/lepton/sound-run.wav`).
   """
   use Mix.Task
 
@@ -43,7 +44,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
         unless output =~ ~r/\d+ tests?, 0 failures/, do: Mix.raise("in-OS test suite failed")
 
       cmds = Keyword.get_values(opts, :run) |> then(&if(&1 == [], do: nil, else: &1)) ->
-        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts), cmds, opts[:timeout] || 120_000, login)
+        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts) ++ sound("wav,path=#{Path.join([File.cwd!(), "_build", "lepton", "sound-run.wav"])}"), cmds, opts[:timeout] || 120_000, login)
         IO.write(output)
 
       true ->

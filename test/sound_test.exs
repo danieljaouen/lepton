@@ -104,21 +104,30 @@ defmodule Lepton.SoundTest do
   # Inside Lepton: `mix lepton.qemu --test` gives the VM Intel HD Audio,
   # which QEMU records to a file.
   @tag :native
-  test "the VM's sound card: the volume is its Master control; tones and WAV files play" do
+  # (The card's own Master is held at full: UTM's QEMU passes it to its
+  # display client rather than apply it.)
+  test "the VM's sound card: the volume is Lepton's software control; tones and WAV files play" do
     assert Enum.find_value(1..30, fn _ -> Sound.status().card || (Process.sleep(200) && nil) end)
     %{card: card} = Sound.status()
     assert card.name =~ "HDA"
-    refute card.software
+    assert card.software and card.master.name == "Lepton Playback Volume"
+    assert [{%{name: "Master Playback Volume"} = hw, max}, {%{name: "Master Playback Switch"} = sw, 1}] = card.hardware
     before = Sound.status()
 
     try do
       assert {:ok, %{volume: 30}} = Sound.set_volume(30)
       assert {:ok, [v, v]} = ALSA.read(card.index, card.master)
-      assert v == card.master.min + round((card.master.max - card.master.min) * 0.3)
+      assert v == Sound.soft_value(30)
+      assert {:ok, [^max, ^max]} = ALSA.read(card.index, hw)
       assert {:ok, %{muted: true}} = Sound.mute(true)
-      assert {:ok, [0, 0]} = ALSA.read(card.index, card.switch)
+      assert {:ok, [0, 0]} = ALSA.read(card.index, card.master)
+      assert {:ok, [1, 1]} = ALSA.read(card.index, sw)
+      assert {:ok, out} = Sound.output()
+      assert out.gain == 0.0
       assert {:ok, %{muted: false, volume: 40}} = Sound.change(10)
-      assert {:ok, [1, 1]} = ALSA.read(card.index, card.switch)
+      assert {:ok, [v, v]} = ALSA.read(card.index, card.master)
+      assert v == Sound.soft_value(40)
+      assert Sound.alsa_config() =~ ~s(name "Lepton Playback Volume")
 
       assert Sound.beep(440, 100) == :ok
       path = Path.join(tmp_dir("wavplay"), "t.wav")
