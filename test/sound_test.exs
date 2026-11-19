@@ -128,6 +128,8 @@ defmodule Lepton.SoundTest do
       assert {:ok, [v, v]} = ALSA.read(card.index, card.master)
       assert v == Sound.soft_value(40)
       assert Sound.alsa_config() =~ ~s(name "Lepton Playback Volume")
+      # (mixed: Firefox opens a stream for each tab that plays)
+      assert Sound.alsa_config() =~ ~r/softvol; slave.pcm "lepton_mix".*\n.*type dmix/
 
       assert Sound.beep(440, 100) == :ok
       path = Path.join(tmp_dir("wavplay"), "t.wav")

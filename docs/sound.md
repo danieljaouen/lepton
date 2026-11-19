@@ -69,8 +69,9 @@ Intel HD Audio, played on the Mac's speakers too.
 ## What it doesn't do yet
 
 - Recording: microphones and line-in.
-- Mixing: on most sound cards one program plays at a time, so while
-  Firefox plays, `beep` and `play` may say the device is in use.
+- Mixing Lepton's own sounds with Firefox's: Firefox's tabs and windows
+  play together, mixed, but while Firefox plays, `beep` and `play` may
+  say the device is in use.
 - Files other than WAV for `play` (Firefox plays the web's formats).
 - Bluetooth headset microphones (headphones play; see [Bluetooth](bluetooth.html)).
 

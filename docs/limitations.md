@@ -12,8 +12,8 @@ summary: What Lepton doesn't do yet.
 - Bluetooth needs a USB adapter (a Mac's built-in Bluetooth stays with
   macOS); no headset microphones, file transfer or phones (see
   [Bluetooth](bluetooth.html)).
-- Sound: no recording, and on most sound cards one program plays at a
-  time (see [Sound](sound.html)).
+- Sound: no recording, and Lepton's own sounds (`beep`, `play`) don't
+  mix with Firefox's (see [Sound](sound.html)).
 - Touchpads: no tap-to-click, two-finger scrolling or gestures yet.
 - USB display adapters: DisplayLink's USB 2.0 chips and Generic USB
   Display gadgets only; newer DisplayLink docks need a closed-source

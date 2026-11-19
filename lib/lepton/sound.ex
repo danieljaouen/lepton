@@ -470,18 +470,27 @@ defmodule Lepton.Sound do
       %{card: %{index: n, software: true}} ->
         """
         pcm.!default { type plug; slave.pcm "lepton_volume" }
-        pcm.lepton_volume { type softvol; slave.pcm "hw:#{n}"; control { name "#{@soft}"; card #{n} }; min_dB #{@soft_min_db}; max_dB 0.0; resolution #{@soft_max + 1} }
+        pcm.lepton_volume { type softvol; slave.pcm "lepton_mix"; control { name "#{@soft}"; card #{n} }; min_dB #{@soft_min_db}; max_dB 0.0; resolution #{@soft_max + 1} }
+        #{mix(n)}
         ctl.!default { type hw; card #{n} }
         """
 
       %{card: %{index: n}} ->
         """
-        pcm.!default { type plug; slave.pcm "hw:#{n}" }
+        pcm.!default { type plug; slave.pcm "lepton_mix" }
+        #{mix(n)}
         ctl.!default { type hw; card #{n} }
         """
 
       _ ->
         ""
     end
+  end
+
+  # dmix: the card plays several streams at once, mixed (a sound card
+  # opened directly plays one; Firefox opens one for each tab that plays).
+  # Shared by every user's programs, through System V shared memory.
+  defp mix(n) do
+    ~s(pcm.lepton_mix { type dmix; ipc_key #{5_381_000 + n}; ipc_key_add_uid false; ipc_perm 0666; slave { pcm "hw:#{n}"; format S16_LE; rate 48000; channels 2; period_size 1024; buffer_size 8192 } })
   end
 end
