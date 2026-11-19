@@ -66,7 +66,8 @@ defmodule Lepton.Photon do
   defmodule Client do
     @moduledoc false
     # lepton: the client uses lepton_shm (no descriptors, no keymap)
-    defstruct [:sock, :reader, buf: "", fds: [], objects: %{}, pools: %{}, lepton: false]
+    # next_server_id: for objects Photon makes (wl_data_offer)
+    defstruct [:sock, :reader, buf: "", fds: [], objects: %{}, pools: %{}, lepton: false, next_server_id: 0xFF000000]
   end
 
   defmodule Surface do
@@ -625,11 +626,46 @@ defmodule Lepton.Photon do
 
   defp request(st, _sock, _id, %{iface: "wl_subsurface"}, op, []) when op in [:set_sync, :set_desync], do: st
 
-  # wl_data_device_manager: no clipboard yet; the objects exist so toolkits can start.
-  defp request(st, sock, _id, obj, :create_data_source, [new]), do: new_object(st, sock, new, "wl_data_source", obj.version)
+  # wl_data_device_manager: drag and drop, between windows and within one
+  # (Firefox moves its tabs this way). No clipboard yet.
+  defp request(st, sock, _id, obj, :create_data_source, [new]), do: new_object(st, sock, new, "wl_data_source", obj.version, %{mimes: [], actions: 0})
   defp request(st, sock, _id, obj, :get_data_device, [new, _seat]), do: new_object(st, sock, new, "wl_data_device", obj.version)
-  defp request(st, _sock, _id, %{iface: "wl_data_source"}, op, _args) when op in [:offer, :set_actions], do: st
-  defp request(st, _sock, _id, %{iface: "wl_data_device"}, op, _args) when op in [:start_drag, :set_selection], do: st
+  defp request(st, sock, id, %{iface: "wl_data_source"} = obj, :offer, [mime]), do: put_in(st.clients[sock].objects[id].data, %{obj.data | mimes: obj.data.mimes ++ [mime]})
+  defp request(st, sock, id, %{iface: "wl_data_source"} = obj, :set_actions, [actions]), do: put_in(st.clients[sock].objects[id].data, %{obj.data | actions: actions})
+  defp request(st, _sock, _id, %{iface: "wl_data_device"}, :set_selection, _args), do: st
+
+  defp request(st, sock, _id, %{iface: "wl_data_device"}, :start_drag, [source, _origin, icon, _serial]) do
+    if st.buttons != MapSet.new() and st.grab == nil do
+      drag = %{client: sock, source: source && {sock, source}, icon: icon && {sock, icon}, target: nil}
+      %{leave_pointer(st) | grab: {:drag, drag}} |> drag_motion()
+    else
+      # (no button is held: there's nothing to drag with)
+      source_event(st, source && {sock, source}, :cancelled, [])
+    end
+  end
+
+  defp request(st, sock, id, %{iface: "wl_data_offer"} = obj, :accept, [_serial, mime]) do
+    st = put_in(st.clients[sock].objects[id].data, %{obj.data | accepted: mime})
+    source_event(st, obj.data.source, :target, [mime])
+  end
+
+  defp request(st, _sock, _id, %{iface: "wl_data_offer"} = obj, :receive, [mime, fd]) do
+    # The data goes from the source's client to the descriptor directly.
+    st = source_event(st, obj.data.source, :send, [mime, fd])
+    Conn.close_fd(fd)
+    st
+  end
+
+  defp request(st, sock, id, %{iface: "wl_data_offer"} = obj, :set_actions, [actions, preferred]) do
+    both = band(actions, obj.data.source_actions)
+    action = if band(both, preferred) != 0, do: preferred, else: band(both, -both)
+    st = put_in(st.clients[sock].objects[id].data, %{obj.data | action: action})
+    emit(st, sock, id, "wl_data_offer", :action, [action])
+    source_event(st, obj.data.source, :action, [action])
+  end
+
+  defp request(st, _sock, _id, %{iface: "wl_data_offer"} = obj, :finish, []), do: source_event(st, obj.data.source, :dnd_finished, [])
+  defp request(st, _sock, _id, %{iface: "wl_data_offer"}, :destroy, []), do: st
 
   # Decorations are always Photon's ("server", mode 2), whatever a client asks.
   defp request(st, sock, _id, _obj, :create, [new, _surface]) do
@@ -680,6 +716,13 @@ defmodule Lepton.Photon do
 
   # -- objects -----------------------------------------------------------------------------
 
+  # An object Photon makes for a client (IDs from 0xFF000000 up).
+  defp server_object(st, sock, iface, version, data) do
+    id = st.clients[sock].next_server_id
+    st = update_in(st.clients[sock], &%{&1 | next_server_id: id + 1, objects: Map.put(&1.objects, id, %{iface: iface, version: version, data: data})})
+    {st, id}
+  end
+
   defp new_object(st, sock, id, iface, version, data \\ nil) do
     cond do
       id == 0 or id >= 0xFF000000 -> protocol_error(st, sock, 1, 0, "invalid new id #{id}")
@@ -692,7 +735,8 @@ defmodule Lepton.Photon do
     obj = st.clients[sock].objects[id]
     st = release_object(st, sock, id, obj)
     st = update_in(st.clients[sock].objects, &Map.delete(&1, id))
-    emit(st, sock, 1, "wl_display", :delete_id, [id])
+    # (the IDs of objects Photon made aren't the client's to reuse)
+    if id < 0xFF000000, do: emit(st, sock, 1, "wl_display", :delete_id, [id])
     st
   end
 
@@ -719,6 +763,13 @@ defmodule Lepton.Photon do
   end
   defp release_object(st, sock, _id, %{iface: "xdg_toplevel", data: %{surface: sid}}), do: unmap(st, {sock, sid}) |> clear_role(sock, sid)
   defp release_object(st, sock, _id, %{iface: "xdg_popup", data: %{surface: sid}}), do: unmap(st, {sock, sid}) |> clear_role(sock, sid)
+  defp release_object(st, sock, id, %{iface: "wl_data_source"}) do
+    case st.grab do
+      {:drag, %{source: {^sock, ^id}}} -> %{drag_leave(st) | grab: nil} |> pointer_motion()
+      _ -> st
+    end
+  end
+
   defp release_object(st, _sock, _id, _obj), do: st
 
   defp clear_role(st, sock, sid), do: update_surface(st, sock, sid, &%{&1 | role: nil, configured: false, content: nil})
@@ -1446,6 +1497,9 @@ defmodule Lepton.Photon do
         h = max(round(h0 + y - py), 32)
         configure(st, key, w, h, [@resizing, @activated])
 
+      {:drag, _} ->
+        drag_motion(st)
+
       _ ->
         %{st | wm_state: st.wm.motion(st.wm_state, wm_info(st), st.pointer)} |> pointer_motion()
     end
@@ -1642,9 +1696,107 @@ defmodule Lepton.Photon do
       {:move, _, _, _} ->
         %{st | grab: nil}
 
+      {:drag, drag} ->
+        if MapSet.size(st.buttons) == 0, do: drop(st, drag), else: st
+
       nil ->
         st = send_button(st, code, 0)
         if MapSet.size(st.buttons) == 0, do: pointer_motion(st), else: st
+    end
+  end
+
+  # -- drag and drop ---------------------------------------------------------------------------
+
+  # While dragging, the window under the pointer is offered the data: a
+  # wl_data_offer with the source's types, then enter and motion on its
+  # wl_data_device. (Without a source, the drag stays in its own client.)
+  defp drag_motion(%{grab: {:drag, drag}} = st) do
+    target =
+      case under_pointer(st) do
+        {w, :content, pos} -> if drag.source != nil or elem(w.key, 0) == drag.client, do: {w.key, pos}
+        _ -> nil
+      end
+
+    case {target, drag.target} do
+      {{key, {sx, sy}}, %{key: key, sock: sock, device: dev}} ->
+        emit(st, sock, dev, "wl_data_device", :motion, [now(st), sx, sy])
+
+      _ ->
+        st |> drag_leave() |> drag_enter(target)
+    end
+  end
+
+  defp drag_enter(st, nil), do: st
+
+  defp drag_enter(%{grab: {:drag, drag}} = st, {{sock, sid} = key, {sx, sy}}) do
+    case objects_of(st, sock, "wl_data_device") do
+      [] ->
+        st
+
+      [dev | _] ->
+        version = st.clients[sock].objects[dev].version
+
+        {st, offer} =
+          case drag.source && source(st, drag.source) do
+            nil ->
+              {st, nil}
+
+            src ->
+              {st, offer} = server_object(st, sock, "wl_data_offer", version, %{source: drag.source, source_actions: src.actions, accepted: nil, action: 0})
+              emit(st, sock, dev, "wl_data_device", :data_offer, [offer])
+              for mime <- src.mimes, do: emit(st, sock, offer, "wl_data_offer", :offer, [mime])
+              if version >= 3, do: emit(st, sock, offer, "wl_data_offer", :source_actions, [src.actions])
+              {st, offer}
+          end
+
+        emit(st, sock, dev, "wl_data_device", :enter, [next_serial(st), sid, sx, sy, offer])
+        %{bump(st) | grab: {:drag, %{drag | target: %{key: key, sock: sock, device: dev, offer: offer}}}}
+    end
+  end
+
+  defp drag_leave(%{grab: {:drag, %{target: %{sock: sock, device: dev}} = drag}} = st) do
+    emit(st, sock, dev, "wl_data_device", :leave, [])
+    %{st | grab: {:drag, %{drag | target: nil}}}
+  end
+
+  defp drag_leave(st), do: st
+
+  # The button is let go: drop where the data was accepted (a type, and an
+  # action from version 3), else cancel.
+  defp drop(st, drag) do
+    st =
+      case drag.target do
+        %{sock: sock, device: dev, offer: offer} ->
+          o = offer && st.clients[sock].objects[offer]
+
+          if offer == nil or (o && o.data.accepted != nil and (o.version < 3 or o.data.action != 0)) do
+            emit(st, sock, dev, "wl_data_device", :drop, [])
+            st |> drag_leave() |> source_event(drag.source, :dnd_drop_performed, [])
+          else
+            st |> drag_leave() |> source_event(drag.source, :cancelled, [])
+          end
+
+        nil ->
+          source_event(st, drag.source, :cancelled, [])
+      end
+
+    pointer_motion(%{st | grab: nil})
+  end
+
+  defp source(st, {sock, id}) do
+    case st.clients[sock] && st.clients[sock].objects[id] do
+      %{iface: "wl_data_source", data: data} -> data
+      _ -> nil
+    end
+  end
+
+  # An event for a drag's wl_data_source (action and dnd_* need version 3).
+  defp source_event(st, nil, _event, _args), do: st
+
+  defp source_event(st, {sock, id}, event, args) do
+    case st.clients[sock] && st.clients[sock].objects[id] do
+      %{iface: "wl_data_source", version: v} when v >= 3 or event in [:target, :send, :cancelled] -> emit(st, sock, id, "wl_data_source", event, args)
+      _ -> st
     end
   end
 
@@ -1874,6 +2026,14 @@ defmodule Lepton.Photon do
         :socket.close(sock)
         st = %{st | clients: Map.delete(st.clients, sock), frame_callbacks: Enum.reject(st.frame_callbacks, &(elem(&1, 0) == sock))}
         st = if match?({^sock, _}, st.pointer_focus), do: %{st | pointer_focus: nil}, else: st
+
+        st =
+          case st.grab do
+            {:drag, %{client: ^sock}} -> %{st | grab: nil}
+            {:drag, %{target: %{sock: ^sock}} = drag} -> %{st | grab: {:drag, %{drag | target: nil}}}
+            _ -> st
+          end
+
         if match?({^sock, _}, st.keyboard_focus), do: %{st | keyboard_focus: nil}, else: st
     end
   end

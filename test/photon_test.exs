@@ -1,6 +1,7 @@
 defmodule Lepton.PhotonTest do
   use ExUnit.Case
   import Lepton.TestHelpers
+  import Bitwise
 
   alias Lepton.Photon
   alias Lepton.Photon.{Input, Output, Render, Screen}
@@ -382,6 +383,82 @@ defmodule Lepton.PhotonTest do
     {evs, _c} = events(c)
     keys = for {^kbd, _, ev, args} <- evs, ev in [:key, :modifiers], do: {ev, if(ev == :key, do: Enum.slice(args, 2, 2), else: Enum.at(args, 1))}
     assert keys == [{:key, [42, 1]}, {:modifiers, 1}, {:key, [30, 1]}, {:key, [30, 0]}, {:key, [42, 0]}, {:modifiers, 0}]
+  end
+
+  test "drag and drop: offered to the window under the pointer, accepted, data passed by descriptor, dropped" do
+    {ph, _out, env} = start_photon()
+    win = window(env, 200, 100, Render.px(0, 0, 255))
+    {c, ddm} = Client.bind(win.c, "wl_data_device_manager", 3)
+    {c, dev} = Client.create(c, ddm, :get_data_device, "wl_data_device", [:new, win.seat])
+    {c, _ptr} = Client.create(c, win.seat, :get_pointer, "wl_pointer")
+    {c, src} = Client.create(c, ddm, :create_data_source, "wl_data_source")
+    c = c |> Client.request(src, :offer, ["text/x-moz-url"]) |> Client.request(src, :offer, ["text/plain"]) |> Client.request(src, :set_actions, [1 ||| 2])
+
+    [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    Photon.input(ph, {:abs, (cx + 10) / 639, (cy + 10) / 399})
+    Photon.input(ph, {:button, 0x110, true})
+    {c, _} = Client.roundtrip(c)
+
+    # A tab is dragged: the pointer leaves, the data device enters with an offer.
+    c = Client.request(c, dev, :start_drag, [src, win.surface, nil, 1])
+    {evs, c} = events(c)
+    assert Enum.any?(evs, &match?({_, "wl_pointer", :leave, _}, &1))
+    assert [{^dev, _, :data_offer, [offer]}] = for({_, "wl_data_device", :data_offer, _} = e <- evs, do: e)
+    assert offer >= 0xFF000000
+    assert for({^offer, _, :offer, [m]} <- evs, do: m) == ["text/x-moz-url", "text/plain"]
+    assert {offer, "wl_data_offer", :source_actions, [3]} in evs
+    assert {_, _, :enter, [_serial, surf, sx, sy, ^offer]} = Enum.find(evs, &match?({^dev, _, :enter, _}, &1))
+    assert surf == win.surface
+    assert_in_delta sx, 10, 1
+    assert_in_delta sy, 10, 1
+
+    Photon.input(ph, {:abs, (cx + 60) / 639, (cy + 10) / 399})
+    {evs, c} = events(c)
+    assert [{^dev, _, :motion, [_, mx, _]}] = for({_, "wl_data_device", :motion, _} = e <- evs, do: e)
+    assert_in_delta mx, 60, 1
+
+    # Accepted, with an action: the source hears of both.
+    c = c |> Client.request(offer, :accept, [1, "text/x-moz-url"]) |> Client.request(offer, :set_actions, [1 ||| 2, 2])
+    {evs, c} = events(c)
+    assert {src, "wl_data_source", :target, ["text/x-moz-url"]} in evs
+    assert {src, "wl_data_source", :action, [2]} in evs
+    assert {offer, "wl_data_offer", :action, [2]} in evs
+
+    # The data: the source writes it to the descriptor the target gave.
+    path = Path.join(tmp_dir("dnd"), "data")
+    {:ok, f} = :file.open(String.to_charlist(path), [:raw, :binary, :read, :write])
+    c = Client.request(c, offer, :receive, ["text/x-moz-url", Lepton.Wayland.Conn.file_fd(f)])
+    {evs, c} = events(c)
+    assert [{^src, _, :send, ["text/x-moz-url", fd]}] = for({_, "wl_data_source", :send, _} = e <- evs, do: e)
+    {:ok, out} = Lepton.Wayland.Conn.open_fd(fd, [:write])
+    :ok = :file.write(out, "https://trylepton.app")
+    :file.close(out)
+    :file.close(f)
+    assert File.read!(path) == "https://trylepton.app"
+
+    # Let go: dropped, then finished.
+    Photon.input(ph, {:button, 0x110, false})
+    {evs, c} = events(c)
+    assert {"wl_data_device", :drop} in names(evs) and {"wl_data_device", :leave} in names(evs)
+    assert {src, "wl_data_source", :dnd_drop_performed, []} in evs
+    refute Enum.any?(evs, &match?({_, "wl_pointer", :button, _}, &1))
+    assert Enum.any?(evs, &match?({_, "wl_pointer", :enter, _}, &1)), "the pointer comes back"
+    c = c |> Client.request(offer, :finish, []) |> Client.request(offer, :destroy, [])
+    {evs, c} = events(c)
+    assert {src, "wl_data_source", :dnd_finished, []} in evs
+
+    # Let go with nothing accepted: cancelled.
+    {c, src2} = Client.create(c, ddm, :create_data_source, "wl_data_source")
+    c = c |> Client.request(src2, :offer, ["text/plain"]) |> Client.request(src2, :set_actions, [1])
+    Photon.input(ph, {:button, 0x110, true})
+    {c, _} = Client.roundtrip(c)
+    c = Client.request(c, dev, :start_drag, [src2, win.surface, nil, 2])
+    {_evs, c} = events(c)
+    Photon.input(ph, {:button, 0x110, false})
+    {evs, _c} = events(c)
+    assert {src2, "wl_data_source", :cancelled, []} in evs
+    refute {"wl_data_device", :drop} in names(evs)
   end
 
   test "window management: move by the title bar, close button, Alt+Return, Alt+Tab, Ctrl+Alt+Backspace" do

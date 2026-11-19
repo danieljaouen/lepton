@@ -111,6 +111,11 @@ defmodule Lepton.Wayland.Protocol do
       requests: [offer: [:string], destroy: [], set_actions: [:uint]],
       events: [target: [:string], send: [:string, :fd], cancelled: [], dnd_drop_performed: [], dnd_finished: [], action: [:uint]]
     },
+    "wl_data_offer" => %{
+      version: 3,
+      requests: [accept: [:uint, :string], receive: [:string, :fd], destroy: [], finish: [], set_actions: [:uint, :uint]],
+      events: [offer: [:string], source_actions: [:uint], action: [:uint]]
+    },
     "wl_data_device" => %{
       version: 3,
       requests: [
@@ -239,6 +244,7 @@ defmodule Lepton.Wayland.Protocol do
                  {"wl_subsurface", :destroy},
                  {"wl_data_source", :destroy},
                  {"wl_data_device", :release},
+                 {"wl_data_offer", :destroy},
                  {"org_kde_kwin_server_decoration", :release},
                  {"wl_buffer", :destroy},
                  {"wl_surface", :destroy},

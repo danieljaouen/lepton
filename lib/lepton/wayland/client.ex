@@ -53,7 +53,9 @@ defmodule Lepton.Wayland.Client do
         {:ok, iface} ->
           {name, types} = Protocol.event(iface, op)
           {args, fds} = Wire.decode(types, payload, c.fds)
-          c = %{c | fds: fds}
+          # (objects the server makes, such as wl_data_offers)
+          made = for {{:new_id, new_iface}, v} <- Enum.zip(types, args), is_binary(new_iface), into: %{}, do: {v, new_iface}
+          c = %{c | fds: fds, objects: Map.merge(c.objects, made)}
 
           case {iface, name, args} do
             {"wl_display", :delete_id, [gone]} -> {events, %{c | objects: Map.delete(c.objects, gone)}}

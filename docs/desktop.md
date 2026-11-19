@@ -106,7 +106,7 @@ protocol and `xdg-shell`:
 | `wl_output` | 2 | |
 | `xdg_wm_base`, `xdg_surface`, `xdg_toplevel`, `xdg_popup` | 1 | |
 | `wl_subcompositor`, `wl_subsurface` | 1 | |
-| `wl_data_device_manager` | 3 | no clipboard yet |
+| `wl_data_device_manager`, `wl_data_source`, `wl_data_offer` | 3 | drag and drop; no clipboard yet |
 | `org_kde_kwin_server_decoration_manager` | 1 | Photon draws the title bars |
 | `lepton_shm` | 1 | Lepton's own programs: shared memory by path |
 
@@ -118,8 +118,9 @@ programs leave theirs out.
 
 ## What it doesn't do yet
 
-- GPU-drawn (EGL) programs, transparency, clipboard and drag and drop,
-  touch, and HiDPI scaling.
+- GPU-drawn (EGL) programs, transparency, a clipboard between programs,
+  touch, and HiDPI scaling. (Drag and drop works, without a picture of
+  what's dragged following the pointer.)
 - Fonts other than the built-in 8x16 Terminus bitmap font.
 - Keyboard layouts other than US.
 - Video drivers: programs draw with the CPU.

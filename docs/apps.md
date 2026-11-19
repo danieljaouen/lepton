@@ -86,7 +86,9 @@ it.
 - Video plays in the formats Firefox decodes itself (WebM, VP9, AV1),
   but not H.264: the FFmpeg codecs are left out to keep the download small.
 - Fonts are DejaVu, which has no Chinese, Japanese or Korean characters.
-- There is no clipboard between Firefox and other windows yet.
+- There is no clipboard between Firefox and other windows yet. Drag and
+  drop works: drag a tab along the tab bar to move it (drop it onto
+  another tab to group them, or at the far left to pin it).
 
 If Firefox hangs, or its window closes but it doesn't finish quitting,
 starting it again stops what was left behind (it would otherwise say
