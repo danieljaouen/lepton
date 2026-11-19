@@ -417,6 +417,7 @@ defmodule Lepton.Apps do
     File.mkdir_p!(Path.dirname(log))
     prepare_home(home, user, app)
     env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name)
+    if Lepton.Sys.native?(), do: musl_path(prefix)
     # As the user, not as root (the VM's own user): see Lepton.RunAs.
     {exe, argv} = Lepton.RunAs.command(user, Path.join(prefix, app.exe), args)
 
@@ -429,6 +430,27 @@ defmodule Lepton.Apps do
       end)
 
     {:ok, lpid}
+  end
+
+  @musl_path "/etc/ld-musl-aarch64.path"
+
+  @doc """
+  Add the app's library folders to musl's own search path (`#{@musl_path}`),
+  after the system's. `LD_LIBRARY_PATH` alone isn't enough: Firefox names
+  its content processes ("Web Content") by writing over the memory that
+  held the environment, where musl's loader still reads
+  `LD_LIBRARY_PATH`, so the libraries those processes load later (NSS's
+  softoken needs libsqlite3, and without it every `crypto.subtle` call
+  fails, and sign-in pages with them) were not found.
+  """
+  def musl_path(prefix, file \\ @musl_path) do
+    have = case File.read(file) do
+      {:ok, text} -> String.split(text, "\n", trim: true)
+      _ -> []
+    end
+
+    want = Enum.uniq(have ++ Enum.map(["usr/lib", "lib"], &Path.join(prefix, &1)))
+    if want != have, do: File.write(file, Enum.join(want, "\n") <> "\n"), else: :ok
   end
 
   # Sound through alsa-lib (Firefox): its own configuration files, then

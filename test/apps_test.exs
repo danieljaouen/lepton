@@ -120,6 +120,14 @@ defmodule Lepton.AppsTest do
     File.write!(Path.join(dir, ".lepton-app"), Base.encode64(:erlang.term_to_binary(%{packages: versions, size: 1, branch: "v3.24"})))
   end
 
+  test "apps' libraries go on musl's search path, after the system's, once" do
+    file = Path.join(tmp_dir("muslpath"), "ld-musl-aarch64.path")
+    File.write!(file, "/usr/lib/musl\n")
+    Apps.musl_path("/var/lib/lepton/apps/firefox", file)
+    Apps.musl_path("/var/lib/lepton/apps/firefox", file)
+    assert File.read!(file) == "/usr/lib/musl\n/var/lib/lepton/apps/firefox/usr/lib\n/var/lib/lepton/apps/firefox/lib\n"
+  end
+
   test "updates: checks every 10 days, stages a newer build, applies it (or rolls back)" do
     System.put_env("LEPTON_STATE_DIR", tmp_dir("updstate"))
     on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
