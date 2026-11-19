@@ -368,7 +368,7 @@ defmodule Lepton.Commands.Admin do
     if Lepton.Apps.installed?("bluetooth") do
       :ok
     else
-      IO.puts(ctx, "Installing Bluetooth support (BlueZ, about 23 MB)...")
+      IO.puts(ctx, "Installing Bluetooth support (BlueZ: about 8 MB to download)...")
 
       case Lepton.Apps.install("bluetooth", &IO.puts(ctx, &1)) do
         :ok -> :ok

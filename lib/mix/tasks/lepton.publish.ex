@@ -75,8 +75,8 @@ defmodule Mix.Tasks.Lepton.Publish do
 
     sha = :crypto.hash(:sha256, File.read!(@iso)) |> Base.encode16(case: :lower)
     bytes = File.stat!(@iso).size
-    mib = round(bytes / 1_048_576)
-    info("ISO #{sha} (#{mib} MiB) from lepton@#{rev}")
+    size = size_text(bytes)
+    info("ISO #{sha} (#{size}) from lepton@#{rev}")
 
     published = published_sha(iso_repo)
 
@@ -87,8 +87,8 @@ defmodule Mix.Tasks.Lepton.Publish do
       else
         info("published checksum: #{published || "(none)"} -> updating")
         unless dry or push, do: Mix.raise("--no-push cannot be combined with publishing a release")
-        publish_iso(iso_repo, sha, bytes, mib, rev, dry)
-        update_site(site, sha, mib, rev, dry, push)
+        publish_iso(iso_repo, sha, bytes, size, rev, dry)
+        update_site(site, sha, size, rev, dry, push)
       end
 
     tags_changed = update_tags(site, rev, dry, push)
@@ -99,7 +99,7 @@ defmodule Mix.Tasks.Lepton.Publish do
 
   # -- steps ------------------------------------------------------------------------
 
-  defp publish_iso(repo, sha, bytes, mib, rev, dry) do
+  defp publish_iso(repo, sha, bytes, size, rev, dry) do
     {owner, name} = github_repo(repo)
     tag = "lepton-#{rev}"
 
@@ -122,7 +122,7 @@ defmodule Mix.Tasks.Lepton.Publish do
       File.rm(Path.join(repo, "lepton.iso"))
       File.write!(Path.join(repo, ".gitignore"), "lepton.iso\n")
       File.write!(Path.join(repo, "SHA256SUMS"), sums)
-      File.write!(Path.join(repo, "README.md"), iso_readme(sha, bytes, mib, rev, owner, name))
+      File.write!(Path.join(repo, "README.md"), iso_readme(sha, bytes, size, rev, owner, name))
       commit_and_push(repo, [".gitignore", "SHA256SUMS", "README.md"], "Release #{tag}: SHA-256 #{String.slice(sha, 0, 12)}", true)
     end
   end
@@ -210,14 +210,18 @@ defmodule Mix.Tasks.Lepton.Publish do
     end
   end
 
-  defp update_site(site, sha, mib, rev, dry, push) do
+  # Sizes as macOS's Finder and GitHub show them: decimal megabytes.
+  @doc false
+  def size_text(bytes), do: "#{:erlang.float_to_binary(bytes / 1_000_000, decimals: 1)} MB"
+
+  defp update_site(site, sha, size, rev, dry, push) do
     path = Path.join(site, "index.html")
     html = File.read!(path)
 
     updated =
       html
       |> replace_marked("data-iso-sha256", sha)
-      |> replace_marked("data-iso-size", "#{mib}&nbsp;MiB")
+      |> replace_marked("data-iso-size", String.replace(size, " ", "&nbsp;"))
 
     cond do
       not String.contains?(html, "data-iso-sha256") ->
@@ -358,7 +362,7 @@ defmodule Mix.Tasks.Lepton.Publish do
     {kernel, otp, System.version()}
   end
 
-  defp iso_readme(sha, _bytes, mib, rev, owner, name) do
+  defp iso_readme(sha, _bytes, size, rev, owner, name) do
     {kernel, otp, elixir} = versions()
     download = download_url(owner, name)
 
@@ -372,7 +376,7 @@ defmodule Mix.Tasks.Lepton.Publish do
 
     | | |
     |---|---|
-    | File | `lepton.iso` (#{mib} MiB, UEFI, aarch64, hybrid CD/disk image) |
+    | File | `lepton.iso` (#{size}, UEFI, aarch64, hybrid CD/disk image) |
     | SHA-256 | `#{sha}` |
     | Built from | danieljaouen/lepton @ `#{rev}` (Linux #{kernel}, Erlang/OTP #{otp}, Elixir #{elixir}) |
 

@@ -73,7 +73,7 @@ in A2DP quality: there's no microphone (headset) mode.
   (their firmware is included) and Broadcom ones. Intel adapters need
   firmware Lepton doesn't include.
 - **Bluetooth support** comes as an app: BlueZ (`bluetoothd`) with D-Bus,
-  and bluez-alsa for headphones, from Alpine's packages (about 7.5 MB to
+  and bluez-alsa for headphones, from Alpine's packages (about 8 MB to
   download). The first `sudo bluetooth on` or `pair` installs it, as does
   the classic desktop's Install button or `sudo app install bluetooth`.
   It updates like [Firefox](apps.html#updates): Lepton checks every ten

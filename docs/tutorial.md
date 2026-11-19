@@ -218,7 +218,7 @@ More: [The desktop](desktop.html).
 ## 12. Firefox
 
 Firefox runs on the desktop. The first time, it is downloaded and
-installed (about 130 MB):
+installed (about 137 MB):
 
 - double-click **Firefox** on the classic desktop, or
 - run `firefox https://trylepton.app` in a terminal window.
@@ -293,7 +293,7 @@ sudo bluetooth pair "MX Keys"   # by name or address
 bluetooth
 ```
 
-The first time, this installs Bluetooth support (about 7.5 MB). Pairing
+The first time, this installs Bluetooth support (about 8 MB). Pairing
 a keyboard shows a number: type it on the Bluetooth keyboard and press
 Enter. Paired headphones become where sound plays.
 

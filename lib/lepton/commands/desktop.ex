@@ -243,7 +243,7 @@ defmodule Lepton.Commands.Desktop do
           %{packages: pkgs, size: size} ->
             checked = if t = Apps.checked_at(name), do: ", checked for updates #{Calendar.strftime(DateTime.from_unix!(t), "%Y-%m-%d")}", else: ""
             ready = if Apps.staged?(name), do: "; an update is ready (applies when it next starts)", else: ""
-            "#{Apps.version(name)} (#{length(pkgs)} packages, #{div(size, 1_048_576)} MiB#{checked})#{ready}"
+            "#{Apps.version(name)} (#{length(pkgs)} packages, #{div(size, 1_000_000)} MB#{checked})#{ready}"
 
           nil ->
             "not installed"

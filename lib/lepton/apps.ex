@@ -156,7 +156,7 @@ defmodule Lepton.Apps do
   defp download(app, name, pkgs, versions, say) do
     total = Enum.sum(Enum.map(pkgs, & &1.size))
     installed = Enum.sum(Enum.map(pkgs, & &1.installed_size))
-    say.("#{app.title}: #{length(pkgs)} packages, #{mib(total)} to download, #{mib(installed)} installed.")
+    say.("#{app.title}: #{length(pkgs)} packages, #{mb(total)} to download, #{mb(installed)} installed.")
     staged = staged_dir(name)
     File.rm_rf!(staged)
 
@@ -164,7 +164,7 @@ defmodule Lepton.Apps do
       pkgs
       |> Enum.with_index(1)
       |> Enum.reduce_while(:ok, fn {pkg, i}, :ok ->
-        say.("[#{i}/#{length(pkgs)}] #{pkg.name} #{pkg.version} (#{mib(pkg.size)})")
+        say.("[#{i}/#{length(pkgs)}] #{pkg.name} #{pkg.version} (#{mb(pkg.size)})")
 
         case Alpine.install(pkg, staged) do
           :ok -> {:cont, :ok}
@@ -281,7 +281,8 @@ defmodule Lepton.Apps do
   # The package an app's version is (Firefox's is firefox; Bluetooth's, bluez).
   defp main(name), do: (get(name) || %{})[:main] || name
 
-  defp mib(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MiB"
+  # Sizes as macOS's Finder shows them: decimal megabytes.
+  defp mb(bytes), do: "#{Float.round(bytes / 1_000_000, 1)} MB"
 
   # -- setup: what the packages' install triggers would do ---------------------------------------------
 

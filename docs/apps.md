@@ -40,8 +40,8 @@ root's own profile in `/root`.
 `app install firefox` reads the package index of
 [Alpine Linux](https://alpinelinux.org/) 3.24, follows Firefox's
 dependencies (GTK, fonts, and so on: about 85 packages), downloads them
-over HTTPS (about 130 MB) and unpacks them into
-`/var/lib/lepton/apps/firefox` (about 350 MB). Then it does the setup the
+over HTTPS (about 137 MB) and unpacks them into
+`/var/lib/lepton/apps/firefox` (about 366 MB). Then it does the setup the
 packages' install scripts would: GSettings schemas, the MIME database and
 image loaders. Nothing outside that directory changes, and
 `sudo app remove firefox` removes it all.
@@ -59,7 +59,7 @@ ISO it is kept in memory and is gone after a reboot; give the VM at least
 | `firefox [URL...]` | start Firefox (installing it first, as root) |
 
 The other app is `bluetooth`: [Bluetooth](bluetooth.html)'s programs
-(BlueZ, D-Bus and bluez-alsa: about 37 packages, 7.5 MB to download), which
+(BlueZ, D-Bus and bluez-alsa: 37 packages, about 8 MB to download), which
 Lepton runs in the background rather than opening in a window.
 
 ## Updates
