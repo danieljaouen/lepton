@@ -302,16 +302,27 @@ defmodule Lepton.Apps do
     end
   end
 
-  # Photon draws the title bar: Firefox uses it rather than drawing its
-  # own buttons in the tab strip; and it doesn't ask to be the default.
-  defp firefox_policies(prefix) do
+  @doc """
+  Write Firefox's `policies.json` under `prefix` (when Firefox is there):
+  Photon draws the title bar, so Firefox uses it rather than drawing its
+  own buttons in the tab strip; it doesn't ask to be the default; and it
+  doesn't use OpenH264. Firefox downloads that video plugin itself, and
+  Mozilla's aarch64 build of it needs glibc: on Lepton (musl) it crashes
+  ("gmpopenh264 crashed") as soon as a page uses H.264, in WebRTC calls
+  for example.
+  """
+  def firefox_policies(prefix) do
     dir = Path.join(prefix, "usr/lib/firefox/distribution")
 
     if File.dir?(dir) do
       policies = %{
         "policies" => %{
           "DontCheckDefaultBrowser" => true,
-          "Preferences" => %{"browser.tabs.inTitlebar" => %{"Value" => 0, "Status" => "default"}}
+          "Preferences" => %{
+            "browser.tabs.inTitlebar" => %{"Value" => 0, "Status" => "default"},
+            "media.gmp-gmpopenh264.enabled" => %{"Value" => false, "Status" => "locked"},
+            "media.gmp-gmpopenh264.autoupdate" => %{"Value" => false, "Status" => "locked"}
+          }
         }
       }
 
@@ -418,6 +429,8 @@ defmodule Lepton.Apps do
     prepare_home(home, user, app)
     env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name)
     if Lepton.Sys.native?(), do: musl_path(prefix)
+    # Firefox installed before a policy was added gets it too.
+    firefox_policies(prefix)
     # As the user, not as root (the VM's own user): see Lepton.RunAs.
     {exe, argv} = Lepton.RunAs.command(user, Path.join(prefix, app.exe), args)
 

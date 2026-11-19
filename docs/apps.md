@@ -85,6 +85,9 @@ it.
   not installed.
 - Video plays in the formats Firefox decodes itself (WebM, VP9, AV1),
   but not H.264: the FFmpeg codecs are left out to keep the download small.
+  OpenH264, the H.264 plugin Firefox downloads by itself, is turned off:
+  Mozilla's build of it needs glibc, so on Lepton it crashed ("gmpopenh264
+  crashed") whenever a page used it. Video calls use VP8 or VP9 instead.
 - Fonts are DejaVu, which has no Chinese, Japanese or Korean characters.
 - Its clipboard is Lepton's: copy in Firefox and `pbpaste` (or
   Ctrl+Shift+V in a terminal window), or `pbcopy` and paste in Firefox.

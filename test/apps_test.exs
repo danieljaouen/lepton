@@ -128,6 +128,18 @@ defmodule Lepton.AppsTest do
     assert File.read!(file) == "/usr/lib/musl\n/var/lib/lepton/apps/firefox/usr/lib\n/var/lib/lepton/apps/firefox/lib\n"
   end
 
+  test "Firefox's policies: Photon's title bar, and no OpenH264 (a glibc build)" do
+    prefix = tmp_dir("policies")
+    assert Apps.firefox_policies(prefix) == :ok
+    refute File.exists?(Path.join(prefix, "usr/lib/firefox/distribution/policies.json"))
+    File.mkdir_p!(Path.join(prefix, "usr/lib/firefox/distribution"))
+    assert Apps.firefox_policies(prefix) == :ok
+    prefs = JSON.decode!(File.read!(Path.join(prefix, "usr/lib/firefox/distribution/policies.json")))["policies"]["Preferences"]
+    assert prefs["media.gmp-gmpopenh264.enabled"] == %{"Value" => false, "Status" => "locked"}
+    assert prefs["media.gmp-gmpopenh264.autoupdate"]["Value"] == false
+    assert prefs["browser.tabs.inTitlebar"]["Value"] == 0
+  end
+
   test "updates: checks every 10 days, stages a newer build, applies it (or rolls back)" do
     System.put_env("LEPTON_STATE_DIR", tmp_dir("updstate"))
     on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
