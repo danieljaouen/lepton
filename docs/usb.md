@@ -57,7 +57,8 @@ appears.
   pressing the pad (or its buttons). Tap-to-click and two-finger scrolling
   aren't supported yet.
 - **Tablets and touchscreens** map their surface onto the display.
-- **Keyboards**: every key, with the US layout.
+- **Keyboards**: every key, with the US layout. The volume keys set the
+  volume (see [Sound](sound.html)).
 
 `input` lists the input devices, what Lepton takes each for, and the USB
 port it's on:

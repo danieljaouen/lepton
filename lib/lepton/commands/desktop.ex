@@ -2,7 +2,7 @@ defmodule Lepton.Commands.Desktop do
   @moduledoc "The graphical desktop: Photon, Lepton's Wayland compositor."
 
   use Lepton.Command
-  alias Lepton.{Apps, Photon, Users}
+  alias Lepton.{Apps, Photon, Sound, Users}
   alias Lepton.Photon.{Output, Term}
 
   defcmd "photon", "the graphical desktop (Photon, a Wayland compositor) and its terminal windows",
@@ -49,6 +49,176 @@ defmodule Lepton.Commands.Desktop do
             IO.err(ctx, "firefox: #{reason}; Firefox runs on the desktop")
             1
         end
+    end
+  end
+
+  defcmd "volume", "the sound volume: show it, set it (0-100, +N, -N), mute or unmute",
+    usage: "volume [N | +N | -N | up | down | mute | unmute | toggle]" do
+    result =
+      case args do
+        [] -> {:ok, Sound.status()}
+        ["up"] -> Sound.change(5)
+        ["down"] -> Sound.change(-5)
+        ["mute"] -> Sound.mute(true)
+        ["unmute"] -> Sound.mute(false)
+        ["toggle"] -> Sound.mute(:toggle)
+        ["+" <> n] -> with {d, ""} <- Integer.parse(n), do: Sound.change(d), else: (_ -> :usage)
+        ["-" <> n] -> with {d, ""} <- Integer.parse(n), do: Sound.change(-d), else: (_ -> :usage)
+        [n] -> with {v, ""} when v in 0..100 <- Integer.parse(String.trim_trailing(n, "%")), do: Sound.set_volume(v), else: (_ -> :usage)
+        _ -> :usage
+      end
+
+    case result do
+      {:ok, st} ->
+        on = if st.card, do: " on #{st.card.name}#{if st.card[:software], do: " (software volume)"}", else: " (no sound card)"
+        IO.puts(ctx, "Volume: #{st.volume}%#{if st.muted, do: ", muted"}#{on}")
+        0
+
+      {:error, reason} ->
+        IO.err(ctx, "volume: #{reason}")
+        1
+
+      :usage ->
+        IO.err(ctx, "usage: volume [N | +N | -N | up | down | mute | unmute | toggle]")
+        2
+    end
+  end
+
+  defcmd "play", "play a sound file (WAV) on the sound card; C-c stops it", usage: "play FILE.wav..." do
+    case args do
+      [] ->
+        IO.err(ctx, "usage: play FILE.wav...")
+        2
+
+      files ->
+        Enum.reduce_while(files, 0, fn file, _ ->
+          path = Lepton.Ctx.path(ctx, file)
+
+          case playing(ctx, fn -> Sound.play_wav(path) end) do
+            :ok -> {:cont, 0}
+            :stopped -> {:halt, 130}
+            {:error, reason} -> {:cont, sound_error(ctx, "play", "#{file}: #{reason}")}
+          end
+        end)
+    end
+  end
+
+  defcmd "beep", "play a tone (default 880 Hz for 150 ms)", usage: "beep [HZ [MS]]" do
+    case beep_args(args) do
+      {:ok, hz, ms} ->
+        case playing(ctx, fn -> Sound.beep(hz, ms) end) do
+          :ok -> 0
+          :stopped -> 130
+          {:error, reason} -> sound_error(ctx, "beep", reason)
+        end
+
+      :usage ->
+        IO.err(ctx, "usage: beep [HZ [MS]] (20-20000 Hz, up to 10000 ms)")
+        2
+    end
+  end
+
+  defp beep_args(args) do
+    case Enum.map(args, &Integer.parse/1) do
+      nums when length(nums) <= 2 ->
+        if Enum.all?(nums, &match?({_, ""}, &1)) do
+          [hz, ms] = Enum.map(nums, &elem(&1, 0)) ++ Enum.drop([880, 150], length(nums))
+          if hz in 20..20_000 and ms in 1..10_000, do: {:ok, hz, ms}, else: :usage
+        else
+          :usage
+        end
+
+      _ ->
+        :usage
+    end
+  end
+
+  defp sound_error(ctx, cmd, reason) do
+    IO.err(ctx, "#{cmd}: #{reason}")
+    1
+  end
+
+  defcmd "sound", "sound cards: list them, choose where sound plays, play a test tone",
+    usage: "sound [list] | use N | use auto | test" do
+    case args do
+      a when a in [[], ["list"]] ->
+        st = Sound.status()
+
+        if st.cards == [] do
+          IO.puts(ctx, "No sound card. Add a sound device to the VM (UTM: Sound), or plug in USB audio.")
+        else
+          for c <- st.cards do
+            mark = if st.card && st.card.index == c.index, do: "*", else: " "
+            vol = if c[:software], do: "software volume", else: "volume: #{c.master && c.master.name}"
+            IO.puts(ctx, "#{mark} #{c.index}  #{String.pad_trailing(c.name, 28)} #{vol}")
+          end
+
+          how = if st.chosen, do: "chosen with sound use", else: "the card added last"
+          IO.puts(ctx, "(* plays sound: #{how})")
+        end
+
+        0
+
+      ["use", "auto"] ->
+        sound_result(ctx, Sound.use_card(nil))
+
+      ["use", n] ->
+        case Integer.parse(n) do
+          {i, ""} -> sound_result(ctx, Sound.use_card(i))
+          _ ->
+            IO.err(ctx, "usage: sound use N | auto")
+            2
+        end
+
+      ["test"] ->
+        # Three rising notes: C, E, G.
+        chime = fn ->
+          Enum.reduce_while([523, 659, 784], :ok, fn hz, :ok ->
+            case Sound.beep(hz, 180) do
+              :ok -> {:cont, :ok}
+              error -> {:halt, error}
+            end
+          end)
+        end
+
+        case playing(ctx, chime) do
+          :ok -> 0
+          :stopped -> 130
+          {:error, reason} -> sound_error(ctx, "sound", reason)
+        end
+
+      _ ->
+        IO.err(ctx, "usage: sound [list] | use N | use auto | test")
+        2
+    end
+  end
+
+  defp sound_result(ctx, {:ok, st}) do
+    IO.puts(ctx, "Sound plays on #{(st.card && st.card.name) || "no card"}.")
+    0
+  end
+
+  defp sound_result(ctx, {:error, reason}), do: sound_error(ctx, "sound", reason)
+
+  # Play in a process of its own, so C-c (or the shell going away) stops the sound.
+  defp playing(_ctx, fun) do
+    me = self()
+    {pid, ref} = spawn_monitor(fn -> send(me, {:played, self(), fun.()}) end)
+    wait_playing(pid, ref)
+  end
+
+  defp wait_playing(pid, ref) do
+    receive do
+      {:played, ^pid, result} ->
+        Process.demonitor(ref, [:flush])
+        result
+
+      {:signal, sig} when sig in [:int, :term] ->
+        Process.exit(pid, :kill)
+        :stopped
+
+      {:DOWN, ^ref, _, _, reason} ->
+        {:error, inspect(reason)}
     end
   end
 

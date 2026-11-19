@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
   keyboard and tablet. The keyboard is plugged into a USB hub, as on a
   desk, so hubs are always exercised; `--test` plugs a USB stick into the
-  hub too.
+  hub too, and records the sound card to `_build/lepton/sound-test.wav`.
   """
   use Mix.Task
 
@@ -38,7 +38,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
 
       opts[:test] ->
         commands = ["lepton-test"]
-        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts) ++ usb_stick(), commands, opts[:timeout] || 300_000, login)
+        output = LeptonBuild.QemuHarness.session(qemu(), base_args(iso, opts) ++ usb_stick() ++ sound("wav,path=#{Path.join([File.cwd!(), "_build", "lepton", "sound-test.wav"])}"), commands, opts[:timeout] || 300_000, login)
         IO.write(output)
         unless output =~ ~r/\d+ tests?, 0 failures/, do: Mix.raise("in-OS test suite failed")
 
@@ -53,7 +53,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
             1 -> ["-device", "virtio-gpu-pci"]
             n -> ["-device", "virtio-gpu-pci,id=gpu#{n}", "-device", "usb-tablet,bus=xhci.0,port=#{n + 1},display=gpu#{n}"]
           end)
-        args = base_args(iso, opts) ++ gpus ++ ["-display", "cocoa", "-serial", "mon:stdio"]
+        args = base_args(iso, opts) ++ gpus ++ sound("coreaudio") ++ ["-display", "cocoa", "-serial", "mon:stdio"]
         Mix.shell().info("booting #{iso} (close the window to stop)")
         System.cmd(qemu(), args, into: IO.stream(:stdio, :line))
     end
@@ -114,6 +114,10 @@ defmodule Mix.Tasks.Lepton.Qemu do
         "ramfb"
       ]
   end
+
+  # Intel HD Audio (UTM's sound device), playing to `backend`: the Mac's
+  # speakers, or (for the self-tests) a WAV file.
+  defp sound(backend), do: ["-audiodev", "#{backend},id=snd0", "-device", "intel-hda", "-device", "hda-output,audiodev=snd0"]
 
   # The self-tests' USB stick, behind the hub: a fresh FAT image labelled
   # LEPTONSTICK with one file (test/media_test.exs mounts and ejects it).

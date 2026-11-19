@@ -1,6 +1,6 @@
 ---
 title: Firefox and other apps
-order: 15
+order: 16
 summary: Firefox, installed on demand from Alpine Linux's packages and run on the desktop.
 ---
 
@@ -83,5 +83,9 @@ it.
   but not H.264: the FFmpeg codecs are left out to keep the download small.
 - Fonts are DejaVu, which has no Chinese, Japanese or Korean characters.
 - There is no clipboard between Firefox and other windows yet.
+
+Firefox plays sound on the [sound card](sound.html) Lepton plays on, at
+the system volume. Set the volume with `volume`, the volume keys or the
+classic desktop's speaker.
 
 <!-- commands: app firefox -->

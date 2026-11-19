@@ -1709,6 +1709,9 @@ defmodule Lepton.Photon do
   @key_f4 62
   @key_esc 1
   @key_left 105
+  @key_mute 113
+  @key_volumedown 114
+  @key_volumeup 115
   @key_right 106
 
   defp key(st, code, pressed?) do
@@ -1730,6 +1733,9 @@ defmodule Lepton.Photon do
         alt? and code == @key_return -> :terminal
         alt? and code == @key_tab -> :next
         alt? and code == @key_f4 -> :close
+        code == @key_mute -> {:volume, :mute}
+        code == @key_volumedown -> {:volume, -5}
+        code == @key_volumeup -> {:volume, 5}
         alt? and shift? and code == @key_right -> {:display, 1}
         alt? and shift? and code == @key_left -> {:display, -1}
         ctrl? and code == @key_esc -> :menu
@@ -1765,6 +1771,10 @@ defmodule Lepton.Photon do
     end
   end
 
+
+  # The volume keys set the system's volume (Lepton.Sound).
+  defp run_binding(st, {:volume, :mute}), do: tap(st, fn _ -> Lepton.Sound.mute(:toggle) end) |> schedule()
+  defp run_binding(st, {:volume, delta}), do: tap(st, fn _ -> Lepton.Sound.change(delta) end) |> schedule()
 
   # The focused window moves to the next (or previous) display, at the same
   # place on it; a maximized window fills the new display.

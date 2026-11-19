@@ -11,6 +11,7 @@ defmodule Lepton.Application do
       Lepton.Net,
       Lepton.USB,
       Lepton.Media,
+      Lepton.Sound,
       Lepton.Wifi,
       Lepton.Users,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},

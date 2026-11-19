@@ -53,7 +53,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   # The taskbar is on the primary display (`bar_w` wide); the desktop may extend past it.
-  def init(w, h, {pw, _ph}), do: %{w: w, h: h, bar_w: pw, menu: false, hover: nil, selected: nil}
+  def init(w, h, {pw, _ph}), do: %{w: w, h: h, bar_w: pw, menu: false, hover: nil, selected: nil, volume: false}
 
   # -- frames ----------------------------------------------------------------------------------
 
@@ -148,7 +148,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def signature(s, info) do
-    {s.menu, s.hover, s.selected, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
+    {s.menu, s.hover, s.selected, s.volume, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
   end
 
   @impl true
@@ -167,7 +167,7 @@ defmodule Lepton.Photon.WM.Classic do
         layer(c, x, y)
       end
 
-    above = [taskbar(s, info)] ++ if(s.menu, do: [menu(s)], else: [])
+    above = [taskbar(s, info)] ++ if(s.menu, do: [menu(s)], else: []) ++ if(s.volume, do: [volume_popup(s)], else: [])
     {icons, above}
   end
 
@@ -218,13 +218,107 @@ defmodule Lepton.Photon.WM.Classic do
         |> Canvas.text(x + 24, 7, win.title || "", Render.rgb(@dark), face, bold: active?, max_w: bw - 28)
       end)
 
-    time = clock()
-    tw = Canvas.text_width(time)
+    # The tray: the volume's speaker, and the clock.
+    {tray_x, speaker_x} = tray(s)
+    %{muted: muted} = sound()
 
     c
-    |> Canvas.bevel(w - tw - 22, 4, tw + 18, 22, :thin_sunken)
-    |> Canvas.text(w - tw - 13, 7, time, Render.rgb(@dark), face)
+    |> Canvas.bevel(tray_x, 4, w - tray_x - 4, 22, :thin_sunken)
+    |> speaker(speaker_x, 7, muted)
+    |> Canvas.text(w - Canvas.text_width(clock()) - 13, 7, clock(), Render.rgb(@dark), face)
     |> layer(0, s.h - @taskbar)
+  end
+
+  # Where the tray starts, and its speaker (taskbar coordinates).
+  defp tray(s) do
+    tray_x = s.bar_w - Canvas.text_width(clock()) - 42
+    {tray_x, tray_x + 4}
+  end
+
+  defp sound, do: Map.take(Lepton.Sound.status(), [:volume, :muted])
+
+  @speaker [
+    "      kk      ",
+    "     kwk   b  ",
+    "kkkkkwwk b  b ",
+    "kwwwwwwk  b  b",
+    "kwwwwwwk  b  b",
+    "kwwwwwwk  b  b",
+    "kkkkkwwk b  b ",
+    "     kwk   b  ",
+    "      kk      "
+  ]
+
+  @speaker_muted [
+    "      kk      ",
+    "     kwk      ",
+    "kkkkkwwk r  r ",
+    "kwwwwwwk  rr  ",
+    "kwwwwwwk  rr  ",
+    "kwwwwwwk r  r ",
+    "kkkkkwwk      ",
+    "     kwk      ",
+    "      kk      "
+  ]
+
+  defp speaker(c, x, y, muted?),
+    do: Canvas.art(c, x, y + 3, if(muted?, do: @speaker_muted, else: @speaker), %{"k" => @dark, "w" => @white, "b" => @navy, "r" => "#c00000"})
+
+  # -- the volume control (click the speaker) ------------------------------------------------------------
+
+  @vol_w 64
+  @vol_h 196
+  @track_top 34
+  @track_h 100
+
+  defp volume_rect(s) do
+    {_, speaker_x} = tray(s)
+    x = min(speaker_x - div(@vol_w, 2) + 8, s.bar_w - @vol_w - 2)
+    {x, s.h - @taskbar - @vol_h, @vol_w, @vol_h}
+  end
+
+  defp volume_popup(s) do
+    {x, y, w, h} = volume_rect(s)
+    %{volume: volume, muted: muted} = sound()
+    face = Render.rgb(@face)
+    dark = Render.rgb(@dark)
+    cx = div(w, 2)
+    thumb_y = @track_top + @track_h - round(volume * @track_h / 100)
+
+    c =
+      Canvas.new(w, h, face)
+      |> Canvas.bevel(0, 0, w, h, :raised)
+      |> Canvas.text(div(w - Canvas.text_width("Volume"), 2), 8, "Volume", dark, face, bold: true)
+      |> Canvas.bevel(cx - 2, @track_top - 2, 4, @track_h + 4, :sunken)
+
+    c =
+      Enum.reduce(0..10, c, fn i, c -> Canvas.fill(c, cx + 10, @track_top + div(i * @track_h, 10), if(rem(i, 5) == 0, do: 6, else: 3), 1, dark) end)
+      |> Canvas.bevel(cx - 11, thumb_y - 5, 22, 10, :raised)
+      |> Canvas.text(div(w - Canvas.text_width("#{volume}%"), 2), @track_top + @track_h + 8, "#{volume}%", dark, face)
+
+    # The Mute box.
+    by = h - 26
+
+    c =
+      c
+      |> Canvas.bevel(8, by, 13, 13, :sunken, @white)
+      |> Canvas.text(26, by - 2, "Mute", dark, face)
+
+    c = if muted, do: Canvas.art(c, 10, by + 3, ["      k", "     kk", "k   kk ", "kk kk  ", " kkk   ", "  k    "], %{"k" => @dark}), else: c
+    layer(c, x, y)
+  end
+
+  # A click in the volume control: on the slider sets the volume, on the box mutes.
+  defp volume_click(s, {px, py}) do
+    {x, y, w, h} = volume_rect(s)
+    {rx, ry} = {px - x, py - y}
+
+    cond do
+      rx < 0 or ry < 0 or rx >= w or ry >= h -> :outside
+      ry >= @track_top - 6 and ry <= @track_top + @track_h + 6 -> Lepton.Sound.set_volume((@track_top + @track_h - ry) * 100 / @track_h)
+      ry >= h - 28 -> Lepton.Sound.mute(:toggle)
+      true -> :ok
+    end
   end
 
   # Task buttons: `{window, x, width}`.
@@ -304,8 +398,20 @@ defmodule Lepton.Photon.WM.Classic do
   @impl true
   def click(s, info, {px, py} = pos, _button, double?) do
     on_bar? = py >= s.h - @taskbar and px < s.bar_w
+    {_, speaker_x} = tray(s)
+    on_speaker? = on_bar? and px >= speaker_x - 2 and px < speaker_x + 18
 
     cond do
+      on_speaker? ->
+        {:handled, %{s | volume: not s.volume, menu: false, hover: nil}, []}
+
+      s.volume and volume_click(s, pos) != :outside ->
+        {:handled, s, []}
+
+      s.volume ->
+        # Clicking elsewhere closes it, and the click goes on.
+        click(%{s | volume: false}, info, pos, 0, double?)
+
       s.menu and menu_hit(s, pos) not in [nil, :none] ->
         {_, {_, _, action}} = menu_hit(s, pos)
         {:handled, %{s | menu: false, hover: nil}, [action_for(action)]}

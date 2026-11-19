@@ -29,6 +29,7 @@ When you quit, the text console comes back as you left it.
 | Alt+Tab | focus the next window |
 | Alt+F4, or the × button | close the window |
 | Alt+Shift+Right / Left | move the window to the next / previous [display](usb.html) |
+| the volume keys | mute, quieter, louder ([Sound](sound.html)) |
 | Ctrl+Alt+Backspace | quit Photon |
 | click a window | focus it and bring it to the front |
 | drag the title bar (or Alt+drag anywhere) | move the window |
@@ -69,7 +70,8 @@ Photon with a different window manager, styled after Windows 95:
   [USB drive or SD card](storage.html) that is mounted: double-click one
   to open it
 - a **taskbar** with a button for each window (click to bring it to the
-  front, click again to minimize it) and a clock
+  front, click again to minimize it), the volume's speaker (click it for
+  the volume control: [Sound](sound.html)) and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
   Terminal, Text Editor, System Monitor, Help and Exit Desktop
 

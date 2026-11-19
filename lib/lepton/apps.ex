@@ -365,7 +365,7 @@ defmodule Lepton.Apps do
     log = Path.join([home, ".cache", "lepton", name <> ".log"])
     File.mkdir_p!(Path.dirname(log))
     prepare_home(home, user, app)
-    env = env(prefix, ctx.env) |> Map.put("HOME", home)
+    env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix))
     # As the user, not as root (the VM's own user): see Lepton.RunAs.
     {exe, argv} = Lepton.RunAs.command(user, Path.join(prefix, app.exe), args)
 
@@ -378,6 +378,17 @@ defmodule Lepton.Apps do
       end)
 
     {:ok, lpid}
+  end
+
+  # Sound through alsa-lib (Firefox): its own configuration files, then
+  # Lepton's, which sends the default device to the default card at the
+  # system volume (Lepton.Sound.alsa_config/0).
+  defp alsa_env(prefix) do
+    alsa = Path.join(prefix, "usr/share/alsa")
+    conf = "/run/lepton/asound.conf"
+    File.mkdir_p("/run/lepton")
+    File.write(conf, Lepton.Sound.alsa_config())
+    %{"ALSA_CONFIG_DIR" => alsa, "ALSA_CONFIG_PATH" => Path.join(alsa, "alsa.conf") <> ":" <> conf}
   end
 
   @doc """

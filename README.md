@@ -270,6 +270,7 @@ lib/lepton/            the operating system
   wifi.ex                         Wi-Fi: saved networks, wpa_supplicant manager
   usb.ex                          USB: device tree (hubs), hotplug driver loading
   media.ex media/                 USB drives and SD cards: filesystem detection, automount, eject
+  sound.ex sound/                 sound: ALSA in Elixir (ioctl), the volume, WAV files and tones
   users.ex                        accounts, login, sudo and permission checks
   setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates

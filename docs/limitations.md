@@ -1,6 +1,6 @@
 ---
 title: Limitations
-order: 17
+order: 18
 summary: What Lepton doesn't do yet.
 ---
 
@@ -9,6 +9,8 @@ summary: What Lepton doesn't do yet.
 - The live ISO keeps everything in RAM. An installed system persists
   `/root` and `/var/lib/lepton` only; changes elsewhere (for example
   `/etc`) reset at boot.
+- Sound: no recording, and on most sound cards one program plays at a
+  time (see [Sound](sound.html)).
 - Touchpads: no tap-to-click, two-finger scrolling or gestures yet.
 - USB display adapters: DisplayLink's USB 2.0 chips and Generic USB
   Display gadgets only; newer DisplayLink docks need a closed-source

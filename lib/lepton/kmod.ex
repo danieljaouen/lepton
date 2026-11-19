@@ -6,10 +6,11 @@ defmodule Lepton.Kmod do
   `finit_module(2)` goes through `Lepton.Sys.insmod/2`.
 
   There is no udev: `load_for_hardware/0` matches the `modalias` of every
-  USB, SDIO, PCI, platform and HID device against `modules.alias` and
-  loads the drivers, which is how Wi-Fi adapters (including ones plugged
-  in later), SD card slots, card readers and keyboards and mice that need
-  their own HID driver (Apple, Logitech receivers, touchpads) get theirs.
+  USB, SDIO, PCI, platform, HID and virtio device against `modules.alias`
+  and loads the drivers, which is how Wi-Fi adapters (including ones
+  plugged in later), SD card slots, card readers, sound cards and
+  keyboards and mice that need their own HID driver (Apple, Logitech
+  receivers, touchpads) get theirs.
   """
 
   def modules_dir do
@@ -92,11 +93,11 @@ defmodule Lepton.Kmod do
     end
   end
 
-  @hotplug_buses ~w(usb sdio pci platform hid)
+  @hotplug_buses ~w(usb sdio pci platform hid virtio)
   # Platform devices' aliases are by name or by device tree compatible string.
-  @alias_prefixes ~w(usb sdio pci platform of hid)
+  @alias_prefixes ~w(usb sdio pci platform of hid virtio)
 
-  @doc "Load the drivers for USB, SDIO, PCI, platform and HID devices present now. Returns the modules loaded."
+  @doc "Load the drivers for USB, SDIO, PCI, platform, HID and virtio devices present now. Returns the modules loaded."
   def load_for_hardware do
     table = alias_table()
 

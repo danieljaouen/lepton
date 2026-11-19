@@ -48,6 +48,11 @@ defmodule LeptonBuild.Image do
     vfat exfat ntfs3 udf nls_cp437 nls_utf8 nls_iso8859-1
   )
 
+  # Sound (Lepton.Sound): Intel HD Audio (QEMU's and UTM's sound device)
+  # with the generic codec driver, virtio-sound, and USB audio. Loaded by
+  # hardware ID.
+  @sound_modules ~w(snd-hda-intel snd-hda-codec-generic virtio_snd snd-usb-audio)
+
   # Wi-Fi: the 802.11 stack, the crypto WPA uses (the kernel would request
   # these on demand), the simulated radios the self-tests use, and drivers
   # for common USB Wi-Fi adapters and SDIO chips (Raspberry Pi). They are
@@ -379,7 +384,7 @@ defmodule LeptonBuild.Image do
     root = modules_root(src, kver)
 
     deps = module_deps(root)
-    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @storage_modules ++ @wifi_modules)
+    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @storage_modules ++ @sound_modules ++ @wifi_modules)
     shipped = MapSet.new(wanted, &module_name/1)
 
     # Aliases of the shipped modules only, for loading drivers by hardware
