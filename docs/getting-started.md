@@ -157,7 +157,7 @@ On the live ISO the console logs straight back in, with a reminder that
 
 - **Tutorial.** Lepton offers an interactive tour once, on the first boot
   after installation. `lepton-tutorial` runs it any time; see
-  [the tutorial](tutorial.html) for the lessons.
+  [the tutorial](lepton-tutorial.html) for the lessons.
 - **Wi-Fi.** On a machine with a Wi-Fi adapter, Lepton asks for a network
   at startup until one is saved (Enter skips). Virtual machines have no
   Wi-Fi hardware, so you won't see it there. See

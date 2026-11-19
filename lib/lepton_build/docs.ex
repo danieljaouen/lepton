@@ -266,19 +266,20 @@ defmodule LeptonBuild.Docs do
       end)
 
     %Page{
-      slug: "tutorial",
+      slug: "lepton-tutorial",
       kind: :reference,
-      title: "Tutorial",
+      title: "lepton-tutorial",
       order: 1002,
-      summary: "The lessons of lepton-tutorial, the interactive tour.",
+      summary: "The lessons of lepton-tutorial, the tour inside the OS.",
       source: :generated,
       markdown: """
-      # Tutorial
+      # lepton-tutorial
 
-      `lepton-tutorial` is an interactive tour: each lesson explains a topic
-      and suggests a command to run for real. It is offered once after
-      installation and runs any time. These are its lessons, generated from
-      the tutorial itself, with the key bindings from the dotfiles.
+      `lepton-tutorial` is a short interactive tour inside Lepton: each
+      lesson explains a topic and suggests a command to run for real. It is
+      offered once after installation and runs any time. These are its
+      lessons, generated from it, with the key bindings from the dotfiles.
+      The [Tutorial](tutorial.html) is the longer tour, here on the site.
 
       #{lessons}
       """
@@ -298,13 +299,13 @@ defmodule LeptonBuild.Docs do
       # Lepton documentation
 
       Everything Lepton OS can do, for the version on the
-      [download](../#download) page. New to Lepton? Start with
-      [getting started](getting-started.html), then take the
-      [tutorial](tutorial.html) inside the OS.
+      [download](../#download) page. New to Lepton? Take the
+      [Tutorial](tutorial.html), a tour of everything from the first boot
+      on, or start with [getting started](getting-started.html).
 
       ## Guides
 
-      #{list.(guides)}
+      #{list.(Enum.reject(guides, &(&1.slug == "tutorial")))}
 
       ## Reference
 
@@ -327,7 +328,9 @@ defmodule LeptonBuild.Docs do
     e = &Markdown.escape/1
     title = if page.slug == "index", do: "Lepton OS documentation", else: "#{page.title} - Lepton OS docs"
 
-    {guides, reference} = Enum.split_with(nav, &(&1.kind == :guide))
+    # The Tutorial has its own place: the site's menu, and the top of the contents.
+    {guides, reference} = nav |> Enum.reject(&(&1.slug == "tutorial")) |> Enum.split_with(&(&1.kind == :guide))
+    tutorial_current = if page.slug == "tutorial", do: "page", else: "false"
 
     links = fn pages ->
       Enum.map_join(pages, "\n", fn p ->
@@ -372,6 +375,7 @@ defmodule LeptonBuild.Docs do
           <a class="brand" href="../" aria-label="Lepton OS home"><span class="logo" aria-hidden="true">L</span> Lepton&nbsp;OS</a>
           <nav aria-label="Site">
             <ul class="nav-links">
+              <li><a href="tutorial.html" aria-current="#{tutorial_current}">Tutorial</a></li>
               <li><a href="index.html" aria-current="#{if page.slug == "index", do: "page", else: "false"}">Docs</a></li>
               <li><a href="../#download">Download</a></li>
             </ul>
@@ -389,6 +393,9 @@ defmodule LeptonBuild.Docs do
           <details open>
             <summary>Contents</summary>
             <p class="docs-nav-title"><a href="index.html">Documentation</a></p>
+            <ul>
+              <li><a href="tutorial.html"#{if page.slug == "tutorial", do: ~s( aria-current="page"), else: ""}>Tutorial</a></li>
+            </ul>
             <p class="docs-nav-group">Guides</p>
             <ul>
     #{links.(guides)}

@@ -37,7 +37,7 @@ defmodule Lepton.DocsTest do
   end
 
   test "the tutorial and key binding pages come from the code", %{pages: pages} do
-    tutorial = Enum.find(pages, &(&1.slug == "tutorial"))
+    tutorial = Enum.find(pages, &(&1.slug == "lepton-tutorial"))
     for {title, _, _} <- Lepton.Tutorial.lessons(Lepton.TestHelpers.dotfiles_home()), do: assert(tutorial.html =~ Markdown.escape(title))
     keys = Enum.find(pages, &(&1.slug == "keybindings"))
     assert keys.html =~ "evil-ex"
