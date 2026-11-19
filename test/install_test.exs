@@ -131,6 +131,85 @@ defmodule Lepton.InstallTest do
     assert Lepton.Installer.existing(%{path: path2}) == nil
   end
 
+  # A disk as macOS leaves it, with room made for Lepton.
+  defp mac_disk do
+    {path, fd} = image(5120)
+    sectors = 5120 * 2048
+    mib = 2048
+    apfs = "7C3457EF-0000-11AA-AA11-00306543ECAC"
+    basic = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"
+
+    for {off, data} <- GPT.build(sectors, [
+          %{type: GPT.esp_type(), name: "EFI System Partition", first: 40, last: 40 + 200 * mib - 1},
+          %{type: apfs, name: "Macintosh HD", first: 210 * mib, last: 1300 * mib - 1, attrs: 1},
+          %{type: basic, name: "Untitled", first: 1300 * mib, last: 2600 * mib - 1},
+          # (a partition that says it's ordinary data, but holds APFS)
+          %{type: basic, name: "Mislabelled", first: 2600 * mib, last: 2700 * mib + 1100 * mib - 1}
+        ]),
+        do: Disk.pwrite(fd, off, data)
+
+    # macOS's data: APFS's container superblock, and some files' bytes.
+    :ok = :file.pwrite(fd, 210 * mib * 512 + 32, "NXSB")
+    :ok = :file.pwrite(fd, 300 * mib * 512, :binary.copy("photos", 10_000))
+    :ok = :file.pwrite(fd, 2600 * mib * 512 + 32, "NXSB")
+    {path, fd, %{path: path, bytes: sectors * 512, model: "test"}}
+  end
+
+  defp hash(fd, first_lba, bytes) do
+    {:ok, data} = :file.pread(fd, first_lba * 512, bytes)
+    :crypto.hash(:sha256, data)
+  end
+
+  test "alongside macOS: the empty partition and free space are offered, nothing else" do
+    {_path, fd, disk} = mac_disk()
+    layout = Lepton.Installer.places(disk)
+    refute layout.mbr
+
+    assert [%{index: 3, kind: :partition, what: "empty"}, %{kind: :free, first: first_free}] = layout.places
+    assert first_free == 3800 * 2048
+    whys = Map.new(layout.parts, &{&1.index, &1.why})
+    assert whys[1] =~ "system partition" and whys[2] =~ "system partition"
+    assert whys[4] =~ "apfs"
+    assert whys[3] == nil
+
+    before = for {lba, n} <- [{0, 512}, {40, 4 * 1024 * 1024}, {210 * 2048, 200 * 1024 * 1024}, {2600 * 2048, 2 * 1024 * 1024}], do: hash(fd, lba, n)
+    [_, mac | _] = parts_before = GPT.read(fd)
+
+    Lepton.Installer.install_into(ctx(), disk, hd(layout.places), media("one"))
+
+    # The other partitions: the same entries, the same bytes; the MBR too.
+    after_parts = GPT.read(fd)
+    assert Enum.find(after_parts, &(&1.index == 2)) == mac
+    for i <- [1, 2, 4], do: assert(Enum.find(after_parts, &(&1.index == i)) == Enum.find(parts_before, &(&1.index == i)))
+    assert for({lba, n} <- [{0, 512}, {40, 4 * 1024 * 1024}, {210 * 2048, 200 * 1024 * 1024}, {2600 * 2048, 2 * 1024 * 1024}], do: hash(fd, lba, n)) == before
+
+    # Lepton in partition 3's place (and a new entry for its data).
+    assert %{name: "LEPTON-OS", first: os_first} = os = Enum.find(after_parts, &(&1.index == 3))
+    assert os_first == 1300 * 2048
+    assert %{name: "LEPTON-DATA", first: data_first, last: data_last} = Enum.find(after_parts, &(&1.index == 5))
+    assert data_first == os.last + 1 and data_last < 2600 * 2048
+    assert {:ok, <<_::binary-56, 0x53, 0xEF, _::binary>>} = :file.pread(fd, data_first * 512 + 1024, 64)
+
+    # Upgrades find Lepton's OS partition, not macOS's EFI one.
+    assert %{os: %{index: 3}, data: %{index: 5}} = existing = Lepton.Installer.existing(disk)
+    assert {:ok, _, _} = Lepton.Installer.upgrade(ctx(), disk, existing, media("two"))
+    assert hash(fd, 40, 4 * 1024 * 1024) == Enum.at(before, 1)
+    assert Lepton.Installer.places(disk).places |> Enum.map(& &1.kind) == [:free]
+  end
+
+  test "alongside: into free space, and a blank disk is all Lepton's" do
+    {_path, fd, disk} = mac_disk()
+    free = Lepton.Installer.places(disk).places |> Enum.find(&(&1.kind == :free))
+    Lepton.Installer.install_into(ctx(), disk, free, media("one"))
+    parts = GPT.read(fd)
+    assert Enum.map(parts, & &1.name) == ["EFI System Partition", "Macintosh HD", "Untitled", "Mislabelled", "LEPTON-OS", "LEPTON-DATA"]
+    assert %{first: first} = Enum.find(parts, &(&1.name == "LEPTON-OS"))
+    assert first == 3800 * 2048
+
+    {path, _} = image(2048)
+    assert %{parts: [], places: [], mbr: false} = Lepton.Installer.places(%{path: path})
+  end
+
   test "WPA PSK matches the IEEE 802.11i test vector" do
     assert Lepton.Wifi.psk("IEEE", "password") == "f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e"
   end

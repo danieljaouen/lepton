@@ -122,12 +122,22 @@ defmodule Lepton.Installer do
   Disks installed before the OS partition was named have a 200 MiB "EFI
   System" partition, which is upgraded the same way while releases fit.
 
+  **Alongside** other systems (`places/1`, `install_into/4`): on a disk
+  with partitions, Lepton goes into an empty partition (no filesystem,
+  or an empty one) or into free space, never into a system partition
+  (EFI, Apple's, Microsoft's) or one with files. LEPTON-OS and LEPTON-DATA
+  are made there; every other partition table entry is kept as it was
+  (number, IDs, attributes), as is the MBR, and nothing else is written.
+  The firmware boots LEPTON-OS: it's the EFI system partition with a boot
+  loader in it.
+
   In UTM: add a VirtIO (or NVMe) drive to the VM, boot the ISO, run
   `lepton-install`, power off, clear the CD/DVD drive, boot again.
   """
 
   alias Lepton.IO
   alias Lepton.Install.{Disk, Ext2, FAT16, GPT}
+  alias Lepton.Media.FS
 
   @os_mib 512
   @media "/run/install/media"
@@ -137,11 +147,12 @@ defmodule Lepton.Installer do
     yes = opts["y"] == true || opts["yes"] == true
 
     with {:ok, media} <- mount_media(ctx, opts["iso"]),
-         {:ok, disk} <- choose_disk(ctx, rest),
-         {:ok, mode} <- mode(ctx, disk, opts, yes) do
+         {:ok, disk, partition} <- choose_disk(ctx, rest),
+         {:ok, mode} <- mode(ctx, disk, partition, opts, yes) do
       case mode do
         {:upgrade, existing} -> run_upgrade(ctx, disk, existing, media, opts["iso"] != nil)
-        :install -> run_install(ctx, disk, media, opts, yes)
+        :install -> run_install(ctx, disk, :disk, media, opts, yes)
+        {:into, place} -> run_install(ctx, disk, place, media, opts, yes)
       end
     else
       error -> finish(ctx, error)
@@ -153,15 +164,17 @@ defmodule Lepton.Installer do
   defp join_iso([a | rest]), do: [a | join_iso(rest)]
   defp join_iso([]), do: []
 
-  defp run_install(ctx, disk, media, opts, yes) do
-    with :ok <- confirm(ctx, disk, yes),
+  # `place` is :disk (all of it) or a place on it (`places/1`).
+  defp run_install(ctx, disk, place, media, opts, yes) do
+    with :ok <- confirm(ctx, disk, place, yes),
          {:ok, account} <- account(ctx, opts) do
-      install(ctx, disk, media)
+      if place == :disk, do: install(ctx, disk, media), else: install_into(ctx, disk, place, media)
       create_account(ctx, disk, account)
+      where = if place == :disk, do: disk.path, else: "#{disk.path}, alongside the partitions already there"
 
       IO.puts(ctx, """
 
-      \e[1;32mLepton is installed on #{disk.path}.\e[0m
+      \e[1;32mLepton is installed on #{where}.\e[0m
 
       Next steps:
         1. poweroff
@@ -275,15 +288,24 @@ defmodule Lepton.Installer do
 
   # -- target disk ---------------------------------------------------------------------------
 
+  # `{:ok, disk, partition}`: a disk, and a partition number when one was named.
   defp choose_disk(ctx, rest) do
+    case pick_disk(ctx, rest) do
+      {:ok, disk} -> {:ok, disk, nil}
+      other -> other
+    end
+  end
+
+  defp pick_disk(ctx, rest) do
     media_dev = media_device()
     disks = Disk.disks() |> Enum.reject(&(&1.path == media_dev or &1.bytes < 512 * 1024 * 1024))
 
     case {rest, disks} do
       {[path | _], _} ->
-        case Enum.find(Disk.disks(), &(&1.path == path)) do
-          nil -> {:error, "no such disk: #{path}"}
-          d -> {:ok, d}
+        case {Enum.find(Disk.disks(), &(&1.path == path)), partition_of(path)} do
+          {nil, {disk_name, index}} -> {:ok, Enum.find(Disk.disks(), &(&1.name == disk_name)), index}
+          {nil, nil} -> {:error, "no such disk or partition: #{path}"}
+          {d, _} -> {:ok, d}
         end
 
       {[], []} ->
@@ -318,6 +340,18 @@ defmodule Lepton.Installer do
     end
   end
 
+  # /dev/vda3 -> {"vda", 3}, from sysfs.
+  defp partition_of("/dev/" <> name) do
+    with {:ok, n} <- File.read("/sys/class/block/#{name}/partition"),
+         {:ok, link} <- File.read_link("/sys/class/block/#{name}") do
+      {link |> Path.dirname() |> Path.basename(), n |> String.trim() |> String.to_integer()}
+    else
+      _ -> nil
+    end
+  end
+
+  defp partition_of(_), do: nil
+
   defp media_device do
     Enum.find_value(Lepton.Sys.mounts(), fn m -> if m.dir == @media, do: m.device end)
   end
@@ -332,7 +366,14 @@ defmodule Lepton.Installer do
         try do
           parts = GPT.read(fd)
           data = Enum.find(parts, &(&1.name == "LEPTON-DATA"))
-          os = data && Enum.find(parts, &(&1.type == GPT.guid(GPT.esp_type()) and &1.last < data.first))
+
+          # LEPTON-OS; on disks from before it was named, the EFI system
+          # partition just before the data (another system's comes earlier).
+          os =
+            data &&
+              (Enum.find(parts, &(&1.name == "LEPTON-OS")) ||
+                 parts |> Enum.filter(&(&1.type == GPT.guid(GPT.esp_type()) and &1.last < data.first)) |> Enum.max_by(& &1.last, fn -> nil end))
+
           if os && data, do: %{os: os, data: data}
         after
           :file.close(fd)
@@ -343,21 +384,93 @@ defmodule Lepton.Installer do
     end
   end
 
-  # Upgrade or install afresh: `--upgrade` and `--erase` say; otherwise a
-  # disk with Lepton is upgraded when asked (and with -y), one without is
-  # installed on.
-  defp mode(ctx, disk, opts, yes) do
+  # Upgrade, install alongside, or erase: `--upgrade`, a partition named
+  # on the command line and `--erase` say; otherwise a disk with Lepton is
+  # upgraded when asked (and with -y), and on one without, Lepton goes
+  # where there's room (an empty partition, free space), or on the whole
+  # disk when there's nothing on it.
+  defp mode(ctx, disk, partition, opts, yes) do
     found = existing(disk)
     own? = own_disk?(disk)
 
     cond do
       opts["upgrade"] && found == nil -> {:error, "Lepton isn't installed on #{disk.path} (to install it: lepton-install #{disk.path})"}
       opts["upgrade"] -> {:ok, {:upgrade, found}}
-      opts["erase"] && own? -> {:error, "#{disk.path}'s data partition is in use (Lepton mounted it at boot), so it can only be upgraded. To erase it, start the ISO again and choose \"live: leave installed disks alone\" in the boot menu"}
-      opts["erase"] || found == nil -> {:ok, :install}
-      yes or own? -> {:ok, {:upgrade, found}}
-      true -> ask_mode(ctx, disk, found)
+      (opts["erase"] || partition) && own? -> {:error, "#{disk.path}'s data partition is in use (Lepton mounted it at boot), so it can only be upgraded. To erase it, start the ISO again and choose \"live: leave installed disks alone\" in the boot menu"}
+      partition -> into_partition(disk, partition)
+      opts["erase"] -> {:ok, :install}
+      found != nil and (yes or own?) -> {:ok, {:upgrade, found}}
+      found != nil -> ask_mode(ctx, disk, found)
+      true -> where(ctx, disk, yes)
     end
+  end
+
+  defp into_partition(disk, index) do
+    layout = places(disk)
+
+    case Enum.find(layout.places, &(&1[:index] == index)) do
+      nil ->
+        what = Enum.find(layout.parts, &(&1.index == index))
+        {:error, "#{part_name(disk, index)} can't take Lepton: #{(what && what.why) || "no such partition"}"}
+
+      place ->
+        {:ok, {:into, place}}
+    end
+  end
+
+  # A disk without Lepton: where to put it.
+  defp where(ctx, disk, yes) do
+    layout = places(disk)
+
+    cond do
+      layout.parts == [] and not layout.mbr -> {:ok, :install}
+      yes and layout.places != [] -> {:ok, {:into, hd(layout.places)}}
+      yes -> {:error, "#{disk.path} has no empty partition or free space for Lepton (1 GiB or more). To erase the whole disk: lepton-install --erase #{disk.path}"}
+      true -> ask_place(ctx, disk, layout)
+    end
+  end
+
+  defp ask_place(ctx, disk, layout) do
+    IO.puts(ctx, "\n#{disk.path} (#{Disk.human(disk.bytes)}, #{disk.model}) has:")
+
+    if layout.mbr and layout.parts == [],
+      do: IO.puts(ctx, "  an MBR partition table (Lepton installs alongside GPT ones only)"),
+      else: for(p <- layout.parts, do: IO.puts(ctx, "  #{part_name(disk, p.index)}  #{String.pad_leading(Disk.human(p.bytes), 9)}  #{p.what}"))
+
+    choices = Enum.map(layout.places, &{:into, &1}) ++ [:erase]
+
+    IO.puts(ctx, "\nWhere should Lepton go?")
+
+    Enum.with_index(choices, 1)
+    |> Enum.each(fn
+      {{:into, %{kind: :partition} = pl}, i} -> IO.puts(ctx, "  #{i}) #{part_name(disk, pl.index)}: #{pl.what}, #{Disk.human(pl.bytes)}#{if i == 1, do: " (recommended)"}")
+      {{:into, pl}, i} -> IO.puts(ctx, "  #{i}) free space, #{Disk.human(pl.bytes)}#{if i == 1, do: " (recommended)"}")
+      {:erase, i} -> IO.puts(ctx, "  #{i}) erase the whole disk (everything on it is lost)")
+    end)
+
+    IO.puts(ctx, "Every other partition is left as it is.")
+
+    case ask(ctx, "Choose [1-#{length(choices)}, Enter for 1]: ") do
+      nil ->
+        :cancelled
+
+      answer ->
+        case Integer.parse(if answer == "", do: "1", else: answer) do
+          {i, ""} when i >= 1 and i <= length(choices) ->
+            case Enum.at(choices, i - 1) do
+              :erase -> {:ok, :install}
+              choice -> {:ok, choice}
+            end
+
+          _ ->
+            :cancelled
+        end
+    end
+  end
+
+  defp part_name(disk, index) do
+    sep = if disk.path =~ ~r/\d$/, do: "p", else: ""
+    "#{disk.path}#{sep}#{index}"
   end
 
   defp ask_mode(ctx, disk, found) do
@@ -384,10 +497,16 @@ defmodule Lepton.Installer do
     Enum.any?(Lepton.Sys.mounts(), &(&1.dir == "/persist" and String.starts_with?(&1.device, disk.path)))
   end
 
-  defp confirm(_ctx, _disk, true), do: :ok
+  defp confirm(_ctx, _disk, _place, true), do: :ok
 
-  defp confirm(ctx, disk, false) do
+  defp confirm(ctx, disk, :disk, false) do
     IO.puts(ctx, "\n\e[1;31mThis will ERASE everything on #{disk.path} (#{Disk.human(disk.bytes)}, #{disk.model}).\e[0m")
+    if ask(ctx, "Type 'yes' to continue: ") == "yes", do: :ok, else: :cancelled
+  end
+
+  defp confirm(ctx, disk, place, false) do
+    target = if place.kind == :partition, do: "#{part_name(disk, place.index)} (#{place.what})", else: "the free space"
+    IO.puts(ctx, "\nLepton will be installed in #{target} on #{disk.path}, #{Disk.human(place.bytes)}. The disk's other partitions are left as they are.")
     if ask(ctx, "Type 'yes' to continue: ") == "yes", do: :ok, else: :cancelled
   end
 
@@ -512,6 +631,176 @@ defmodule Lepton.Installer do
     after
       :file.close(fd)
     end
+  end
+
+  # -- alongside other systems ----------------------------------------------------------------
+
+  @min_bytes 1024 * 1024 * 1024
+
+  # Partition types that are never Lepton's to take, whatever is in them:
+  # EFI system, BIOS boot, Microsoft reserved and recovery, and Apple's
+  # (APFS, HFS+, boot, recovery, Core Storage).
+  @system_types [
+    "C12A7328-F81F-11D2-BA4B-00A0C93EC93B",
+    "21686148-6449-6E6F-744E-656564454649",
+    "E3C9E316-0B5C-4DB8-817D-F92DF00215AE",
+    "DE94BBA4-06D1-4D40-A16A-BFD50179D6AC",
+    "7C3457EF-0000-11AA-AA11-00306543ECAC",
+    "48465300-0000-11AA-AA11-00306543ECAC",
+    "426F6F74-0000-11AA-AA11-00306543ECAC",
+    "5265636F-7665-11AA-AA11-00306543ECAC",
+    "53746F72-6167-11AA-AA11-00306543ECAC"
+  ]
+
+  @doc """
+  What is on `disk`, and where Lepton could go without touching anything
+  else: `%{parts, places, mbr}`. `parts` are the partitions (`%{index,
+  bytes, what, why}`: what it holds, and why Lepton won't take it);
+  `places` are, best first, partitions with nothing in them (none of the
+  types above, no filesystem, or an empty one) and free space, of 1 GiB
+  or more: `%{kind: :partition | :free, index, first, last, bytes, what}`.
+  `mbr` says the disk has an old-style (MBR) partition table instead.
+  """
+  def places(disk) do
+    {:ok, fd} = Disk.open_read(disk.path)
+
+    try do
+      header = GPT.header(fd)
+      parts = if header, do: GPT.read(fd), else: []
+
+      described =
+        for p <- parts do
+          {fs, label} = FS.detect(fn off, len -> read_at(fd, p.first * 512 + off, len) end)
+          bytes = (p.last - p.first + 1) * 512
+          system? = Enum.any?(@system_types, &(GPT.guid(&1) == p.type))
+
+          {what, why} =
+            cond do
+              system? -> {describe(p, fs, label), "it's a system partition (#{p.name})"}
+              bytes < @min_bytes -> {describe(p, fs, label), "it's smaller than 1 GiB"}
+              fs == nil -> {"empty", nil}
+              FS.mountable?(fs) and fs_empty?(disk, p, fs) -> {"empty #{fs}" <> if(label, do: " \"#{label}\"", else: ""), nil}
+              true -> {describe(p, fs, label), "it holds a #{fs} filesystem with files in it"}
+            end
+
+          Map.merge(p, %{bytes: bytes, what: what, why: why})
+        end
+
+      free = if header, do: free_space(header, parts), else: []
+      takeable = for p <- described, p.why == nil, do: %{kind: :partition, index: p.index, first: p.first, last: p.last, bytes: p.bytes, what: p.what}
+
+      %{parts: described, places: Enum.sort_by(takeable, &(-&1.bytes)) ++ Enum.sort_by(free, &(-&1.bytes)), mbr: header == nil and mbr_partitions?(fd)}
+    after
+      :file.close(fd)
+    end
+  end
+
+  defp describe(p, fs, label) do
+    [p.name, fs && "(#{fs}#{if label, do: " \"#{label}\"", else: ""})"] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" ") |> then(&if(&1 == "", do: "a partition", else: &1))
+  end
+
+  defp read_at(fd, off, len) do
+    case :file.pread(fd, off, len) do
+      {:ok, data} -> data
+      _ -> ""
+    end
+  end
+
+  # Gaps between partitions (aligned to 1 MiB) of 1 GiB or more.
+  defp free_space(header, parts) do
+    used = parts |> Enum.map(&{&1.first, &1.last}) |> Enum.sort()
+
+    {gaps, at} =
+      Enum.reduce(used, {[], header.first_usable}, fn {first, last}, {gaps, at} ->
+        {[{at, first - 1} | gaps], max(at, last + 1)}
+      end)
+
+    for {first, last} <- Enum.reverse([{at, header.last_usable} | gaps]),
+        first = align(first, 2048),
+        (last - first + 1) * 512 >= @min_bytes,
+        do: %{kind: :free, index: nil, first: first, last: last, bytes: (last - first + 1) * 512, what: "free space"}
+  end
+
+  defp align(n, a), do: div(n + a - 1, a) * a
+
+  # An MBR (not a protective one) with partitions in it.
+  defp mbr_partitions?(fd) do
+    case :file.pread(fd, 446, 66) do
+      {:ok, <<entries::binary-64, 0x55, 0xAA>>} -> Enum.any?(for(<<_::binary-4, type, _::binary-11 <- entries>>, do: type), &(&1 not in [0, 0xEE]))
+      _ -> false
+    end
+  end
+
+  # A filesystem with nothing in it but what systems leave in new ones.
+  @leftovers [".fseventsd", ".Spotlight-V100", ".Trashes", ".TemporaryItems", ".DS_Store", "System Volume Information", "lost+found", "$RECYCLE.BIN"]
+
+  defp fs_empty?(disk, part, fs) do
+    with dev when dev != nil <- partition_device(disk, part.index),
+         _ <- Enum.each(Map.get(%{"vfat" => ~w(nls_cp437 nls_iso8859-1 vfat), "exfat" => ~w(exfat), "ntfs3" => ~w(ntfs3), "ext4" => ~w(ext4)}, fs, []), &Lepton.Kmod.modprobe/1),
+         dir = "/run/install/check",
+         :ok <- Lepton.Sys.mount(fs, dev, dir, "ro") do
+      try do
+        case File.ls(dir) do
+          {:ok, names} -> Enum.all?(names, &(&1 in @leftovers or String.starts_with?(&1, "._")))
+          _ -> false
+        end
+      after
+        Lepton.Sys.umount(dir)
+      end
+    else
+      _ -> false
+    end
+  end
+
+  @doc """
+  Install into one place on `disk` (`places/1`): LEPTON-OS and LEPTON-DATA
+  are made there, and the partition table keeps every other partition as
+  it was (its number, IDs, attributes); nothing else on the disk is written.
+  """
+  def install_into(ctx, disk, place, media) do
+    {:ok, fd} = Disk.open(disk.path)
+    sectors = div(disk.bytes, 512)
+
+    try do
+      header = GPT.header(fd)
+      kept = Enum.reject(GPT.read(fd), &(&1.index == place[:index]))
+      first = align(place.first, 2048)
+      os_last = first + @os_mib * 2048 - 1
+      data_first = os_last + 1
+      data_last = place.last - rem(place.last - data_first + 1, 8)
+      if data_last - data_first + 1 < 256 * 2048, do: raise("not enough room for Lepton there")
+
+      # LEPTON-OS takes the partition's number; LEPTON-DATA the first free one.
+      taken = MapSet.new(kept, & &1.index)
+      os_index = place[:index] || Enum.find(1..128, &(not MapSet.member?(taken, &1)))
+      data_index = Enum.find(1..128, &(not MapSet.member?(taken, &1) and &1 != os_index))
+
+      partitions =
+        kept ++
+          [
+            %{index: os_index, type: GPT.esp_type(), name: "LEPTON-OS", first: first, last: os_last},
+            %{index: data_index, type: GPT.linux_type(), name: "LEPTON-DATA", first: data_first, last: data_last}
+          ]
+
+      step(ctx, "Writing the partition table (keeping #{length(kept)} partition#{if length(kept) == 1, do: "", else: "s"} as they are)")
+
+      # (the MBR stays: the disk's other systems may rely on theirs)
+      for {off, data} <- GPT.build(sectors, partitions, header.disk_guid), off != 0, do: Disk.pwrite(fd, off, data)
+
+      step(ctx, "Writing Lepton to LEPTON-OS (FAT16 EFI system partition: GRUB, kernel and initramfs)")
+      write_os(fd, first, os_last - first + 1, os_files(media))
+
+      step(ctx, "Formatting LEPTON-DATA (ext2, #{Disk.human((data_last - data_first + 1) * 512)})")
+      Ext2.format(fd, data_first * 512, (data_last - data_first + 1) * 512)
+      :file.sync(fd)
+      step(ctx, "Done")
+    after
+      :file.close(fd)
+    end
+
+    # The kernel reads the new table only with nothing on the disk mounted.
+    for m <- Lepton.Sys.mounts(), String.starts_with?(m.device, disk.path), String.starts_with?(m.dir, "/media/"), do: Lepton.Sys.umount(m.dir)
+    :ok
   end
 
   @doc """

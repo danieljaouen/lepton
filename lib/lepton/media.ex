@@ -247,6 +247,10 @@ defmodule Lepton.Media do
         # Nothing we can mount (or the device node isn't there yet: try again).
         if File.exists?(path), do: %{st | skip: MapSet.put(st.skip, dev.name)}, else: st
 
+      {type, _} when not is_map_key(@modules, type) ->
+        # A filesystem Lepton knows but doesn't mount (APFS, LUKS, ...).
+        %{st | skip: MapSet.put(st.skip, dev.name)}
+
       {type, label} ->
         Enum.each(@modules[type], &Lepton.Kmod.modprobe/1)
         dir = mount_point(label, dev.name, Enum.map(st.mounts, &elem(&1, 1).dir))

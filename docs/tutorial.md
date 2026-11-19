@@ -48,7 +48,8 @@ More: [Getting started](getting-started.html).
    ```
 
    Confirm the disk, then create your account: a user name and a
-   password.
+   password. (A disk with other systems on it keeps them: Lepton offers
+   an empty partition or free space instead.)
 3. `poweroff`, eject the ISO (**CD/DVD → Clear**) and start the VM again.
 4. Log in with your user name and password.
 

@@ -7,9 +7,19 @@ defmodule Lepton.Media.FS do
   `detect/1` takes a function `read.(offset, length)` returning the
   device's bytes there (shorter at the end of the device), and returns
   `{type, label}` with `type` the kernel's filesystem name (`"vfat"`,
-  `"exfat"`, `"ntfs3"`, `"ext4"`, `"iso9660"`), or `nil` when it isn't
-  one of those (an empty card, a partition table, swap, encrypted).
+  `"exfat"`, `"ntfs3"`, `"ext4"`, `"iso9660"`), or `nil` when there's
+  nothing it knows (an empty card or partition).
+
+  It also knows what Lepton doesn't mount but must not take for empty
+  (the installer looks for empty partitions): `"apfs"` and `"hfsplus"`
+  (macOS), `"bitlocker"`, `"crypto_LUKS"`, `"LVM2_member"`, `"btrfs"`,
+  `"xfs"` and `"swap"`. `mountable?/1` tells them apart.
   """
+
+  @mountable ~w(vfat exfat ntfs3 ext4 iso9660)
+
+  @doc "Whether Lepton mounts filesystems of `type`."
+  def mountable?(type), do: type in @mountable
 
   import Bitwise
 
@@ -19,6 +29,16 @@ defmodule Lepton.Media.FS do
     iso = read.(32768, 2048)
 
     cond do
+      # (filesystems Lepton doesn't mount, first: an APFS container's boot
+      # sector can look like nothing else, but must never look empty)
+      match?(<<_::binary-32, "NXSB", _::binary>>, boot) -> {"apfs", nil}
+      match?(<<c1, c2, _::binary>> when <<c1, c2>> in ["H+", "HX"], super) -> {"hfsplus", nil}
+      match?(<<_::binary-3, "-FVE-FS-", _::binary>>, boot) -> {"bitlocker", nil}
+      match?(<<"LUKS", 0xBA, 0xBE, _::binary>>, boot) -> {"crypto_LUKS", nil}
+      match?(<<"XFSB", _::binary>>, boot) -> {"xfs", nil}
+      binary_part(read.(512, 8) <> <<0::64>>, 0, 8) == "LABELONE" -> {"LVM2_member", nil}
+      binary_part(read.(65_600, 8) <> <<0::64>>, 0, 8) == "_BHRfS_M" -> {"btrfs", nil}
+      Enum.any?([4086, 16_374, 65_526], &(binary_part(read.(&1, 10) <> <<0::80>>, 0, 10) in ["SWAPSPACE2", "SWAP-SPACE"])) -> {"swap", nil}
       match?(<<_::binary-3, "EXFAT   ", _::binary>>, boot) -> {"exfat", exfat_label(boot, read)}
       match?(<<_::binary-3, "NTFS    ", _::binary>>, boot) -> {"ntfs3", nil}
       ext?(super) -> {"ext4", text(binary_part(super, 120, 16))}

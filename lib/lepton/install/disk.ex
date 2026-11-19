@@ -99,21 +99,33 @@ defmodule Lepton.Install.GPT do
 
   @doc """
   Build the partition table for a disk of `sectors` LBAs.
-  `partitions` is [%{type, name, first, last}]. Returns
-  [{byte_offset, binary}] to write.
+  `partitions` is [%{type, name, first, last}], numbered in order, or each
+  at its own `index` (1-based: other systems' partitions keep their
+  numbers). `type` is a GUID string or its 16 on-disk bytes; `guid` (the
+  partition's own, on-disk bytes) and `attrs` are kept when given.
+  Returns [{byte_offset, binary}] to write.
   """
   def build(sectors, partitions, disk_guid \\ random_guid()) do
     entry_lbas = div(@entries * @entry_size, 512)
     last_usable = sectors - 1 - entry_lbas - 1
 
-    entries =
+    slots =
       partitions
-      |> Enum.map(fn p ->
-        name = p.name |> :unicode.characters_to_binary(:utf8, {:utf16, :little}) |> pad(72)
-        guid(p.type) <> (p[:guid] || random_guid()) <> <<p.first::little-64, p.last::little-64, 0::little-64>> <> name
-      end)
-      |> Enum.join()
-      |> pad(@entries * @entry_size)
+      |> Enum.with_index(1)
+      |> Map.new(fn {p, i} -> {p[:index] || i, p} end)
+
+    entries =
+      for i <- 1..@entries, into: <<>> do
+        case slots[i] do
+          nil ->
+            :binary.copy(<<0>>, @entry_size)
+
+          p ->
+            name = p.name |> :unicode.characters_to_binary(:utf8, {:utf16, :little}) |> pad(72)
+            type = if byte_size(p.type) == 16, do: p.type, else: guid(p.type)
+            type <> (p[:guid] || random_guid()) <> <<p.first::little-64, p.last::little-64, (p[:attrs] || 0)::little-64>> <> binary_part(name, 0, 72)
+        end
+      end
 
     entries_crc = :erlang.crc32(entries)
 
@@ -169,17 +181,31 @@ defmodule Lepton.Install.GPT do
 
   defp pad(bin, size), do: bin <> :binary.copy(<<0>>, max(size - byte_size(bin), 0))
 
-  @doc "Read partition entries from a device: [%{index, type, name, first, last}]."
+  @doc """
+  Read partition entries from a device: [%{index, type, guid, attrs,
+  name, first, last}] (`type` and `guid` as their on-disk bytes).
+  """
   def read(fd) do
     with {:ok, <<"EFI PART", _::binary-size(64), entries_lba::little-64, count::little-32, size::little-32, _::binary>>} <- :file.pread(fd, 512, 92),
          {:ok, data} <- :file.pread(fd, entries_lba * 512, count * size) do
-      for {<<type::binary-size(16), _uniq::binary-size(16), first::little-64, last::little-64, _attrs::64, name::binary-size(72)>>, i} <-
+      for {<<type::binary-size(16), uniq::binary-size(16), first::little-64, last::little-64, attrs::little-64, name::binary-size(72)>>, i} <-
             Enum.with_index(for(<<e::binary-size(^size) <- data>>, do: binary_part(e, 0, 128)), 1),
           type != :binary.copy(<<0>>, 16) do
-        %{index: i, type: type, first: first, last: last, name: name |> :unicode.characters_to_binary({:utf16, :little}) |> String.trim_trailing(<<0>>)}
+        %{index: i, type: type, guid: uniq, attrs: attrs, first: first, last: last, name: name |> :unicode.characters_to_binary({:utf16, :little}) |> String.trim_trailing(<<0>>)}
       end
     else
       _ -> []
+    end
+  end
+
+  @doc "The table's header: `%{disk_guid, first_usable, last_usable}`, or nil (no GPT)."
+  def header(fd) do
+    case :file.pread(fd, 512, 92) do
+      {:ok, <<"EFI PART", _::binary-size(32), first::little-64, last::little-64, disk_guid::binary-16, _::binary>>} ->
+        %{disk_guid: disk_guid, first_usable: first, last_usable: last}
+
+      _ ->
+        nil
     end
   end
 end

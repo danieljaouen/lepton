@@ -73,6 +73,39 @@ The live ISO keeps everything in RAM. To keep your files, install it:
 For an unattended install, `echo PASSWORD | lepton-install -y -u NAME
 --password-stdin /dev/vda` skips every question.
 
+### Alongside other systems
+
+A disk that already has partitions (macOS's, say, with room made for
+Lepton) keeps them. `lepton-install` lists what is on it and offers the
+places where Lepton fits without touching anything else:
+
+```text
+/dev/vda (64 GiB) has:
+  /dev/vda1    200 MiB  EFI System Partition (vfat)
+  /dev/vda2     40 GiB  Macintosh HD (apfs)
+  /dev/vda3     24 GiB  empty
+Where should Lepton go?
+  1) /dev/vda3: empty, 24 GiB (recommended)
+  2) erase the whole disk (everything on it is lost)
+```
+
+- **An empty partition**: one with no filesystem, or with an empty one
+  (an "MS-DOS (FAT)" or exFAT partition you made for Lepton in Disk
+  Utility, with nothing in it yet). The empty one is the default.
+- **Free space** that isn't in any partition, 1 GiB or more.
+- **Erase the whole disk**, always last, and only when you choose it.
+
+Lepton's two partitions are made in the place you pick. The other
+partitions keep their numbers and contents; the installer never offers
+EFI, Apple (APFS, HFS+, recovery) or Microsoft system partitions, or one
+with files in it. To pick the place yourself, name the partition:
+`lepton-install /dev/vda3`. With `-y`, Lepton goes into the first place
+offered, and a disk with other partitions but no room is left alone
+(unless you add `--erase`).
+
+This is for a VM's disk, or an external drive you pass to the VM. A Mac
+starts only macOS from its own internal disk.
+
 The installer writes a GPT partition table and two partitions, all from
 Elixir:
 
@@ -117,6 +150,7 @@ running; the new release starts at the next boot.
 | `lepton-install` | install (a disk without Lepton), or ask whether to upgrade or erase |
 | `lepton-install --upgrade` | upgrade without asking (`-y` upgrades too) |
 | `lepton-install --erase` | erase the disk and install from scratch (asks you to confirm) |
+| `lepton-install /dev/vda3` | install into that partition, leaving the disk's other partitions alone |
 | boot menu: **live: leave installed disks alone** | start the ISO without your disk's files, accounts and settings (to erase that disk, say) |
 | `lepton-install --iso FILE` | install or upgrade from a downloaded ISO file |
 
