@@ -44,7 +44,27 @@ A terminal window runs `lsh` with your account, as your console does.
 Everything that works in a terminal works there, including `le`, `tmux`
 and the colours of your prompt. Resizing a window changes its rows and
 columns. Typing `exit` closes the window, and closing the window ends its
-shell.
+shell. **Ctrl+Shift+V** pastes the clipboard.
+
+## The clipboard
+
+Photon's windows share Lepton's clipboard, the one `pbcopy` and
+`pbpaste`, tmux's copy mode and the editor's yanks use (see
+[System](system.html#clipboard)):
+
+- Copy in Firefox (Ctrl+C), then `pbpaste` in a terminal, **Ctrl+Shift+V**
+  in a terminal window, `C-t ]` in tmux or `p` in `le`.
+- Copy in a terminal (`echo hello | pbcopy`, a tmux or editor copy), then
+  Ctrl+V in Firefox.
+
+Only text reaches Lepton's clipboard; anything else a program copies
+goes only to programs on the desktop.
+
+## Drag and drop
+
+Programs can drag things within their windows and between them: in
+Firefox, drag a tab along the tab bar to move it. No picture of what's
+dragged follows the pointer.
 
 From a shell, inside Photon or on the console:
 
@@ -106,7 +126,7 @@ protocol and `xdg-shell`:
 | `wl_output` | 2 | |
 | `xdg_wm_base`, `xdg_surface`, `xdg_toplevel`, `xdg_popup` | 1 | |
 | `wl_subcompositor`, `wl_subsurface` | 1 | |
-| `wl_data_device_manager`, `wl_data_source`, `wl_data_offer` | 3 | drag and drop; no clipboard yet |
+| `wl_data_device_manager`, `wl_data_source`, `wl_data_offer` | 3 | the clipboard (shared with Lepton's), drag and drop |
 | `org_kde_kwin_server_decoration_manager` | 1 | Photon draws the title bars |
 | `lepton_shm` | 1 | Lepton's own programs: shared memory by path |
 
@@ -118,9 +138,8 @@ programs leave theirs out.
 
 ## What it doesn't do yet
 
-- GPU-drawn (EGL) programs, transparency, a clipboard between programs,
-  touch, and HiDPI scaling. (Drag and drop works, without a picture of
-  what's dragged following the pointer.)
+- GPU-drawn (EGL) programs, transparency, the primary selection (pasting
+  what's selected with the middle button), touch, and HiDPI scaling.
 - Fonts other than the built-in 8x16 Terminus bitmap font.
 - Keyboard layouts other than US.
 - Video drivers: programs draw with the CPU.

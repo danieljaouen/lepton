@@ -53,6 +53,18 @@ defmodule Lepton.Sys do
     end
   end
 
+  @doc "Make a named pipe (mkfifo(3)): `:ok` or `{:error, output}`."
+  def mkfifo(path) do
+    {out, status} =
+      cond do
+        File.exists?(@busybox) -> shim("mkfifo", [path])
+        exe = System.find_executable("mkfifo") -> System.cmd(exe, [path], stderr_to_stdout: true)
+        true -> {"mkfifo: not available", 127}
+      end
+
+    if status == 0, do: :ok, else: {:error, out}
+  end
+
   # -- mount(2) ----------------------------------------------------------------
 
   def mount(type, source, target, opts \\ nil) do

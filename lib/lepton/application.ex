@@ -30,18 +30,29 @@ defmodule Lepton.Clipboard do
   """
   use Agent
 
-  def start_link(_), do: Agent.start_link(fn -> [] end, name: __MODULE__)
+  # (the texts, newest first, and the processes told of new ones)
+  def start_link(_), do: Agent.start_link(fn -> {[], []} end, name: __MODULE__)
 
   def put(text) do
-    if Process.whereis(__MODULE__), do: Agent.update(__MODULE__, &Enum.take([text | &1], 50))
+    if Process.whereis(__MODULE__) do
+      watchers = Agent.get_and_update(__MODULE__, fn {texts, ws} -> ws = Enum.filter(ws, &Process.alive?/1); {ws, {Enum.take([text | texts], 50), ws}} end)
+      for w <- watchers, do: send(w, {:clipboard, text})
+    end
+
     :ok
   end
 
   def get do
-    if Process.whereis(__MODULE__), do: Agent.get(__MODULE__, &List.first(&1, "")), else: ""
+    if Process.whereis(__MODULE__), do: Agent.get(__MODULE__, fn {texts, _} -> List.first(texts, "") end), else: ""
   end
 
-  def all, do: if(Process.whereis(__MODULE__), do: Agent.get(__MODULE__, & &1), else: [])
+  def all, do: if(Process.whereis(__MODULE__), do: Agent.get(__MODULE__, &elem(&1, 0)), else: [])
+
+  @doc "Send `pid` `{:clipboard, text}` for each new text (Photon: Wayland programs' clipboard)."
+  def watch(pid) do
+    if Process.whereis(__MODULE__), do: Agent.update(__MODULE__, fn {texts, ws} -> {texts, Enum.uniq([pid | ws])} end)
+    :ok
+  end
 
   @doc "OSC 52: also hand the text to the host terminal's clipboard."
   def osc52(text), do: "\e]52;c;" <> Base.encode64(text) <> "\a"

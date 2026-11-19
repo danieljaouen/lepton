@@ -48,7 +48,8 @@ follow your terminal; `NO_COLOR=1` turns them off.
 ## Clipboard
 
 `pbcopy` and `pbpaste` (also `xclip`, `xsel`, `wl-copy`, `wl-paste`)
-share one clipboard with tmux copy mode and editor yanks. Copies are also
+share one clipboard with tmux copy mode, editor yanks and the programs on
+the [desktop](desktop.html#the-clipboard), such as Firefox. Copies are also
 sent to your computer's terminal with OSC 52, so they can land in the Mac
 clipboard over a serial console.
 

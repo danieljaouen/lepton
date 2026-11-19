@@ -125,7 +125,13 @@ defmodule Lepton.Photon do
     wm_sig: nil,
     wm_layers: {[], []},
     last_click: nil,
-    auto_displays: false
+    auto_displays: false,
+    # the clipboard: nil, {:client, {sock, wl_data_source}} or :lepton
+    # (Lepton.Clipboard's text); the text last read from a client, and the
+    # read under way ({token, source, mime})
+    selection: nil,
+    selection_text: nil,
+    selection_fetch: nil
   ]
 
   # -- API ---------------------------------------------------------------------------------
@@ -220,6 +226,7 @@ defmodule Lepton.Photon do
 
         st = %{st | background: st.wm.background(st.wm_state)}
         Process.send_after(self(), :wm_tick, 5000)
+        Lepton.Clipboard.watch(self())
         {:ok, damage(st, {0, 0, screen.width, screen.height})}
 
       {:error, reason} ->
@@ -326,6 +333,38 @@ defmodule Lepton.Photon do
       for o <- gone, do: Logger.info("photon: display #{o.path} disconnected")
       {:noreply, set_screen(st, Screen.new([primary | keep ++ added], st.output.mode))}
     end
+  end
+
+  # The clipboard: a client's text, read through a named pipe (see
+  # read_selection/4), goes to Lepton.Clipboard; Lepton's own new text
+  # (pbcopy, tmux, the editor) becomes the clipboard Wayland programs paste.
+  def handle_info({:selection_fifo, token, pid, fd}, st) do
+    st =
+      case st.selection_fetch do
+        {^token, source, mime} -> source_event(st, source, :send, [mime, fd])
+        _ -> st
+      end
+
+    send(pid, {:sent, token})
+    {:noreply, st}
+  end
+
+  def handle_info({:selection_text, token, text}, st) do
+    case st.selection_fetch do
+      {^token, _, _} when text != "" ->
+        st = %{st | selection_text: text, selection_fetch: nil}
+        Lepton.Clipboard.put(text)
+        {:noreply, st}
+
+      _ ->
+        {:noreply, st}
+    end
+  end
+
+  def handle_info({:clipboard, text}, st) do
+    if text == st.selection_text,
+      do: {:noreply, st},
+      else: {:noreply, %{replace_selection(st, :lepton) | selection_text: nil} |> send_selection(st.keyboard_focus)}
   end
 
   def handle_info({:EXIT, _pid, _reason}, st), do: {:noreply, st}
@@ -629,10 +668,20 @@ defmodule Lepton.Photon do
   # wl_data_device_manager: drag and drop, between windows and within one
   # (Firefox moves its tabs this way). No clipboard yet.
   defp request(st, sock, _id, obj, :create_data_source, [new]), do: new_object(st, sock, new, "wl_data_source", obj.version, %{mimes: [], actions: 0})
-  defp request(st, sock, _id, obj, :get_data_device, [new, _seat]), do: new_object(st, sock, new, "wl_data_device", obj.version)
+  defp request(st, sock, _id, obj, :get_data_device, [new, _seat]) do
+    st = new_object(st, sock, new, "wl_data_device", obj.version)
+    if match?({^sock, _}, st.keyboard_focus), do: send_selection(st, st.keyboard_focus), else: st
+  end
+
   defp request(st, sock, id, %{iface: "wl_data_source"} = obj, :offer, [mime]), do: put_in(st.clients[sock].objects[id].data, %{obj.data | mimes: obj.data.mimes ++ [mime]})
   defp request(st, sock, id, %{iface: "wl_data_source"} = obj, :set_actions, [actions]), do: put_in(st.clients[sock].objects[id].data, %{obj.data | actions: actions})
-  defp request(st, _sock, _id, %{iface: "wl_data_device"}, :set_selection, _args), do: st
+  defp request(st, sock, _id, %{iface: "wl_data_device"}, :set_selection, [source, _serial]) do
+    cond do
+      source != nil -> st |> replace_selection({:client, {sock, source}}) |> read_selection({sock, source}) |> send_selection(st.keyboard_focus)
+      match?({:client, {^sock, _}}, st.selection) -> st |> replace_selection(nil) |> send_selection(st.keyboard_focus)
+      true -> st
+    end
+  end
 
   defp request(st, sock, _id, %{iface: "wl_data_device"}, :start_drag, [source, _origin, icon, _serial]) do
     if st.buttons != MapSet.new() and st.grab == nil do
@@ -647,6 +696,19 @@ defmodule Lepton.Photon do
   defp request(st, sock, id, %{iface: "wl_data_offer"} = obj, :accept, [_serial, mime]) do
     st = put_in(st.clients[sock].objects[id].data, %{obj.data | accepted: mime})
     source_event(st, obj.data.source, :target, [mime])
+  end
+
+  defp request(st, _sock, _id, %{iface: "wl_data_offer", data: %{source: :lepton}}, :receive, [_mime, fd]) do
+    text = Lepton.Clipboard.get()
+
+    spawn(fn ->
+      with {:ok, f} <- Conn.open_fd(fd, [:write]) do
+        :file.write(f, text)
+        :file.close(f)
+      end
+    end)
+
+    st
   end
 
   defp request(st, _sock, _id, %{iface: "wl_data_offer"} = obj, :receive, [mime, fd]) do
@@ -764,6 +826,8 @@ defmodule Lepton.Photon do
   defp release_object(st, sock, _id, %{iface: "xdg_toplevel", data: %{surface: sid}}), do: unmap(st, {sock, sid}) |> clear_role(sock, sid)
   defp release_object(st, sock, _id, %{iface: "xdg_popup", data: %{surface: sid}}), do: unmap(st, {sock, sid}) |> clear_role(sock, sid)
   defp release_object(st, sock, id, %{iface: "wl_data_source"}) do
+    st = if st.selection == {:client, {sock, id}}, do: %{st | selection: nil} |> send_selection(st.keyboard_focus), else: st
+
     case st.grab do
       {:drag, %{source: {^sock, ^id}}} -> %{drag_leave(st) | grab: nil} |> pointer_motion()
       _ -> st
@@ -1077,7 +1141,7 @@ defmodule Lepton.Photon do
           emit(st, sock, k, "wl_keyboard", :modifiers, [next_serial(st), st.mods, 0, st.locked, 0])
         end
 
-        st = raise_window(st, key) |> raise_popups(key)
+        st = raise_window(st, key) |> raise_popups(key) |> send_selection(key)
         st |> bump() |> reconfigure(key) |> redecorate(key) |> damage_window(key)
 
       _ ->
@@ -1790,8 +1854,97 @@ defmodule Lepton.Photon do
     end
   end
 
+  # -- the clipboard ---------------------------------------------------------------------------
+
+  @text_mimes ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "TEXT", "STRING"]
+
+  # A new clipboard: the program whose source it was is told (cancelled),
+  # or it would go on pasting its own copy.
+  defp replace_selection(st, new) do
+    st =
+      case st.selection do
+        {:client, ref} when new != st.selection -> source_event(st, ref, :cancelled, [])
+        _ -> st
+      end
+
+    %{st | selection: new}
+  end
+
+  # The focused client's data devices are told what the clipboard holds: a
+  # wl_data_offer with its types (or none), then wl_data_device.selection.
+  defp send_selection(st, nil), do: st
+
+  defp send_selection(st, {sock, _sid}) do
+    offered =
+      case st.selection do
+        :lepton -> {:lepton, @text_mimes}
+        {:client, ref} -> if src = source(st, ref), do: {ref, src.mimes}
+        nil -> nil
+      end
+
+    Enum.reduce(objects_of(st, sock, "wl_data_device"), st, fn dev, st ->
+      case offered do
+        nil ->
+          emit(st, sock, dev, "wl_data_device", :selection, [nil])
+
+        {source, mimes} ->
+          version = st.clients[sock].objects[dev].version
+          {st, offer} = server_object(st, sock, "wl_data_offer", version, %{source: source, source_actions: 0, accepted: nil, action: 0})
+          emit(st, sock, dev, "wl_data_device", :data_offer, [offer])
+          for mime <- mimes, do: emit(st, sock, offer, "wl_data_offer", :offer, [mime])
+          emit(st, sock, dev, "wl_data_device", :selection, [offer])
+      end
+    end)
+  end
+
+  # A client's new clipboard text goes to Lepton.Clipboard too: read
+  # through a named pipe next to the socket, in a process of its own (the
+  # client writes when it gets to it).
+  defp read_selection(st, ref) do
+    case source(st, ref) && Enum.find(@text_mimes, &(&1 in source(st, ref).mimes)) do
+      nil ->
+        st
+
+      mime ->
+        token = make_ref()
+        me = self()
+        dir = Path.dirname(st.socket_path)
+        spawn(fn -> read_selection(me, token, dir) end)
+        %{st | selection_fetch: {token, ref, mime}}
+    end
+  end
+
+  @selection_max 16 * 1024 * 1024
+
+  defp read_selection(photon, token, dir) do
+    path = Path.join(dir, "selection-#{System.unique_integer([:positive])}")
+
+    with :ok <- Lepton.Sys.mkfifo(path),
+         {:ok, both} <- :file.open(String.to_charlist(path), [:raw, :binary, :read, :write]) do
+      # The client gets the writing end (a copy of ours); with ours open,
+      # opening the reading end doesn't wait, and once ours is closed the
+      # read ends when the client closes its copy.
+      send(photon, {:selection_fifo, token, self(), Conn.file_fd(both)})
+      receive do: ({:sent, ^token} -> :ok), after: (5000 -> :ok)
+      {:ok, r} = :file.open(String.to_charlist(path), [:raw, :binary, :read])
+      :file.close(both)
+      File.rm(path)
+      text = read_all(r, [], 0)
+      :file.close(r)
+      send(photon, {:selection_text, token, text})
+    end
+  end
+
+  defp read_all(f, acc, n) do
+    case :file.read(f, 65536) do
+      {:ok, data} when n + byte_size(data) <= @selection_max -> read_all(f, [acc, data], n + byte_size(data))
+      _ -> IO.iodata_to_binary(acc)
+    end
+  end
+
   # An event for a drag's wl_data_source (action and dnd_* need version 3).
   defp source_event(st, nil, _event, _args), do: st
+  defp source_event(st, :lepton, _event, _args), do: st
 
   defp source_event(st, {sock, id}, event, args) do
     case st.clients[sock] && st.clients[sock].objects[id] do
@@ -2026,6 +2179,8 @@ defmodule Lepton.Photon do
         :socket.close(sock)
         st = %{st | clients: Map.delete(st.clients, sock), frame_callbacks: Enum.reject(st.frame_callbacks, &(elem(&1, 0) == sock))}
         st = if match?({^sock, _}, st.pointer_focus), do: %{st | pointer_focus: nil}, else: st
+
+        st = if match?({:client, {^sock, _}}, st.selection), do: %{st | selection: nil}, else: st
 
         st =
           case st.grab do

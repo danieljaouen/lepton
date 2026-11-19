@@ -184,6 +184,15 @@ defmodule Lepton.Photon.Term do
 
   defp cancel_repeat(st), do: st
 
+  @key_v 47
+
+  # Ctrl+Shift+V pastes the clipboard (what Firefox copied too; newlines as
+  # Return, as a terminal types them).
+  defp type_key(st, @key_v) when band(st.mods, 5) == 5 do
+    TTY.input(st.tty, String.replace(Lepton.Clipboard.get(), "\n", "\r"))
+    st
+  end
+
   defp type_key(st, code) do
     case Keymap.key_name(code, st.mods) do
       nil -> st

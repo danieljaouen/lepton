@@ -461,6 +461,52 @@ defmodule Lepton.PhotonTest do
     refute {"wl_data_device", :drop} in names(evs)
   end
 
+  test "the clipboard: a program's copy reaches Lepton's clipboard, and Lepton's is offered to programs" do
+    {_ph, _out, env} = start_photon()
+    win = window(env, 200, 100, Render.px(0, 0, 255))
+    {c, ddm} = Client.bind(win.c, "wl_data_device_manager", 3)
+    {c, dev} = Client.create(c, ddm, :get_data_device, "wl_data_device", [:new, win.seat])
+    {evs, c} = events(c)
+    assert Enum.any?(evs, &match?({^dev, _, :selection, _}, &1)), "the focused window hears what the clipboard holds"
+
+    # Copied in the program: Photon asks for the text and Lepton's clipboard gets it.
+    {c, src} = Client.create(c, ddm, :create_data_source, "wl_data_source")
+    c = c |> Client.request(src, :offer, ["text/html"]) |> Client.request(src, :offer, ["text/plain;charset=utf-8"]) |> Client.request(dev, :set_selection, [src, 1])
+    {evs, c} = events_until(c, fn evs -> Enum.any?(evs, &match?({_, "wl_data_source", :send, _}, &1)) end)
+    assert [{^src, _, :send, ["text/plain;charset=utf-8", fd]}] = for({_, "wl_data_source", :send, _} = e <- evs, do: e)
+    assert [offer] = for({^dev, _, :data_offer, [o]} <- evs, do: o)
+    assert {dev, "wl_data_device", :selection, [offer]} in evs
+    assert for({^offer, _, :offer, [m]} <- evs, do: m) == ["text/html", "text/plain;charset=utf-8"]
+    {:ok, out} = Lepton.Wayland.Conn.open_fd(fd, [:write])
+    :ok = :file.write(out, "copied in Firefox ✓")
+    :file.close(out)
+    # (the text is complete when the received descriptor is closed too,
+    # which takes Lepton.FD: inside Lepton, not on a Mac)
+    if Lepton.FD.supported?(), do: assert(eventually(fn -> Lepton.Clipboard.get() == "copied in Firefox ✓" end))
+
+    # Copied in Lepton (pbcopy, tmux, the editor): offered to the focused window, and pasted.
+    Lepton.Clipboard.put("from pbcopy")
+    {evs, c} = events(c)
+    assert {src, "wl_data_source", :cancelled, []} in evs, "the program no longer has the clipboard"
+    assert [offer2] = for({^dev, _, :data_offer, [o]} <- evs, do: o)
+    assert {dev, "wl_data_device", :selection, [offer2]} in evs
+    assert "text/plain;charset=utf-8" in for({^offer2, _, :offer, [m]} <- evs, do: m)
+    path = Path.join(tmp_dir("paste"), "data")
+    {:ok, f} = :file.open(String.to_charlist(path), [:raw, :binary, :read, :write])
+    c = Client.request(c, offer2, :receive, ["text/plain;charset=utf-8", Lepton.Wayland.Conn.file_fd(f)])
+    {c, _} = Client.roundtrip(c)
+    assert eventually(fn -> File.read!(path) == "from pbcopy" end)
+    :file.close(f)
+
+    # The program's source goes away: the clipboard is empty for it.
+    {c, src2} = Client.create(c, ddm, :create_data_source, "wl_data_source")
+    c = c |> Client.request(src2, :offer, ["image/png"]) |> Client.request(dev, :set_selection, [src2, 2])
+    {_evs, c} = events(c)
+    c = Client.request(c, src2, :destroy, [])
+    {evs, _c} = events(c)
+    assert {dev, "wl_data_device", :selection, [nil]} in evs
+  end
+
   test "window management: move by the title bar, close button, Alt+Return, Alt+Tab, Ctrl+Alt+Backspace" do
     me = self()
     {ph, _out, env} = start_photon(spawn: fn _ -> send(me, :spawned) end)
@@ -589,6 +635,11 @@ defmodule Lepton.PhotonTest do
     end
 
     assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ ~r/echo hi\n+hi\n/ end)
+
+    # Ctrl+Shift+V pastes the clipboard.
+    Lepton.Clipboard.put("echo pasted-$((6*7))\n")
+    for {code, down} <- [{29, true}, {42, true}, {47, true}, {47, false}, {42, false}, {29, false}], do: Photon.input(ph, {:key, code, down})
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ "\npasted-42\n" end)
     Photon.sync(ph)
     # The text is on the screen: some pixel in the window is the foreground colour.
     [%{x: x, y: y}] = Photon.info(ph).windows
