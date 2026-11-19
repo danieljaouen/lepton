@@ -47,6 +47,7 @@ and `wpa_supplicant`:
 wifi scan                       # networks in range: signal, security, band
 sudo wifi connect MyNetwork     # asks for the passphrase, joins, then DHCP
 sudo wifi connect Cafe ""       # an open network
+sudo wifi connect MyNetwork     # (saved already: switches to it, no passphrase)
 wifi                            # status: connected network and address
 sudo wifi forget MyNetwork      # (or `sudo wifi forget` for all)
 ```
@@ -57,6 +58,21 @@ An installed system keeps them and reconnects at boot. With Wi-Fi hardware
 and nothing saved, Lepton asks for a network at startup (`sudo wifi setup`
 asks again). Saved networks are system settings: changing them takes
 [sudo](users.html).
+
+### On the classic desktop
+
+With Wi-Fi hardware, the [classic desktop](desktop.html#the-classic-desktop)'s
+taskbar shows the signal next to the volume: dark bars when connected
+(more of them for a stronger signal), grey ones when not. Click it for
+the networks in range, with their signal and a padlock on the ones that
+need a passphrase. The network you're on is highlighted, and the line
+below the list says where you are connected and your address.
+
+Click a network to join it. A small terminal window opens and runs
+`wifi connect` for you: it asks for the passphrase (none for an open
+network or one you've saved), and for your password if you aren't root,
+since joining changes the saved networks. It closes itself once you're
+connected. **Refresh** looks for networks again; opening the list does too.
 
 ### Hardware
 

@@ -70,8 +70,10 @@ Photon with a different window manager, styled after Windows 95:
   [USB drive or SD card](storage.html) that is mounted: double-click one
   to open it
 - a **taskbar** with a button for each window (click to bring it to the
-  front, click again to minimize it), the volume's speaker (click it for
-  the volume control: [Sound](sound.html)) and a clock
+  front, click again to minimize it), the Wi-Fi signal (click it to pick
+  a network: [Wi-Fi](networking.html#on-the-classic-desktop)), the
+  volume's speaker (click it for the volume control: [Sound](sound.html))
+  and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
   Terminal, Text Editor, System Monitor, Help and Exit Desktop
 

@@ -16,7 +16,12 @@ defmodule Lepton.Wifi do
   DHCP (`Lepton.Net.configure/1`).
 
   **Control** goes through wpa_supplicant's control socket
-  (`/run/wpa_supplicant/IFACE`), as `wpa_cli` does: `status/1`, `scan/1`.
+  (`/run/wpa_supplicant/IFACE`), as `wpa_cli` does: `status/1`, `scan/1`,
+  `select/1`.
+
+  **The desktop** (the classic desktop's Wi-Fi applet) reads `summary/0`,
+  which the manager keeps up to date every tick, and asks for scans with
+  `scan_async/0`; neither waits for wpa_supplicant.
   """
 
   use GenServer
@@ -228,6 +233,71 @@ defmodule Lepton.Wifi do
     end
   end
 
+  @doc """
+  Use the saved network `ssid` now, rather than whichever saved network
+  wpa_supplicant would pick (the others come back with the next change to
+  the saved networks).
+  """
+  def select(ssid) do
+    for iface <- wireless_interfaces(),
+        {:ok, list} <- [ctrl(iface, "LIST_NETWORKS")],
+        id = network_id(list, ssid),
+        id != nil,
+        do: ctrl(iface, "SELECT_NETWORK #{id}")
+
+    :ok
+  end
+
+  @doc "The id of `ssid` in wpa_supplicant's LIST_NETWORKS reply."
+  def network_id(text, ssid) do
+    text
+    |> String.split("\n", trim: true)
+    |> Enum.drop(1)
+    |> Enum.find_value(fn line ->
+      case String.split(line, "\t") do
+        [id, ^ssid | _] -> id
+        _ -> nil
+      end
+    end)
+  end
+
+  # -- the desktop's view -------------------------------------------------------------------------
+
+  @doc """
+  What Wi-Fi looks like now, without asking wpa_supplicant:
+  `%{iface, state, ssid, ip, signal, networks, scanning, saved}`.
+  `iface` is nil without Wi-Fi hardware; `networks` are the last scan's
+  (`scan/2`'s maps); `signal` is the connection's, in dBm.
+  """
+  def summary do
+    :persistent_term.get({__MODULE__, :summary}, %{iface: nil, state: nil, ssid: nil, ip: nil, signal: nil, networks: [], scanning: false, saved: []})
+  end
+
+  @doc "The networks wpa_supplicant knows from its last scan (it scans by itself too), without scanning."
+  def known_networks(iface) do
+    case ctrl(iface, "SCAN_RESULTS") do
+      {:ok, text} -> {:ok, parse_scan(text)}
+      err -> err
+    end
+  end
+
+  @doc """
+  Scan in the background; the results appear in `summary/0`: at once the
+  networks wpa_supplicant already knows, then a fresh scan's (keeping the
+  known ones if wpa_supplicant can't scan just then).
+  """
+  def scan_async do
+    if Process.whereis(__MODULE__), do: GenServer.cast(__MODULE__, :scan)
+    :ok
+  end
+
+  @doc "Signal strength as bars, 0 to 4, from dBm."
+  def bars(nil), do: 0
+  def bars(dbm) when dbm >= -55, do: 4
+  def bars(dbm) when dbm >= -65, do: 3
+  def bars(dbm) when dbm >= -75, do: 2
+  def bars(_dbm), do: 1
+
   @doc "Wait until `iface` has associated: `{:ok, status}` or `{:error, last_state}`."
   def await_associated(iface, timeout_ms) do
     poll(timeout_ms, fn ->
@@ -321,8 +391,29 @@ defmodule Lepton.Wifi do
   def init(_opts) do
     # Only on a booted Lepton (not `mix test` on a Mac) with the supplicant.
     if Lepton.Sys.native?() and File.exists?(@supplicant), do: send(self(), :tick)
-    {:ok, %{supplicants: %{}, configured: MapSet.new(), dhcp: %{}, released: MapSet.new()}}
+    {:ok, %{supplicants: %{}, configured: MapSet.new(), dhcp: %{}, released: MapSet.new(), networks: [], scanning: nil}}
   end
+
+  @impl true
+  def handle_cast(:scan, %{scanning: nil} = st) do
+    case managed(st) do
+      [iface | _] ->
+        me = self()
+
+        {pid, _} =
+          spawn_monitor(fn ->
+            send(me, {:scanned, self(), known_networks(iface)})
+            send(me, {:scanned, self(), scan(iface)})
+            send(me, {:scan_done, self()})
+          end)
+        {:noreply, publish(%{st | scanning: pid})}
+
+      [] ->
+        {:noreply, st}
+    end
+  end
+
+  def handle_cast(:scan, st), do: {:noreply, st}
 
   @impl true
   def handle_call({:release, iface}, _from, st) do
@@ -338,11 +429,22 @@ defmodule Lepton.Wifi do
   @impl true
   def handle_info(:tick, st) do
     Process.send_after(self(), :tick, @tick)
-    ifaces = wireless_interfaces() |> Enum.reject(&MapSet.member?(st.released, &1))
+    ifaces = managed(st)
     st = Enum.reduce(Map.keys(st.supplicants) -- ifaces, st, &stop_supplicant(&2, &1))
     st = Enum.reduce(ifaces -- Map.keys(st.supplicants), st, &start_supplicant(&2, &1))
-    {:noreply, Enum.reduce(ifaces, st, &check_dhcp(&2, &1))}
+    {:noreply, ifaces |> Enum.reduce(st, &check_dhcp(&2, &1)) |> publish()}
   end
+
+  def handle_info({:scanned, pid, result}, %{scanning: pid} = st) do
+    case result do
+      {:ok, nets} when nets != [] -> {:noreply, publish(%{st | networks: nets})}
+      _ -> {:noreply, st}
+    end
+  end
+
+  def handle_info({:scan_done, pid}, %{scanning: pid} = st), do: {:noreply, publish(%{st | scanning: nil})}
+
+  def handle_info({:DOWN, _, :process, pid, _}, %{scanning: pid} = st), do: {:noreply, publish(%{st | scanning: nil})}
 
   def handle_info({port, {:data, {_, line}}}, st) when is_port(port) do
     Logger.debug("wpa_supplicant: #{line}")
@@ -383,6 +485,51 @@ defmodule Lepton.Wifi do
   end
 
   def handle_info(_msg, st), do: {:noreply, st}
+
+  defp managed(st), do: wireless_interfaces() |> Enum.reject(&MapSet.member?(st.released, &1))
+
+  # The summary the desktop reads (summary/0): the first managed interface's state.
+  defp publish(st) do
+    summary =
+      case managed(st) do
+        [iface | _] ->
+          status = case status(iface) do
+            {:ok, s} -> s
+            _ -> %{}
+          end
+
+          connected? = status["wpa_state"] == "COMPLETED"
+
+          signal =
+            with true <- connected?,
+                 {:ok, text} <- ctrl(iface, "SIGNAL_POLL"),
+                 [_, rssi] <- Regex.run(~r/^RSSI=(-?\d+)/m, text) do
+              String.to_integer(rssi)
+            else
+              _ -> nil
+            end
+
+          %{
+            iface: iface,
+            state: status["wpa_state"],
+            ssid: if(connected?, do: status["ssid"]),
+            ip: case Lepton.Net.leases()[iface] do
+              nil -> nil
+              l -> Lepton.Net.format_ip(l.ip)
+            end,
+            signal: signal,
+            networks: st.networks,
+            scanning: st.scanning != nil,
+            saved: networks()
+          }
+
+        [] ->
+          %{iface: nil, state: nil, ssid: nil, ip: nil, signal: nil, networks: [], scanning: false, saved: networks()}
+      end
+
+    if summary != summary(), do: :persistent_term.put({__MODULE__, :summary}, summary)
+    st
+  end
 
   defp start_supplicant(st, iface) do
     # Always the saved-networks file, so RECONFIGURE picks up changes.

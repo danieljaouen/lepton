@@ -459,11 +459,15 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
-  # Open a terminal, or an app (in a terminal the first time, to show it installing).
+  # Open a terminal, or an app (in a terminal the first time, to show it
+  # installing), or join a Wi-Fi network (in a terminal, for the passphrase).
   defp open(opts, env, ctx) do
     app = opts[:app]
 
     cond do
+      ssid = opts[:wifi] ->
+        Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: wifi_command(ssid, opts[:open], Users.root?(ctx)), title: "Wi-Fi: #{ssid}")
+
       app && Apps.installed?(app) ->
         Apps.maintain(app)
         Apps.launch(app, [], %{ctx | env: env})
@@ -476,6 +480,15 @@ defmodule Lepton.Commands.Desktop do
       true ->
         Term.start(env: env, user: ctx.user, cwd: opts[:cwd] || env["HOME"], command: opts[:command], title: opts[:title])
     end
+  end
+
+  @doc false
+  # `wifi connect` for the applet's terminal: open networks need no
+  # passphrase; the window closes itself once connected.
+  def wifi_command(ssid, open?, root?) do
+    quoted = "'" <> String.replace(ssid, "'", "'\\''") <> "'"
+    connect = "#{if root?, do: "", else: "sudo "}wifi connect #{quoted}#{if open?, do: " ''", else: ""}"
+    "#{connect} && sleep 2 || read -p 'Press Enter to close this window. ' answer"
   end
 
   defp wait(ref, pid, ctx) do

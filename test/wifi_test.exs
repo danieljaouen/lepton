@@ -77,6 +77,48 @@ defmodule Lepton.WifiTest do
     assert Kmod.modules_for("usb:v0BDAp1234d0000dc00dsc00dp00icBisc00ip00in00", table) == []
   end
 
+  test "choosing a saved network: its id in wpa_supplicant's list" do
+    list = "network id / ssid / bssid / flags\n0\thome\tany\t\n1\tBob's Wi-Fi\tany\t[CURRENT]\n"
+    assert Wifi.network_id(list, "Bob's Wi-Fi") == "1"
+    assert Wifi.network_id(list, "home") == "0"
+    assert Wifi.network_id(list, "elsewhere") == nil
+    assert Enum.map([-40, -60, -70, -90, nil], &Wifi.bars/1) == [4, 3, 2, 1, 0]
+  end
+
+  test "the classic desktop's Wi-Fi applet: signal in the tray, networks to join" do
+    alias Lepton.Photon.WM.Classic
+    key = {Wifi, :summary}
+    on_exit(fn -> :persistent_term.erase(key) end)
+
+    nets = [%{ssid: "home", signal: -50, security: "WPA2", frequency: 2437}, %{ssid: "Bob's café", signal: -80, security: "open", frequency: 5180}]
+    :persistent_term.put(key, %{iface: "wlan0", state: "COMPLETED", ssid: "home", ip: "192.168.1.5", signal: -50, networks: nets, scanning: false, saved: ["home"]})
+
+    s = Classic.init(1024, 768, {1024, 768})
+    tray = Classic.tray(s)
+    assert tray.wifi != nil and tray.speaker == tray.wifi + 20
+    assert {:handled, %{wifi: true} = s, []} = Classic.click(s, [], {tray.wifi + 4, 760}, 0x110, false)
+    assert {_below, [_taskbar, _popup]} = Classic.layers(s, [])
+
+    %{rows: [{_, home}, {_, cafe}]} = Classic.wifi_layout(s)
+    center = fn {x, y, w, h} -> {x + div(w, 2), y + div(h, 2)} end
+    # The network it's on: nothing to do. Another: a terminal joins it.
+    assert {:handled, %{wifi: true}, []} = Classic.click(s, [], center.(home), 0x110, false)
+    assert {:handled, %{wifi: false}, [{:spawn, opts}]} = Classic.click(s, [], center.(cafe), 0x110, false)
+    assert opts[:wifi] == "Bob's café" and opts[:open] == true
+    # Clicking elsewhere closes the list.
+    assert {_, %{wifi: false}, _} = Classic.click(s, [], {500, 300}, 0x110, false)
+
+    # The terminal's command, quoted for the shell (and without sudo for root).
+    cmd = Lepton.Commands.Desktop.wifi_command("Bob's café", true, false)
+    assert cmd =~ ~r/^sudo wifi connect 'Bob'\\''s café' '' && /
+    assert {"Bob's café\n", 0} = sh("echo 'Bob'\\''s café'")
+    refute Lepton.Commands.Desktop.wifi_command("home", false, true) =~ "sudo"
+
+    # No Wi-Fi hardware: no icon.
+    :persistent_term.put(key, %{Wifi.summary() | iface: nil})
+    assert Classic.tray(s).wifi == nil
+  end
+
   # Two simulated radios (mac80211_hwsim): hostapd runs a WPA2 network on
   # one, and Lepton's manager joins it from the other with `wifi connect`.
   @tag :native
@@ -126,6 +168,17 @@ defmodule Lepton.WifiTest do
     {out, 0} = sh("wifi", home: tmp_dir("wifihome"))
     assert out =~ "wireless #{sta}: "
     assert out =~ "saved Wi-Fi networks: lepton-test"
+
+    # What the desktop's applet sees, and a saved network joined again
+    # without its passphrase.
+    assert eventually(fn -> match?(%{iface: ^sta, ssid: "lepton-test"}, Wifi.summary()) end, 100)
+    Wifi.scan_async()
+    assert eventually(fn -> Enum.any?(Wifi.summary().networks, &(&1.ssid == "lepton-test")) end, 200)
+    # (no DHCP server on the simulated network, so it ends without an address)
+    assert {out, 0} = sh("wifi connect lepton-test || true", home: tmp_dir("wifihome"))
+    assert out =~ "Connecting to \"lepton-test\""
+    assert out =~ "Associated with lepton-test"
+    assert Wifi.networks() == ["lepton-test"]
     :ok = Wifi.manage(ap)
   end
 

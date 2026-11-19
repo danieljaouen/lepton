@@ -55,17 +55,21 @@ defmodule Lepton.Commands.Admin do
   defp wifi([cmd | _], ctx) when cmd in ~w(connect forget setup) and ctx.user != "root", do: Lepton.Users.denied(ctx, "wifi #{cmd}")
 
   defp wifi(["connect", ssid | rest], ctx) do
+    # A saved network needs no passphrase again.
     pass =
-      case rest do
-        [p | _] -> p
-        [] -> if ctx.tty, do: Lepton.Setup.read_secret(ctx, "Passphrase for #{ssid} (Enter for an open network): "), else: ""
+      cond do
+        rest != [] -> hd(rest)
+        ssid in Lepton.Wifi.networks() -> :saved
+        ctx.tty -> Lepton.Setup.read_secret(ctx, "Passphrase for #{ssid} (Enter for an open network): ")
+        true -> ""
       end
 
     if pass == nil do
       IO.err(ctx, "wifi: cancelled")
       1
     else
-      Lepton.Wifi.save(ssid, pass)
+      if pass != :saved, do: Lepton.Wifi.save(ssid, pass)
+      Lepton.Wifi.select(ssid)
 
       case Lepton.Wifi.wireless_interfaces() do
         [] ->
@@ -73,7 +77,7 @@ defmodule Lepton.Commands.Admin do
           0
 
         [iface | _] ->
-          IO.puts(ctx, "Saved \"#{ssid}\". Connecting on #{iface}...")
+          IO.puts(ctx, if(pass == :saved, do: "Connecting to \"#{ssid}\" on #{iface}...", else: "Saved \"#{ssid}\". Connecting on #{iface}..."))
 
           with {:ok, st} <- Lepton.Wifi.await_associated(iface, 30_000),
                _ = IO.puts(ctx, "Associated with #{st["ssid"]}; asking for an address (DHCP)..."),
