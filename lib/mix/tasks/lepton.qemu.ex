@@ -76,10 +76,11 @@ defmodule Mix.Tasks.Lepton.Qemu do
     cd =
       if opts[:no_cd],
         do: [],
-        else: ["-device", "virtio-scsi-pci,id=scsi", "-drive", "if=none,id=cd,file=#{iso},media=cdrom,readonly=on", "-device", "scsi-cd,drive=cd"]
+        else: ["-device", "virtio-scsi-pci,id=scsi", "-drive", "if=none,id=cd,file=#{iso},media=cdrom,readonly=on", "-device", "scsi-cd,drive=cd,bootindex=0"]
 
-    # --disk attaches a VirtIO drive (UTM's default) for lepton-install.
-    disk = if d = opts[:disk], do: ["-drive", "if=none,id=hd,file=#{d},format=#{if String.ends_with?(d, ".qcow2"), do: "qcow2", else: "raw"}", "-device", "virtio-blk-pci,drive=hd"], else: []
+    # --disk attaches a VirtIO drive (UTM's default) for lepton-install. The
+    # ISO boots first when both are there (to upgrade the disk's Lepton).
+    disk = if d = opts[:disk], do: ["-drive", "if=none,id=hd,file=#{d},format=#{if String.ends_with?(d, ".qcow2"), do: "qcow2", else: "raw"}", "-device", "virtio-blk-pci,drive=hd,bootindex=1"], else: []
 
     accel = if :os.type() == {:unix, :darwin} and arm_host?(), do: ["-accel", "hvf", "-cpu", "host"], else: ["-cpu", "max"]
 

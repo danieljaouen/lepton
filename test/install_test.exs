@@ -54,6 +54,83 @@ defmodule Lepton.InstallTest do
     assert magic == 0xEF53
   end
 
+  # A pretend ISO: what the installer copies to the OS partition.
+  defp media(release) do
+    dir = tmp_dir("media")
+    for d <- ~w(boot/grub .disk EFI/BOOT), do: File.mkdir_p!(Path.join(dir, d))
+    File.write!(Path.join(dir, "boot/grub/grub.cfg"), "menuentry Lepton {}\n")
+    File.write!(Path.join(dir, ".disk/info"), "Lepton OS 0.1.0 aarch64\n")
+    File.write!(Path.join(dir, "EFI/BOOT/BOOTAA64.EFI"), "MZgrub")
+    File.write!(Path.join(dir, "boot/vmlinuz"), "KERNEL-" <> release)
+    File.write!(Path.join(dir, "boot/initrd.img"), "INITRD-" <> release <> :binary.copy(".", 100_000))
+    dir
+  end
+
+  defp ctx do
+    {:ok, out} = StringIO.open("")
+    %Lepton.Ctx{stdout: out, stderr: out}
+  end
+
+  defp os_region(fd, %{first: first}) do
+    {:ok, data} = :file.pread(fd, first * 512, 4 * 1024 * 1024)
+    data
+  end
+
+  test "install: an OS partition and a data partition; upgrade rewrites only the OS" do
+    {path, fd} = image(1024)
+    disk = %{path: path, bytes: 1024 * 1024 * 1024, model: "test"}
+    Lepton.Installer.install(ctx(), disk, media("one"))
+
+    assert [%{name: "LEPTON-OS", first: 2048, last: last}, %{name: "LEPTON-DATA"} = data] = GPT.read(fd)
+    assert (last - 2048 + 1) * 512 == 512 * 1024 * 1024
+    # FAT16 over 512 MiB: 16 KiB clusters
+    assert {:ok, <<_::binary-11, 512::little-16, 32, _::binary>>} = :file.pread(fd, 2048 * 512, 16)
+
+    assert %{os: os, data: ^data} = Lepton.Installer.existing(disk)
+    assert os_region(fd, os) =~ "INITRD-one"
+
+    # Things on the data partition (its superblock, and a user's file).
+    {:ok, before} = :file.pread(fd, data.first * 512, 2 * 1024 * 1024)
+    marker = "my files" <> :binary.copy("!", 4088)
+    :ok = :file.pwrite(fd, (data.first + 100_000) * 512, marker)
+
+    newer = media("two")
+    build = Lepton.Installer.build([Path.join(newer, "boot/vmlinuz"), Path.join(newer, "boot/initrd.img")])
+    assert {:ok, _from, ^build} = Lepton.Installer.upgrade(ctx(), disk, %{os: os, data: data}, newer)
+    assert os_region(fd, os) =~ "INITRD-two"
+    refute os_region(fd, os) =~ "INITRD-one"
+    assert os_region(fd, os) =~ "build #{build}"
+    assert {:ok, ^before} = :file.pread(fd, data.first * 512, 2 * 1024 * 1024)
+    assert {:ok, ^marker} = :file.pread(fd, (data.first + 100_000) * 512, byte_size(marker))
+    assert GPT.read(fd) == [%{os | name: "LEPTON-OS"}, data]
+  end
+
+  test "upgrade: disks from before (a 200 MiB EFI System partition), and a release that doesn't fit" do
+    {path, fd} = image(600)
+    sectors = 600 * 2048
+    disk = %{path: path, bytes: 600 * 1024 * 1024, model: "test"}
+
+    for {off, data} <- GPT.build(sectors, [
+          %{type: GPT.esp_type(), name: "EFI System", first: 2048, last: 2048 + 200 * 2048 - 1},
+          %{type: GPT.linux_type(), name: "LEPTON-DATA", first: 2048 + 200 * 2048, last: sectors - 40}
+        ]),
+        do: Disk.pwrite(fd, off, data)
+
+    assert %{os: %{name: "EFI System"} = os} = existing = Lepton.Installer.existing(disk)
+    assert {:ok, _, _} = Lepton.Installer.upgrade(ctx(), disk, existing, media("three"))
+    assert os_region(fd, os) =~ "INITRD-three"
+
+    # A release bigger than the partition: refused, nothing written.
+    big = media("huge")
+    File.write!(Path.join(big, "boot/initrd.img"), :binary.copy("x", 210 * 1024 * 1024))
+    assert {:error, "this release (" <> _} = Lepton.Installer.upgrade(ctx(), disk, existing, big)
+    assert os_region(fd, os) =~ "INITRD-three"
+
+    # A disk without Lepton.
+    {path2, _} = image(64)
+    assert Lepton.Installer.existing(%{path: path2}) == nil
+  end
+
   test "WPA PSK matches the IEEE 802.11i test vector" do
     assert Lepton.Wifi.psk("IEEE", "password") == "f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e"
   end

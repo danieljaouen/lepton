@@ -48,6 +48,9 @@ defmodule Lepton.Sound do
   @doc "Mute (`true`), unmute (`false`) or toggle (`:toggle`)."
   def mute(how), do: call({:mute, how})
 
+  @doc "Read the saved settings again (once the data partition is mounted, at boot)."
+  def reload, do: call(:reload)
+
   @doc "Play on card `index` (or `:bluetooth`, the Bluetooth headphones) from now on (`nil`: the one added last)."
   def use_card(index), do: call({:use, index})
 
@@ -290,6 +293,8 @@ defmodule Lepton.Sound do
   def handle_call({:mute, :toggle}, _from, st), do: reply(%{st | muted: not st.muted})
   def handle_call({:mute, m}, _from, st), do: reply(%{st | muted: m})
 
+  def handle_call(:reload, _from, st), do: reply(Map.merge(st, load()), save: false)
+
   def handle_call({:use, :bluetooth}, _from, st) do
     case Enum.find(st.cards, &(&1[:type] == :bluetooth)) do
       nil -> {:reply, {:error, "no Bluetooth headphones are connected"}, st}
@@ -304,9 +309,9 @@ defmodule Lepton.Sound do
     end
   end
 
-  defp reply(st) do
+  defp reply(st, opts \\ []) do
     st = apply_volume(st)
-    save(st)
+    if Keyword.get(opts, :save, true), do: save(st)
     st = publish(st)
     {:reply, {:ok, status()}, st}
   end

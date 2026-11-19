@@ -2,14 +2,13 @@ defmodule Lepton.Install.FAT16 do
   @moduledoc """
   Formats a FAT16 EFI System Partition directly on a block device and
   writes files into it, streaming file contents (the kernel and initramfs
-  are ~90 MB). 4 KiB clusters, contiguous allocation, 8.3 names.
+  are ~120 MB). Contiguous allocation, 8.3 names; clusters of 4 KiB, or
+  bigger for partitions over 256 MiB (FAT16 counts at most 65,524).
   """
 
   alias Lepton.Install.Disk
 
   @sector 512
-  @spc 8
-  @cluster @sector * @spc
   @reserved 4
   @nfats 2
   @root_entries 512
@@ -20,29 +19,44 @@ defmodule Lepton.Install.FAT16 do
   `hidden` its starting LBA.
   """
   def format(fd, offset, sectors, hidden, files) do
+    spc = sectors_per_cluster(sectors)
+    cluster = spc * @sector
     root_sectors = div(@root_entries * 32, @sector)
-    clusters_est = div(sectors, @spc)
+    clusters_est = div(sectors, spc)
     fat_sectors = div(clusters_est * 2 + 4 + @sector - 1, @sector)
     data_start = @reserved + @nfats * fat_sectors + root_sectors
-    clusters = div(sectors - data_start, @spc)
+    clusters = div(sectors - data_start, spc)
     unless clusters in 4085..65524, do: raise("partition size not suitable for FAT16 (#{clusters} clusters)")
 
+    if fits?(sectors, files) != :ok, do: raise("files do not fit in the EFI partition")
     tree = build_tree(files)
-    {tree, next, chains} = allocate(tree, 2, %{})
-    if next - 2 > clusters, do: raise("files do not fit in the EFI partition")
+    {tree, _next, chains} = allocate(tree, 2, %{}, cluster)
 
-    cluster_offset = fn c -> offset + (data_start + (c - 2) * @spc) * @sector end
+    cluster_offset = fn c -> offset + (data_start + (c - 2) * spc) * @sector end
 
     # Boot sector, FATs, root directory.
     Disk.zero(fd, offset, data_start * @sector)
-    Disk.pwrite(fd, offset, boot_sector(sectors, fat_sectors, hidden))
+    Disk.pwrite(fd, offset, boot_sector(sectors, spc, fat_sectors, hidden))
     fat = encode_fat(chains, clusters + 2) |> pad(fat_sectors * @sector)
     for i <- 0..(@nfats - 1), do: Disk.pwrite(fd, offset + (@reserved + i * fat_sectors) * @sector, fat)
     Disk.pwrite(fd, offset + (@reserved + @nfats * fat_sectors) * @sector, dir_entries(tree, nil, nil, true))
 
-    write_tree(fd, tree, nil, cluster_offset)
+    write_tree(fd, tree, nil, cluster_offset, cluster)
     :ok
   end
+
+  @doc "Whether `files` fit in a partition of `sectors`: `:ok`, or `{:error, bytes_needed, bytes_free}`."
+  def fits?(sectors, files) do
+    spc = sectors_per_cluster(sectors)
+    cluster = spc * @sector
+    fat_sectors = div(div(sectors, spc) * 2 + 4 + @sector - 1, @sector)
+    clusters = div(sectors - (@reserved + @nfats * fat_sectors + div(@root_entries * 32, @sector)), spc)
+    {_tree, next, _} = allocate(build_tree(files), 2, %{}, cluster)
+    if next - 2 <= clusters, do: :ok, else: {:error, (next - 2) * cluster, clusters * cluster}
+  end
+
+  # The smallest cluster (4 KiB up to 32 KiB) that FAT16 can count to the end of the partition.
+  defp sectors_per_cluster(sectors), do: Enum.find([8, 16, 32, 64], 64, &(div(sectors, &1) <= 65_000))
 
   # tree: %{name => {:dir, sub} | {:file, source, size}} -> annotated with first clusters
   defp build_tree(files) do
@@ -64,25 +78,25 @@ defmodule Lepton.Install.FAT16 do
   defp size({:data, b}), do: byte_size(b)
   defp size({:path, p}), do: File.stat!(p).size
 
-  defp nclusters(0), do: 0
-  defp nclusters(bytes), do: div(bytes + @cluster - 1, @cluster)
+  defp nclusters(0, _cluster), do: 0
+  defp nclusters(bytes, cluster), do: div(bytes + cluster - 1, cluster)
 
-  defp allocate(tree, next, chains) do
+  defp allocate(tree, next, chains, cluster) do
     Enum.reduce(Enum.sort(tree), {%{}, next, chains}, fn
       {name, {:file, src, sz}}, {acc, next, chains} ->
-        n = nclusters(sz)
+        n = nclusters(sz, cluster)
         first = if n == 0, do: 0, else: next
         chains = if n > 0, do: Map.put(chains, next, n), else: chains
         {Map.put(acc, name, {:file, src, sz, first}), next + n, chains}
 
       {name, {:dir, sub}}, {acc, next, chains} ->
         me = next
-        {sub, next2, chains} = allocate(sub, next + 1, Map.put(chains, me, 1))
+        {sub, next2, chains} = allocate(sub, next + 1, Map.put(chains, me, 1), cluster)
         {Map.put(acc, name, {:dir, sub, me}), next2, chains}
     end)
   end
 
-  defp write_tree(fd, tree, self_cluster, cluster_offset) do
+  defp write_tree(fd, tree, self_cluster, cluster_offset, cluster) do
     for {_name, node} <- tree do
       case node do
         {:file, {:data, bin}, _sz, first} when first > 0 -> Disk.pwrite(fd, cluster_offset.(first), bin)
@@ -90,9 +104,9 @@ defmodule Lepton.Install.FAT16 do
         {:file, _, _, 0} -> :ok
         {:dir, sub, me} ->
           entries = dir_entries(sub, me, self_cluster, false)
-          if byte_size(entries) > @cluster, do: raise("directory too large")
-          Disk.pwrite(fd, cluster_offset.(me), pad(entries, @cluster))
-          write_tree(fd, sub, me, cluster_offset)
+          if byte_size(entries) > cluster, do: raise("directory too large")
+          Disk.pwrite(fd, cluster_offset.(me), pad(entries, cluster))
+          write_tree(fd, sub, me, cluster_offset, cluster)
       end
     end
   end
@@ -140,9 +154,9 @@ defmodule Lepton.Install.FAT16 do
     for i <- 0..(n - 1), into: <<>>, do: <<Map.get(table, i, 0)::little-16>>
   end
 
-  defp boot_sector(sectors, fat_sectors, hidden) do
+  defp boot_sector(sectors, spc, fat_sectors, hidden) do
     bpb =
-      <<0xEB, 0x3C, 0x90, "LEPTON  ", @sector::little-16, @spc, @reserved::little-16, @nfats, @root_entries::little-16,
+      <<0xEB, 0x3C, 0x90, "LEPTON  ", @sector::little-16, spc, @reserved::little-16, @nfats, @root_entries::little-16,
         0::little-16, 0xF8, fat_sectors::little-16, 63::little-16, 255::little-16, hidden::little-32,
         sectors::little-32, 0x80, 0, 0x29, 0x4C455054::little-32, "LEPTON ESP ", "FAT16   ">>
 

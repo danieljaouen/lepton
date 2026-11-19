@@ -45,7 +45,7 @@ defmodule LeptonBuild.Image do
   # and the filesystems USB drives and SD cards come with.
   @storage_modules ~w(
     mmc_block sdhci-pci sdhci-pltfm sdhci-iproc bcm2835 rtsx_usb_sdmmc ums-realtek
-    vfat exfat ntfs3 udf nls_cp437 nls_utf8 nls_iso8859-1
+    vfat exfat ntfs3 udf nls_cp437 nls_utf8 nls_iso8859-1 loop
   )
 
   # Bluetooth (Lepton.Bluetooth): the stack, USB adapters (with Realtek's,
@@ -179,6 +179,11 @@ defmodule LeptonBuild.Image do
 
     menuentry "Lepton OS #{version()} (verbose boot)" {
       linux /boot/vmlinuz #{kernel_cmdline(erts, otp_release) |> String.replace(" quiet loglevel=3", "")} lepton.verbose=1
+      initrd /boot/initrd.img
+    }
+
+    menuentry "Lepton OS #{version()} (live: leave installed disks alone)" {
+      linux /boot/vmlinuz #{kernel_cmdline(erts, otp_release, "lepton.live=1")}
       initrd /boot/initrd.img
     }
 

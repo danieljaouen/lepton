@@ -73,17 +73,68 @@ The live ISO keeps everything in RAM. To keep your files, install it:
 For an unattended install, `echo PASSWORD | lepton-install -y -u NAME
 --password-stdin /dev/vda` skips every question.
 
-The installer writes a GPT partition table, a FAT16 EFI system partition
-(GRUB, kernel and initramfs) and an ext2 data partition named
-`LEPTON-DATA`, all from Elixir. The installed system still boots into
-RAM, but `/home` (your files), `/root` and `/var/lib/lepton` (accounts,
-packages, services, logs, settings) live on the data partition. Your home
-starts with the image's dotfiles.
+The installer writes a GPT partition table and two partitions, all from
+Elixir:
+
+- **`LEPTON-OS`** (512 MiB, FAT16, the EFI system partition): Lepton
+  itself, meaning GRUB, the kernel and the initramfs. The installed
+  system boots into RAM from it.
+- **`LEPTON-DATA`** (ext2, the rest of the disk): everything you make.
+  `/home` (your files), `/root` and `/var/lib/lepton` (accounts, apps
+  such as Firefox, packages, services, Wi-Fi networks, Bluetooth
+  pairings, settings, logs) live here. Your home starts with the image's
+  dotfiles.
 
 With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
 `mix lepton.qemu --disk disk.qcow2` to install and
 `mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system
 (add `--login NAME:PASSWORD` with `--run` to script it).
+
+## Upgrade to a new release
+
+Because Lepton and your data are on separate partitions, a new release
+replaces only Lepton:
+
+1. Download the new ISO.
+2. In UTM, choose it for the VM's **CD/DVD** drive and start the VM.
+   Whether the VM starts the ISO or your installed Lepton doesn't matter:
+   either way, log in with your own account and run `sudo lepton-install`.
+   It finds the ISO and the Lepton on your disk, and upgrades it.
+3. `sudo poweroff`, eject the ISO (**CD/DVD → Clear**) and start the VM.
+
+Your files, apps, accounts and settings are all still there: the upgrade
+writes the `LEPTON-OS` partition and nothing else. (The ISO uses your
+disk's accounts and files while it runs, which is why it asks for your
+password.)
+
+You can also upgrade from the installed system itself, without booting
+the ISO: download it, then run `sudo lepton-install --iso lepton.iso` and
+`sudo reboot`. Lepton runs from memory, so it can replace itself while
+running; the new release starts at the next boot.
+
+| Command | What it does |
+|---|---|
+| `lepton-install` | install (a disk without Lepton), or ask whether to upgrade or erase |
+| `lepton-install --upgrade` | upgrade without asking (`-y` upgrades too) |
+| `lepton-install --erase` | erase the disk and install from scratch (asks you to confirm) |
+| boot menu: **live: leave installed disks alone** | start the ISO without your disk's files, accounts and settings (to erase that disk, say) |
+| `lepton-install --iso FILE` | install or upgrade from a downloaded ISO file |
+
+Started from an ISO that is using your disk, `lepton-install` can only
+upgrade it; to erase the disk and start over, choose **live: leave
+installed disks alone** in the ISO's boot menu (it shows for three
+seconds as the VM starts) and run `lepton-install --erase`.
+
+The installer says which release you had and which you have now, as
+builds: an identifier of the kernel and initramfs (a disk installed
+before builds were recorded says so). Disks installed before the
+`LEPTON-OS` partition existed have a 200 MiB "EFI System" partition in
+its place. They upgrade the same way for as long as a release fits; one
+that doesn't is refused without writing anything, and the installer says
+so.
+
+With QEMU, `mix lepton.qemu --disk disk.qcow2` boots the new ISO with
+your disk attached, for `lepton-install`.
 
 <!-- commands: lepton-install -->
 

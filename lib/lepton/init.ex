@@ -76,6 +76,8 @@ defmodule Lepton.Init do
     if Sys.pid1?() do
       wait_for_data_partition()
       verbose("storage: #{Lepton.Persist.mount()}")
+      # Services that started before the data partition read their settings again.
+      Lepton.Sound.reload()
       Lepton.Users.sync_etc()
       Lepton.Pkg.load_installed()
       Lepton.Power.start()

@@ -214,9 +214,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 180 tests, 0 failures inside the VM (run from the live
+Current results: 182 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-176 passing plus 17 excluded (native/network) on the host.
+178 passing plus 17 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -266,7 +266,7 @@ lib/lepton/            the operating system
   ssh.ex ssh/                     SSH client: keys, known hosts, ssh/ssh-keygen
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
-  install.ex install/             lepton-install: GPT, FAT16, ext2, persistence
+  install.ex install/             lepton-install: GPT, FAT16, ext2, persistence, upgrades
   wifi.ex                         Wi-Fi: saved networks, wpa_supplicant manager
   usb.ex                          USB: device tree (hubs), hotplug driver loading
   media.ex media/                 USB drives and SD cards: filesystem detection, automount, eject

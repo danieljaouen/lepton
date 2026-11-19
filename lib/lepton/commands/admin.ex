@@ -3,7 +3,7 @@ defmodule Lepton.Commands.Admin do
 
   use Lepton.Command
 
-  defcmd "lepton-install", "install Lepton from the ISO onto a disk", usage: "lepton-install [-y] [-u NAME --password-stdin] [/dev/DISK]", root: true do
+  defcmd "lepton-install", "install Lepton from the ISO onto a disk, or upgrade it there (keeping your files)", usage: "lepton-install [-y] [--upgrade | --erase] [--iso FILE] [-u NAME --password-stdin] [/dev/DISK]", root: true do
     Lepton.Installer.run(args, ctx)
   end
 

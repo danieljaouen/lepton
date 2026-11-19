@@ -43,6 +43,7 @@ defmodule Lepton.Install.Disk do
   def human(bytes), do: "#{div(bytes, 1 <<< 20)} MiB"
 
   def open(path), do: :file.open(path, [:read, :write, :raw, :binary])
+  def open_read(path), do: :file.open(path, [:read, :raw, :binary])
   def pwrite(fd, offset, data), do: :ok = :file.pwrite(fd, offset, data)
 
   @doc "Write `bytes` zero bytes starting at `offset`, in large chunks."
