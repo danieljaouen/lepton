@@ -126,7 +126,8 @@ With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
 ## Upgrade to a new release
 
 Because Lepton and your data are on separate partitions, a new release
-replaces only Lepton:
+replaces only Lepton. [Updating Lepton](updating.html) has the steps in
+full, for UTM, QEMU and from inside Lepton; in short:
 
 1. Download the new ISO.
 2. In UTM, choose it for the VM's **CD/DVD** drive and start the VM.

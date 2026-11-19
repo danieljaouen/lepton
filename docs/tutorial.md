@@ -327,7 +327,7 @@ Only `LEPTON-OS` is replaced: your files, apps, accounts and settings
 stay. You can also upgrade from inside Lepton with a downloaded ISO:
 `sudo lepton-install --iso lepton.iso`, then `sudo reboot`.
 
-More: [Upgrade to a new release](getting-started.html#upgrade-to-a-new-release).
+More: [Updating Lepton](updating.html).
 
 ## Where next
 
