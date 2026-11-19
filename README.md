@@ -214,9 +214,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 172 tests, 0 failures inside the VM (run from the live
+Current results: 180 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-169 passing plus 16 excluded (native/network) on the host.
+176 passing plus 17 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -271,6 +271,7 @@ lib/lepton/            the operating system
   usb.ex                          USB: device tree (hubs), hotplug driver loading
   media.ex media/                 USB drives and SD cards: filesystem detection, automount, eject
   sound.ex sound/                 sound: ALSA in Elixir (ioctl), the volume, WAV files and tones
+  bluetooth.ex dbus.ex dbus/      Bluetooth (BlueZ over D-Bus: devices, pairing agent, headphones); a D-Bus client
   users.ex                        accounts, login, sudo and permission checks
   setup.ex tutorial.ex            first-run setup (Wi-Fi prompt), tutorial
   pkg.ex official.ex              lpm, signed official updates

@@ -53,7 +53,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   # The taskbar is on the primary display (`bar_w` wide); the desktop may extend past it.
-  def init(w, h, {pw, _ph}), do: %{w: w, h: h, bar_w: pw, menu: false, hover: nil, selected: nil, volume: false, wifi: false}
+  def init(w, h, {pw, _ph}), do: %{w: w, h: h, bar_w: pw, menu: false, hover: nil, selected: nil, volume: false, wifi: false, bluetooth: false}
 
   # -- frames ----------------------------------------------------------------------------------
 
@@ -148,7 +148,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def signature(s, info) do
-    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
+    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.bluetooth, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Lepton.Bluetooth.summary(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
   end
 
   @impl true
@@ -169,7 +169,7 @@ defmodule Lepton.Photon.WM.Classic do
 
     above =
       [taskbar(s, info)] ++
-        if(s.menu, do: [menu(s)], else: []) ++ if(s.volume, do: [volume_popup(s)], else: []) ++ if(s.wifi, do: [wifi_popup(s)], else: [])
+        if(s.menu, do: [menu(s)], else: []) ++ if(s.volume, do: [volume_popup(s)], else: []) ++ if(s.wifi, do: [wifi_popup(s)], else: []) ++ if(s.bluetooth, do: [bt_popup(s)], else: [])
     {icons, above}
   end
 
@@ -228,6 +228,7 @@ defmodule Lepton.Photon.WM.Classic do
     c
     |> Canvas.bevel(tray.x, 4, w - tray.x - 4, 22, :thin_sunken)
     |> then(&if(tray.wifi, do: wifi_icon(&1, tray.wifi, 8, if(wifi.ssid, do: Lepton.Wifi.bars(wifi.signal) |> max(1), else: 0)), else: &1))
+    |> then(&if(tray.bluetooth, do: bt_icon(&1, tray.bluetooth + 2, 7, bt_on?()), else: &1))
     |> speaker(tray.speaker, 7, muted)
     |> Canvas.text(w - Canvas.text_width(clock()) - 13, 7, clock(), Render.rgb(@dark), face)
     |> layer(0, s.h - @taskbar)
@@ -236,10 +237,19 @@ defmodule Lepton.Photon.WM.Classic do
   # Where the tray starts and its icons are (taskbar x coordinates).
   @doc false
   def tray(s) do
-    wifi? = Lepton.Wifi.summary().iface != nil
-    x = s.bar_w - Canvas.text_width(clock()) - 42 - if(wifi?, do: 20, else: 0)
-    %{x: x, wifi: if(wifi?, do: x + 4), speaker: x + 4 + if(wifi?, do: 20, else: 0)}
+    # (each icon only with its hardware: Wi-Fi, a Bluetooth adapter)
+    icons = Enum.filter([wifi: Lepton.Wifi.summary().iface != nil, bluetooth: Lepton.Bluetooth.summary().controllers != []], &elem(&1, 1))
+    x = s.bar_w - Canvas.text_width(clock()) - 42 - 20 * length(icons)
+    at = icons |> Enum.with_index() |> Map.new(fn {{name, _}, i} -> {name, x + 4 + 20 * i} end)
+    %{x: x, wifi: at[:wifi], bluetooth: at[:bluetooth], speaker: x + 4 + 20 * length(icons)}
   end
+
+  @rune ["  kk  ", "  k k ", "k k  k", " kk k ", "  kk  ", " kk k ", "k k  k", "  k k ", "  kk  "]
+
+  # Bluetooth's rune: navy when the radio is on, grey when not.
+  defp bt_icon(c, x, y, on?), do: Canvas.art(c, x, y + 2, Enum.map(@rune, &String.replace(&1, "k", "kk")), %{"k" => if(on?, do: @navy, else: @shadow)})
+
+  defp bt_on?, do: match?(%{adapter: %{powered: true}}, Lepton.Bluetooth.summary())
 
   # Signal bars: `level` of 4 in `color`, the rest grey.
   defp wifi_icon(c, x, y, level, color \\ @dark) do
@@ -362,6 +372,121 @@ defmodule Lepton.Photon.WM.Classic do
       row = Enum.find(rows, fn {_, r} -> inside?.(r) end) ->
         {n, _} = row
         if n.ssid == wifi.ssid, do: :ok, else: {:join, [wifi: n.ssid, open: n.security == "open", title: "Wi-Fi: #{n.ssid}"]}
+
+      true ->
+        :ok
+    end
+  end
+
+  # -- Bluetooth devices (click the rune) ------------------------------------------------------------------
+
+  @bt_w 340
+
+  @doc false
+  # The device list's layout, in screen coordinates: `%{rect, rows:
+  # [{device, rect}], list, status_y, button, bt}`.
+  def bt_layout(s) do
+    bt = Lepton.Bluetooth.summary()
+    devices = Enum.take(bt.devices, @max_rows)
+    list_h = max(length(devices), 1) * @row_h + 4
+    status_y = 26 + list_h + 8
+    h = status_y + 20 + 22 + 8
+    x = min((tray(s).bluetooth || s.bar_w) - 140, s.bar_w - @bt_w - 2)
+    y = s.h - @taskbar - h
+    rows = for {d, i} <- Enum.with_index(devices), do: {d, {x + 8, y + 28 + i * @row_h, @bt_w - 16, @row_h}}
+    %{rect: {x, y, @bt_w, h}, rows: rows, list: {6, 26, @bt_w - 12, list_h}, status_y: status_y, button: {x + @bt_w - 100, y + status_y + 20, 92, 22}, bt: bt}
+  end
+
+  defp bt_popup(s) do
+    %{rect: {x, y, w, h}, rows: rows, list: {lx, ly, lw, lh}, status_y: sy, button: {bx, by, bw, bh}, bt: bt} = bt_layout(s)
+    face = Render.rgb(@face)
+    dark = Render.rgb(@dark)
+    white = Render.rgb(@white)
+    grey = Render.rgb(@shadow)
+
+    c =
+      Canvas.new(w, h, face)
+      |> Canvas.bevel(0, 0, w, h, :raised)
+      |> Canvas.text(8, 6, "Bluetooth Devices", dark, face, bold: true)
+      |> Canvas.bevel(lx, ly, lw, lh, :sunken, @white)
+
+    c =
+      if rows == [] do
+        Canvas.text(c, lx + 8, ly + 4, bt_empty(bt), grey, white, max_w: lw - 16)
+      else
+        Enum.reduce(rows, c, fn {d, {_, ry, _, _}}, c ->
+          {fg, bg} = if d.connected, do: {white, Render.rgb(@navy)}, else: {dark, white}
+          state = cond do
+            d.connected -> "connected"
+            d.paired -> "paired"
+            true -> "new"
+          end
+
+          r = ry - y
+
+          c
+          |> Canvas.fill(lx + 2, r, lw - 4, @row_h, bg)
+          # name | kind | state, right-aligned
+          |> Canvas.text(lx + 6, r + 2, d.name, fg, bg, bold: d.connected, max_w: lw - 172)
+          |> Canvas.text(lx + lw - 162, r + 2, "#{d.kind}", if(d.connected, do: white, else: grey), bg, max_w: 80)
+          |> then(&Canvas.text(&1, lx + lw - Canvas.text_width(state) - 8, r + 2, state, fg, bg))
+        end)
+      end
+
+    status =
+      cond do
+        not bt.installed -> "Bluetooth isn't installed yet."
+        bt.adapter == nil -> "Starting Bluetooth..."
+        not bt.adapter.powered -> "Bluetooth is off."
+        bt.adapter.discovering -> "Looking for devices nearby..."
+        true -> "Click a device to pair, connect or disconnect it."
+      end
+
+    label = bt_button(bt)
+
+    c
+    |> Canvas.text(8, sy, status, dark, face, max_w: w - 16)
+    |> Canvas.bevel(bx - x, by - y, bw, bh, :raised)
+    |> Canvas.text(bx - x + div(bw - Canvas.text_width(label), 2), by - y + 3, label, dark, face)
+    |> layer(x, y)
+  end
+
+  defp bt_empty(%{installed: false}), do: "Install Bluetooth to use it."
+  defp bt_empty(%{adapter: %{powered: false}}), do: "Turn Bluetooth on to find devices."
+  defp bt_empty(_), do: "No devices yet: put yours in pairing mode."
+
+  defp bt_button(%{installed: false}), do: "Install"
+  defp bt_button(%{adapter: %{powered: false}}), do: "Turn on"
+  defp bt_button(_), do: "Turn off"
+
+  # A click in the device list: a device (pair, connect or disconnect it,
+  # in a terminal), the button, or outside it.
+  defp bt_click(s, {px, py}) do
+    %{rect: rect, rows: rows, button: button, bt: bt} = bt_layout(s)
+    inside? = fn {x, y, w, h} -> px >= x and px < x + w and py >= y and py < y + h end
+
+    cond do
+      not inside?.(rect) ->
+        :outside
+
+      inside?.(button) ->
+        args = case bt_button(bt) do
+          "Install" -> ["install"]
+          "Turn on" -> ["on"]
+          _ -> ["off"]
+        end
+
+        {:run, [bluetooth: args, title: "Bluetooth"]}
+
+      row = Enum.find(rows, fn {_, r} -> inside?.(r) end) ->
+        {d, _} = row
+        action = cond do
+          d.connected -> "disconnect"
+          d.paired -> "connect"
+          true -> "pair"
+        end
+
+        {:run, [bluetooth: [action, d.address], title: "Bluetooth: #{d.name}"]}
 
       true ->
         :ok
@@ -504,15 +629,29 @@ defmodule Lepton.Photon.WM.Classic do
     tray = tray(s)
     on_speaker? = on_bar? and px >= tray.speaker - 2 and px < tray.speaker + 18
     on_wifi? = on_bar? and tray.wifi != nil and px >= tray.wifi - 2 and px < tray.wifi + 18
+    on_bt? = on_bar? and tray.bluetooth != nil and px >= tray.bluetooth - 2 and px < tray.bluetooth + 18
 
     cond do
       on_speaker? ->
-        {:handled, %{s | volume: not s.volume, wifi: false, menu: false, hover: nil}, []}
+        {:handled, %{s | volume: not s.volume, wifi: false, bluetooth: false, menu: false, hover: nil}, []}
+
+      on_bt? ->
+        # Opening the list looks for devices nearby.
+        # (from a process of its own: the desktop never waits for Bluetooth)
+        if not s.bluetooth, do: spawn(fn -> Lepton.Bluetooth.discover(30) end)
+        {:handled, %{s | bluetooth: not s.bluetooth, wifi: false, volume: false, menu: false, hover: nil}, []}
+
+      s.bluetooth ->
+        case bt_click(s, pos) do
+          :outside -> click(%{s | bluetooth: false}, info, pos, 0, double?)
+          {:run, opts} -> {:handled, %{s | bluetooth: false}, [{:spawn, opts}]}
+          _ -> {:handled, s, []}
+        end
 
       on_wifi? ->
         # Opening the list looks for networks again.
         if not s.wifi, do: Lepton.Wifi.scan_async()
-        {:handled, %{s | wifi: not s.wifi, volume: false, menu: false, hover: nil}, []}
+        {:handled, %{s | wifi: not s.wifi, bluetooth: false, volume: false, menu: false, hover: nil}, []}
 
       s.wifi ->
         case wifi_click(s, pos) do

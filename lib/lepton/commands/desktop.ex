@@ -139,7 +139,7 @@ defmodule Lepton.Commands.Desktop do
   end
 
   defcmd "sound", "sound cards: list them, choose where sound plays, play a test tone",
-    usage: "sound [list] | use N | use auto | test" do
+    usage: "sound [list] | use N | use bluetooth | use auto | test" do
     case args do
       a when a in [[], ["list"]] ->
         st = Sound.status()
@@ -148,9 +148,16 @@ defmodule Lepton.Commands.Desktop do
           IO.puts(ctx, "No sound card. Add a sound device to the VM (UTM: Sound), or plug in USB audio.")
         else
           for c <- st.cards do
-            mark = if st.card && st.card.index == c.index, do: "*", else: " "
-            vol = if c[:software], do: "software volume", else: "volume: #{c.master && c.master.name}"
-            IO.puts(ctx, "#{mark} #{c.index}  #{String.pad_trailing(c.name, 28)} #{vol}")
+            mark = if st.card && st.card.id == c.id, do: "*", else: " "
+
+            {n, vol} =
+              cond do
+                c[:type] == :bluetooth -> {"bt", "Bluetooth headphones"}
+                c[:software] -> {c.index, "software volume"}
+                true -> {c.index, "volume: #{c.master && c.master.name}"}
+              end
+
+            IO.puts(ctx, "#{mark} #{String.pad_trailing(to_string(n), 2)} #{String.pad_trailing(c.name, 28)} #{vol}")
           end
 
           how = if st.chosen, do: "chosen with sound use", else: "the card added last"
@@ -162,11 +169,14 @@ defmodule Lepton.Commands.Desktop do
       ["use", "auto"] ->
         sound_result(ctx, Sound.use_card(nil))
 
+      ["use", b] when b in ["bluetooth", "bt"] ->
+        sound_result(ctx, Sound.use_card(:bluetooth))
+
       ["use", n] ->
         case Integer.parse(n) do
           {i, ""} -> sound_result(ctx, Sound.use_card(i))
           _ ->
-            IO.err(ctx, "usage: sound use N | auto")
+            IO.err(ctx, "usage: sound use N | bluetooth | auto")
             2
         end
 
@@ -188,7 +198,7 @@ defmodule Lepton.Commands.Desktop do
         end
 
       _ ->
-        IO.err(ctx, "usage: sound [list] | use N | use auto | test")
+        IO.err(ctx, "usage: sound [list] | use N | use bluetooth | use auto | test")
         2
     end
   end
@@ -468,6 +478,9 @@ defmodule Lepton.Commands.Desktop do
       ssid = opts[:wifi] ->
         Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: wifi_command(ssid, opts[:open], Users.root?(ctx)), title: "Wi-Fi: #{ssid}")
 
+      args = opts[:bluetooth] ->
+        Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: bluetooth_command(args, Users.root?(ctx)), title: opts[:title] || "Bluetooth")
+
       app && Apps.installed?(app) ->
         Apps.maintain(app)
         Apps.launch(app, [], %{ctx | env: env})
@@ -486,9 +499,20 @@ defmodule Lepton.Commands.Desktop do
   # `wifi connect` for the applet's terminal: open networks need no
   # passphrase; the window closes itself once connected.
   def wifi_command(ssid, open?, root?) do
-    quoted = "'" <> String.replace(ssid, "'", "'\\''") <> "'"
-    connect = "#{if root?, do: "", else: "sudo "}wifi connect #{quoted}#{if open?, do: " ''", else: ""}"
-    "#{connect} && sleep 2 || read -p 'Press Enter to close this window. ' answer"
+    admin_command(["wifi", "connect", ssid] ++ if(open?, do: [""], else: []), root?)
+  end
+
+  @doc false
+  # The Bluetooth applet's commands: `bluetooth ...`, or installing it.
+  def bluetooth_command(["install"], root?), do: admin_command(["app", "install", "bluetooth"], root?)
+  def bluetooth_command(args, root?), do: admin_command(["bluetooth" | args], root?)
+
+  # A command that changes the system, for a terminal of its own: with
+  # sudo unless root, quoted for the shell; the window closes itself when
+  # it worked, and waits for Enter when it didn't.
+  defp admin_command(argv, root?) do
+    quoted = Enum.map_join(argv, " ", &if(&1 =~ ~r/^[A-Za-z0-9_.:\/-]+$/, do: &1, else: "'" <> String.replace(&1, "'", "'\\''") <> "'"))
+    "#{if root?, do: "", else: "sudo "}#{quoted} && sleep 2 || read -p 'Press Enter to close this window. ' answer"
   end
 
   defp wait(ref, pid, ctx) do

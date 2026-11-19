@@ -31,8 +31,21 @@ defmodule Lepton.Apps do
       exclude:
         ~r/^(mesa.*|llvm.*|spirv-.*|ffmpeg-.*|x26[45]-libs|aom-libs|libSvtAv1Enc|rav1e-libs|libdav1d|xvidcore|lame-libs|libtheora|libvorbis|opus|libogg|soxr|libva|libvdpau|libjxl|libhwy|busybox.*|bubblewrap|pkgconf|hwdata-.*|pciutils-libs|libpciaccess|libdrm|libxshmfence|libxxf86vm|mkfontscale|libgomp)$/,
       exe: "usr/lib/firefox/firefox",
+      gtk: true,
       # Where it keeps its files in the home (made the user's if root's).
       home: [".mozilla", ".config/mozilla", ".cache/mozilla", ".cache/fontconfig"]
+    },
+    # Not a program you open: the Bluetooth daemons Lepton.Bluetooth runs
+    # (BlueZ's bluetoothd on a D-Bus system bus, and bluez-alsa for
+    # headphones).
+    "bluetooth" => %{
+      title: "Bluetooth",
+      summary: "Bluetooth (BlueZ, bluez-alsa)",
+      packages: ["bluez", "bluez-alsa", "bluez-alsa-utils", "dbus"],
+      exclude: ~r/^(busybox.*)$/,
+      main: "bluez",
+      exe: nil,
+      gtk: false
     }
   }
 
@@ -220,7 +233,7 @@ defmodule Lepton.Apps do
   def maintain(name) do
     applied =
       if staged?(name) and not running?(name) do
-        version = staged_info(name).packages |> List.keyfind(name, 0) |> then(&(&1 && elem(&1, 1)))
+        version = staged_info(name).packages |> List.keyfind(main(name), 0) |> then(&(&1 && elem(&1, 1)))
         if apply_staged(name) == :ok, do: {:updated, version}, else: :none
       else
         :none
@@ -232,14 +245,21 @@ defmodule Lepton.Apps do
 
   @doc "The installed version of app `name`'s main package."
   def version(name) do
-    with %{packages: pkgs} <- info(name), {_, v} <- List.keyfind(pkgs, name, 0), do: v, else: (_ -> nil)
+    with %{packages: pkgs} <- info(name), {_, v} <- List.keyfind(pkgs, main(name), 0), do: v, else: (_ -> nil)
   end
+
+  # The package an app's version is (Firefox's is firefox; Bluetooth's, bluez).
+  defp main(name), do: (get(name) || %{})[:main] || name
 
   defp mib(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MiB"
 
   # -- setup: what the packages' install triggers would do ---------------------------------------------
 
-  defp setup(_name, prefix) do
+  defp setup(name, prefix) do
+    if get(name)[:gtk], do: setup_gtk(prefix), else: :ok
+  end
+
+  defp setup_gtk(prefix) do
     env = env(prefix, %{})
 
     with :ok <- run(prefix, "usr/bin/glib-compile-schemas", [Path.join(prefix, "usr/share/glib-2.0/schemas")], env),
@@ -365,7 +385,7 @@ defmodule Lepton.Apps do
     log = Path.join([home, ".cache", "lepton", name <> ".log"])
     File.mkdir_p!(Path.dirname(log))
     prepare_home(home, user, app)
-    env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix))
+    env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name)
     # As the user, not as root (the VM's own user): see Lepton.RunAs.
     {exe, argv} = Lepton.RunAs.command(user, Path.join(prefix, app.exe), args)
 
@@ -389,6 +409,14 @@ defmodule Lepton.Apps do
     File.mkdir_p("/run/lepton")
     File.write(conf, Lepton.Sound.alsa_config())
     %{"ALSA_CONFIG_DIR" => alsa, "ALSA_CONFIG_PATH" => Path.join(alsa, "alsa.conf") <> ":" <> conf}
+  end
+
+  # Bluetooth headphones play through bluez-alsa's ALSA plugin, whose
+  # libraries are the Bluetooth app's: found after the app's own.
+  defp bluetooth_libs(env, name) do
+    if name != "bluetooth" and installed?("bluetooth"),
+      do: Map.update!(env, "LD_LIBRARY_PATH", &(&1 <> ":" <> Lepton.Bluetooth.env()["LD_LIBRARY_PATH"])),
+      else: env
   end
 
   @doc """

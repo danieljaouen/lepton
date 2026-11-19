@@ -48,6 +48,12 @@ defmodule LeptonBuild.Image do
     vfat exfat ntfs3 udf nls_cp437 nls_utf8 nls_iso8859-1
   )
 
+  # Bluetooth (Lepton.Bluetooth): the stack, USB adapters (with Realtek's,
+  # Broadcom's, Intel's and MediaTek's setup, as btusb's dependencies),
+  # classic and Low Energy input devices, and virtual adapters for tests.
+  # The rest of Bluetooth (BlueZ) is an app, installed when wanted.
+  @bluetooth_modules ~w(bluetooth btusb hidp uhid hci_vhci)
+
   # Sound (Lepton.Sound): Intel HD Audio (QEMU's and UTM's sound device)
   # with the generic codec driver, virtio-sound, and USB audio. Loaded by
   # hardware ID.
@@ -384,7 +390,7 @@ defmodule LeptonBuild.Image do
     root = modules_root(src, kver)
 
     deps = module_deps(root)
-    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @storage_modules ++ @sound_modules ++ @wifi_modules)
+    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @storage_modules ++ @sound_modules ++ @bluetooth_modules ++ @wifi_modules)
     shipped = MapSet.new(wanted, &module_name/1)
 
     # Aliases of the shipped modules only, for loading drivers by hardware
@@ -418,7 +424,7 @@ defmodule LeptonBuild.Image do
       ]
   end
 
-  # Firmware the shipped Wi-Fi drivers request (their `firmware=` modinfo,
+  # Firmware the shipped Wi-Fi and Bluetooth drivers request (their `firmware=` modinfo,
   # which may be a glob), from the Alpine firmware packages, plus the
   # wireless regulatory database cfg80211 reads.
   defp firmware(src, kver) do
@@ -426,7 +432,7 @@ defmodule LeptonBuild.Image do
     dirs = Enum.map(Sources.firmware_packages(), &Path.join(src[&1].dir, "lib/firmware"))
 
     names =
-      for mod <- module_closure(root, @wifi_modules),
+      for mod <- module_closure(root, @wifi_modules ++ @bluetooth_modules),
           [_, name] <- Regex.scan(~r/(?:^|\0)firmware=([^\0]+)/, read_module(Path.join(root, mod))),
           uniq: true,
           do: name

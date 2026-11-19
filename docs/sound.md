@@ -43,8 +43,10 @@ $ sound
 ```
 
 Sound plays on the card added last, so a USB headset takes over when you
-plug it in and hands back when you unplug it. `sound use 0` keeps sound
-on card 0 instead; `sound use auto` goes back to the card added last.
+plug it in and hands back when you unplug it, and so do
+[Bluetooth headphones](bluetooth.html) when they connect (listed as
+`bt`). `sound use 0` keeps sound on card 0 instead, `sound use bluetooth`
+on the headphones; `sound use auto` goes back to the one added last.
 
 The volume is set on the card's own volume control. A card without one
 (virtio-sound) gets a volume control that works in software, marked
@@ -52,7 +54,8 @@ The volume is set on the card's own volume control. A card without one
 
 **Drivers**: Intel HD Audio (UTM's and QEMU's usual sound device),
 virtio-sound, and USB audio (headsets, speakers, sound cards, docks).
-They load when the device appears.
+They load when the device appears. Bluetooth headphones and speakers
+play through bluez-alsa; see [Bluetooth](bluetooth.html).
 
 ## In UTM
 
@@ -66,6 +69,6 @@ Intel HD Audio, played on the Mac's speakers too.
 - Mixing: on most sound cards one program plays at a time, so while
   Firefox plays, `beep` and `play` may say the device is in use.
 - Files other than WAV for `play` (Firefox plays the web's formats).
-- Bluetooth audio.
+- Bluetooth headset microphones (headphones play; see [Bluetooth](bluetooth.html)).
 
 <!-- commands: volume sound play beep -->

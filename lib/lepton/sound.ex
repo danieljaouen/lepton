@@ -48,18 +48,23 @@ defmodule Lepton.Sound do
   @doc "Mute (`true`), unmute (`false`) or toggle (`:toggle`)."
   def mute(how), do: call({:mute, how})
 
-  @doc "Play on card `index` from now on (`nil`: the card added last)."
+  @doc "Play on card `index` (or `:bluetooth`, the Bluetooth headphones) from now on (`nil`: the one added last)."
   def use_card(index), do: call({:use, index})
 
   defp call(msg) do
     if Process.whereis(__MODULE__), do: GenServer.call(__MODULE__, msg, 10_000), else: {:error, "the sound service isn't running"}
   end
 
-  @doc "Where sound goes now: `{:ok, %{card, device, gain}}` (`gain` the software volume, 1.0 for a hardware control)."
+  @doc """
+  Where sound goes now: `{:ok, %{type: :alsa, card, device, gain}}`
+  (`gain` the software volume, 1.0 for a hardware control), or
+  `{:ok, %{type: :bluetooth, pcm, rate, channels, gain}}` for headphones.
+  """
   def output do
     case status() do
-      %{card: nil} -> {:error, "no sound card (add a sound device to the VM, or plug in USB audio)"}
-      %{card: card} = st -> {:ok, %{card: card.index, device: hd(card.playback), gain: gain(st, card)}}
+      %{card: nil} -> {:error, "no sound card (add a sound device to the VM, or plug in USB audio or Bluetooth headphones)"}
+      %{card: %{type: :bluetooth} = c} -> {:ok, %{type: :bluetooth, pcm: c.pcm, rate: c.rate, channels: c.channels, gain: 1.0}}
+      %{card: card} = st -> {:ok, %{type: :alsa, card: card.index, device: hd(card.playback), gain: gain(st, card)}}
     end
   end
 
@@ -82,8 +87,15 @@ defmodule Lepton.Sound do
   heard.
   """
   def play(chunks, rate, channels) do
-    with {:ok, out} <- output(),
-         {:ok, pcm} <- ALSA.open_pcm(out.card, out.device, rate, channels) do
+    case output() do
+      {:ok, %{type: :bluetooth} = out} -> play_bluetooth(chunks, rate, channels, out)
+      {:ok, out} -> play_alsa(chunks, rate, channels, out)
+      error -> error
+    end
+  end
+
+  defp play_alsa(chunks, rate, channels, out) do
+    with {:ok, pcm} <- ALSA.open_pcm(out.card, out.device, rate, channels) do
       try do
         Enum.each(chunks, fn data ->
           # (the volume can change while it plays)
@@ -102,6 +114,29 @@ defmodule Lepton.Sound do
           :file.close(pcm.file)
           {:error, Exception.message(e)}
       end
+    end
+  end
+
+  # Headphones: bluealsa takes the samples (S16_LE at the PCM's rate and
+  # channels) on bluealsa-cli's standard input; the volume is bluealsa's.
+  defp play_bluetooth(chunks, rate, channels, out) do
+    port =
+      Port.open({:spawn_executable, Lepton.Bluetooth.program("usr/bin/bluealsa-cli")}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: ["open", out.pcm],
+        env: Enum.map(Lepton.Bluetooth.env(), fn {k, v} -> {~c"#{k}", ~c"#{v}"} end)
+      ])
+
+    Enum.each(chunks, &Port.command(port, convert(&1, rate, channels, out, 1.0)))
+    send(port, {self(), :close})
+
+    receive do
+      {^port, {:exit_status, s}} when s != 0 -> {:error, "bluealsa-cli failed (#{s})"}
+      {^port, :closed} -> :ok
+    after
+      30_000 -> :ok
     end
   end
 
@@ -255,6 +290,13 @@ defmodule Lepton.Sound do
   def handle_call({:mute, :toggle}, _from, st), do: reply(%{st | muted: not st.muted})
   def handle_call({:mute, m}, _from, st), do: reply(%{st | muted: m})
 
+  def handle_call({:use, :bluetooth}, _from, st) do
+    case Enum.find(st.cards, &(&1[:type] == :bluetooth)) do
+      nil -> {:reply, {:error, "no Bluetooth headphones are connected"}, st}
+      card -> reply(%{st | chosen: card.id})
+    end
+  end
+
   def handle_call({:use, index}, _from, st) do
     case index && Enum.find(st.cards, &(&1.index == index)) do
       nil when index != nil -> {:reply, {:error, "no card #{index}"}, st}
@@ -272,7 +314,8 @@ defmodule Lepton.Sound do
   @impl true
   def handle_info(:tick, st) do
     Process.send_after(self(), :tick, @tick)
-    found = ALSA.cards() |> Enum.filter(&(&1.playback != []))
+    # Sound cards, then Bluetooth headphones (connected last, so they're preferred).
+    found = (ALSA.cards() |> Enum.filter(&(&1.playback != []))) ++ bluetooth_outputs()
 
     if Enum.map(found, &{&1.index, &1.id}) == Enum.map(st.cards, &{&1.index, &1.id}) do
       {:noreply, enforce(st)}
@@ -280,16 +323,23 @@ defmodule Lepton.Sound do
       bind_hda_codecs()
       # Programs running as the user (Firefox) open the devices too.
       for dev <- Path.wildcard("/dev/snd/*"), do: File.chmod(dev, 0o666)
-      known = Map.new(st.cards, &{&1.index, &1})
-      cards = for c <- found, do: Map.get(known, c.index) |> then(&if(&1 && &1.id == c.id, do: &1, else: setup(c)))
-      for c <- cards, not Map.has_key?(known, c.index), do: Logger.info("sound: card #{c.index} (#{c.name})#{if c.software, do: ", software volume"}")
+      known = Map.new(st.cards, &{&1.id, &1})
+      cards = for c <- found, do: Map.get(known, c.id) || setup(c)
+      for c <- cards, not Map.has_key?(known, c.id), do: Logger.info("sound: #{c.name}#{if c.software, do: ", software volume"}")
       {:noreply, %{st | cards: cards} |> apply_volume() |> publish()}
     end
   end
 
   def handle_info(_msg, st), do: {:noreply, st}
 
+  defp bluetooth_outputs do
+    for o <- Lepton.Bluetooth.summary().outputs,
+        do: %{type: :bluetooth, index: nil, id: "bt:" <> o.address, name: o.name, pcm: o.pcm, rate: o.rate, channels: o.channels, playback: [], master: nil, switch: nil, software: false}
+  end
+
   # A card's volume control: its own Master, else one we add (software volume).
+  defp setup(%{type: :bluetooth} = card), do: card
+
   defp setup(card) do
     controls = ALSA.controls(card.index)
 
@@ -319,6 +369,8 @@ defmodule Lepton.Sound do
   end
 
   defp apply_volume(st) do
+    for %{type: :bluetooth, pcm: pcm} <- st.cards, do: Lepton.Bluetooth.set_volume(pcm, st.volume, st.muted)
+
     for %{master: m} = card <- st.cards, m != nil do
       ALSA.write_control(card.index, m, level(st, card))
       if card.switch, do: ALSA.write_control(card.index, card.switch, if(st.muted, do: 0, else: 1))
@@ -396,6 +448,17 @@ defmodule Lepton.Sound do
   """
   def alsa_config do
     case status() do
+      %{card: %{type: :bluetooth, id: "bt:" <> address}} ->
+        # bluez-alsa's plugin, from the Bluetooth app.
+        plugins = Lepton.Bluetooth.program("usr/lib/alsa-lib")
+
+        """
+        pcm_type.bluealsa { lib "#{plugins}/libasound_module_pcm_bluealsa.so" }
+        ctl_type.bluealsa { lib "#{plugins}/libasound_module_ctl_bluealsa.so" }
+        pcm.!default { type plug; slave.pcm { type bluealsa; device "#{address}"; profile "a2dp" } }
+        ctl.!default { type bluealsa }
+        """
+
       %{card: %{index: n, software: true}} ->
         """
         pcm.!default { type plug; slave.pcm "lepton_volume" }

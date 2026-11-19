@@ -72,6 +72,7 @@ Photon with a different window manager, styled after Windows 95:
 - a **taskbar** with a button for each window (click to bring it to the
   front, click again to minimize it), the Wi-Fi signal (click it to pick
   a network: [Wi-Fi](networking.html#on-the-classic-desktop)), the
+  Bluetooth rune (click it for your devices: [Bluetooth](bluetooth.html)), the
   volume's speaker (click it for the volume control: [Sound](sound.html))
   and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),

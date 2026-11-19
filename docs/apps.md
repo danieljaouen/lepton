@@ -1,6 +1,6 @@
 ---
 title: Firefox and other apps
-order: 16
+order: 17
 summary: Firefox, installed on demand from Alpine Linux's packages and run on the desktop.
 ---
 
@@ -57,6 +57,10 @@ ISO it is kept in memory and is gone after a reboot; give the VM at least
 | `sudo app update [NAME]` | update an app (or all of them) now |
 | `sudo app remove NAME` | remove it |
 | `firefox [URL...]` | start Firefox (installing it first, as root) |
+
+The other app is `bluetooth`: [Bluetooth](bluetooth.html)'s programs
+(BlueZ, D-Bus and bluez-alsa: about 37 packages, 7.5 MB to download), which
+Lepton runs in the background rather than opening in a window.
 
 ## Updates
 

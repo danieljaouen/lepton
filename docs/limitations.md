@@ -1,6 +1,6 @@
 ---
 title: Limitations
-order: 18
+order: 19
 summary: What Lepton doesn't do yet.
 ---
 
@@ -9,6 +9,9 @@ summary: What Lepton doesn't do yet.
 - The live ISO keeps everything in RAM. An installed system persists
   `/root` and `/var/lib/lepton` only; changes elsewhere (for example
   `/etc`) reset at boot.
+- Bluetooth needs a USB adapter (a Mac's built-in Bluetooth stays with
+  macOS); no headset microphones, file transfer or phones (see
+  [Bluetooth](bluetooth.html)).
 - Sound: no recording, and on most sound cards one program plays at a
   time (see [Sound](sound.html)).
 - Touchpads: no tap-to-click, two-finger scrolling or gestures yet.

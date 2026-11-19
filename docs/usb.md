@@ -39,7 +39,8 @@ usb2  xHCI Host Controller (root hub, 4 ports) [5 Gbit/s]
 
 ## Keyboards and mice
 
-Any USB keyboard works, at the console and on the desktop. Mice,
+Any USB keyboard works, at the console and on the desktop (and so do
+[Bluetooth](bluetooth.html) ones, once paired). Mice,
 trackballs, touchpads, drawing tablets and touchscreens work on the
 desktop ([Photon](desktop.html) and the classic desktop). Plug them in
 at any time, directly, through a hub, or through a wireless receiver.

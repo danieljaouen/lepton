@@ -28,7 +28,8 @@ defmodule LeptonBuild.Sources do
 
   # Wi-Fi: wpa_supplicant (and hostapd, for the self-tests' simulated access
   # point), the musl libraries they link against, the regulatory database,
-  # and firmware for the USB/SDIO Wi-Fi drivers in the image. Only the
+  # and firmware for the USB/SDIO Wi-Fi and USB Bluetooth drivers in the
+  # image (rtl_bt: Realtek Bluetooth adapters). Only the
   # firmware files those drivers request are copied into the image.
   @alpine_wifi_packages [
     {"main", "musl"},
@@ -42,7 +43,7 @@ defmodule LeptonBuild.Sources do
     {"main", "wireless-regdb"}
   ]
 
-  @alpine_firmware ~w(mediatek rtw88 rtw89 rtlwifi realtek ath9k_htc brcm cypress other)
+  @alpine_firmware ~w(mediatek rtw88 rtw89 rtlwifi realtek rtl_bt ath9k_htc brcm cypress other)
                    |> Enum.map(&{"main", "linux-firmware-" <> &1})
 
   def wifi_packages, do: Enum.map(@alpine_wifi_packages, &elem(&1, 1))
