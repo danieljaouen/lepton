@@ -76,6 +76,7 @@ defmodule Lepton.Init do
     if Sys.pid1?() do
       wait_for_data_partition()
       verbose("storage: #{Lepton.Persist.mount()}")
+      if Lepton.Persist.installed?(), do: keep_log()
       # Services that started before the data partition read their settings again.
       Lepton.Sound.reload()
       Lepton.Users.sync_etc()
@@ -182,13 +183,30 @@ defmodule Lepton.Init do
     {:ok, _} = Application.ensure_all_started(:logger)
     File.mkdir_p("/var/log")
     :logger.remove_handler(:default)
+    log_to_file()
+    Logger.configure(level: if(Sys.cmdline_flag?("lepton.verbose=1"), do: :debug, else: :info))
+  end
 
+  # (at most 4 MiB: then it moves to messages.0 and a new one starts)
+  defp log_to_file do
     :logger.add_handler(:lepton_file, :logger_std_h, %{
-      config: %{file: ~c"/var/log/messages"},
+      config: %{file: ~c"/var/log/messages", max_no_bytes: 4 * 1024 * 1024, max_no_files: 1},
       formatter: Logger.default_formatter()
     })
+  end
 
-    Logger.configure(level: if(Sys.cmdline_flag?("lepton.verbose=1"), do: :debug, else: :info))
+  # An installed system keeps /var/log on its data partition, so what led up
+  # to a crash is there after the restart: the last boot's log moves to
+  # messages.previous, and the BEAM's crash dump (if it dies) goes there too.
+  defp keep_log do
+    dir = "/persist/log"
+    File.mkdir_p!(dir)
+    for f <- ["messages", "messages.0"], do: File.rename(Path.join(dir, f), Path.join(dir, String.replace(f, "messages", "messages.previous")))
+    :logger.remove_handler(:lepton_file)
+    File.cp("/var/log/messages", Path.join(dir, "messages"))
+    Sys.shim("mount", ["-o", "bind", dir, "/var/log"])
+    log_to_file()
+    System.put_env("ERL_CRASH_DUMP", "/var/log/erl_crash.dump")
   end
 
   # Disks are probed asynchronously; give an installed disk time to appear.

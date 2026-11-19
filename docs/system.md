@@ -1,7 +1,7 @@
 ---
 title: System
 order: 11
-summary: Processes and jobs, storage and persistence, running out of memory, power, the clipboard, Elixir and the self-tests.
+summary: Processes and jobs, storage and persistence, running out of memory, logs, power, the clipboard, Elixir and the self-tests.
 ---
 
 # System
@@ -27,7 +27,7 @@ The live ISO runs entirely from RAM: nothing you do is kept. An
 [installed](getting-started.html#install-to-a-disk) system keeps `/home`
 (your files), `/root` and `/var/lib/lepton` (accounts, packages, services,
 logs and settings) on its data partition; everything else, including
-`/etc`, resets at boot.
+`/etc`, resets at boot. It keeps `/var/log` too (see [logs](#logs)).
 
 `df`, `du`, `free` and `mount` show filesystems and memory.
 
@@ -52,6 +52,24 @@ Each time Lepton stops a program, `dmesg` shows it (`lepton: memory:
 ... stopping process ...`). `free -h` shows how much memory is available. If
 this happens often, give the VM more memory (in UTM: the VM's settings →
 **System** → **Memory**), or keep fewer tabs open.
+
+## Logs
+
+Lepton logs what its services do to `/var/log/messages`, with the
+kernel's messages among them (`kernel: ...`). `dmesg` shows the kernel's
+log alone, and `less /var/log/messages` the whole log.
+
+The live ISO keeps the log in memory, so a restart erases it. An
+installed system keeps `/var/log` on its data partition:
+
+- at each boot, the last boot's log moves to
+  `/var/log/messages.previous`, so after a crash it shows what led up to
+  it;
+- if Lepton itself stops, its crash dump goes to
+  `/var/log/erl_crash.dump`.
+
+When the log reaches 4 MiB, it moves to `messages.0` (replacing the one
+there) and a new one starts.
 
 ## Power
 

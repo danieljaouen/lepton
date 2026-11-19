@@ -13,6 +13,7 @@ defmodule Lepton.Application do
       Lepton.Media,
       Lepton.Sound,
       Lepton.Memory,
+      Lepton.KernelLog,
       Lepton.Bluetooth,
       Lepton.Wifi,
       Lepton.Users,

@@ -215,6 +215,20 @@ defmodule Lepton.PhotonTest do
     assert pixel_at(out, cx, cy) != red
   end
 
+  test "a client's pool cut short draws black, and Photon carries on" do
+    {ph, out, env} = start_photon()
+    win = window(env, 50, 20, Render.px(255, 0, 0))
+    {:ok, 0} = :file.position(win.file, 0)
+    :ok = :file.truncate(win.file)
+    c = win.c |> Client.request(win.surface, :attach, [win.buffer, 0, 0]) |> Client.request(win.surface, :damage_buffer, [0, 0, 50, 20]) |> Client.request(win.surface, :commit, [])
+    {_c, _} = Client.roundtrip(c)
+    Photon.sync(ph)
+    assert Process.alive?(ph)
+    assert [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    assert pixel_at(out, cx, cy) == <<0, 0, 0, 0>>
+  end
+
   test "subsurfaces are drawn over their window, where they are put" do
     {ph, out, env} = start_photon()
     # (the pointer starts at the centre, over the window: move it aside)

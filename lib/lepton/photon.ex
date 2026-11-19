@@ -419,6 +419,11 @@ defmodule Lepton.Photon do
             rescue
               e in ArgumentError ->
                 protocol_error(st, sock, 1, 1, "#{obj.iface}.#{name}: #{Exception.message(e)}")
+
+              # A request Photon fails on closes that client, not Photon (and every window with it).
+              e ->
+                Logger.warning("photon: #{obj.iface}.#{name} failed, closing the client: #{Exception.message(e)}")
+                protocol_error(st, sock, 1, 1, "#{obj.iface}.#{name}: internal error")
             end
         end
     end
@@ -942,7 +947,12 @@ defmodule Lepton.Photon do
 
         content =
           if y1 > y0 do
-            {:ok, data} = :file.pread(pool.file, b.offset + y0 * b.stride, (y1 - y0) * b.stride)
+            # (a pool the client made smaller reads short, or not at all: black)
+            data = case :file.pread(pool.file, b.offset + y0 * b.stride, (y1 - y0) * b.stride) do
+              {:ok, data} -> data
+              _ -> ""
+            end
+
             data = pad_to(data, (y1 - y0) * b.stride)
             stride = b.stride
             rows = if stride == b.w * 4, do: data, else: (for <<row::binary-size(^stride) <- data>>, into: <<>>, do: binary_part(row, 0, b.w * 4))

@@ -89,6 +89,8 @@ defmodule Lepton.Persist do
   @doc "Flush and make the data partition read-only (before power off)."
   def shutdown do
     if installed?() do
+      # The log is kept there (/var/log): a file open for writing would keep it writable.
+      :logger.remove_handler(:lepton_file)
       Sys.sync()
       Sys.shim("mount", ["-o", "remount,ro", "/persist"])
     end
