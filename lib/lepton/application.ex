@@ -12,6 +12,7 @@ defmodule Lepton.Application do
       Lepton.USB,
       Lepton.Media,
       Lepton.Sound,
+      Lepton.Memory,
       Lepton.Bluetooth,
       Lepton.Wifi,
       Lepton.Users,

@@ -387,6 +387,17 @@ defmodule Lepton.Commands.System do
   end
 
   defcmd "dmesg", "print the kernel ring buffer", usage: "dmesg" do
+    # busybox's dmesg reads it with syslog(2); Erlang's reads of /dev/kmsg
+    # fail (EINVAL) on some kernels.
+    with true <- File.exists?("/bin/busybox"), {out, 0} when out != "" <- Lepton.Sys.shim("dmesg", []) do
+      IO.write(ctx, out)
+      0
+    else
+      _ -> kmsg_dmesg(ctx)
+    end
+  end
+
+  defp kmsg_dmesg(ctx) do
     case File.open("/dev/kmsg", [:read, :binary, :raw]) do
       {:ok, _fd} ->
         # /dev/kmsg reads block at the end; read the snapshot via a helper process.
@@ -415,6 +426,8 @@ defmodule Lepton.Commands.System do
   defp loop_kmsg(fd, parent) do
     case :file.read(fd, 8192) do
       {:ok, data} -> send(parent, {:kmsg, self(), data}); loop_kmsg(fd, parent)
+      # The oldest messages were overwritten while we read: carry on from the next.
+      {:error, :epipe} -> loop_kmsg(fd, parent)
       _ -> send(parent, {:kmsg_done, self()})
     end
   end

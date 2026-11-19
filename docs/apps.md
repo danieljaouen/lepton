@@ -92,6 +92,9 @@ it.
 - Its clipboard is Lepton's: copy in Firefox and `pbpaste` (or
   Ctrl+Shift+V in a terminal window), or `pbcopy` and paste in Firefox.
   See [The desktop](desktop.html#the-clipboard).
+- When memory runs short, it unloads tabs you haven't used for a while,
+  and if that isn't enough, Lepton stops the largest tab (it shows as
+  crashed; reload it). See [When memory runs out](system.html#when-memory-runs-out).
 - Drag a tab along the tab bar to move it (drop it onto another tab to
   group them, or at the far left to pin it).
 

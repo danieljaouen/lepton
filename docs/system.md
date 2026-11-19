@@ -1,7 +1,7 @@
 ---
 title: System
 order: 11
-summary: Processes and jobs, storage and persistence, power, the clipboard, Elixir and the self-tests.
+summary: Processes and jobs, storage and persistence, running out of memory, power, the clipboard, Elixir and the self-tests.
 ---
 
 # System
@@ -30,6 +30,28 @@ logs and settings) on its data partition; everything else, including
 `/etc`, resets at boot.
 
 `df`, `du`, `free` and `mount` show filesystems and memory.
+
+## When memory runs out
+
+Lepton has no swap, so the memory the VM has is all there is. Firefox
+uses most of it: each tab is a program of its own. When memory runs
+short:
+
+1. At 10% left, Firefox unloads tabs you haven't looked at for a while.
+   They stay in the tab bar and load again when you go back to them.
+2. At 5% left (and at least 160 MiB), Lepton stops the largest of
+   Firefox's tabs. That tab shows **Gah. Your tab just crashed.**, and
+   **Reload Tab** brings it back. If there is no tab to stop, Lepton
+   stops the largest app program instead.
+
+Without step 2 the whole system would freeze: Linux keeps going until
+almost nothing is left, and before that it spends all its time reading
+programs back from the disk. Lepton's own processes are never stopped.
+
+Each time Lepton stops a program, `dmesg` shows it (`lepton: memory:
+... stopping process ...`). `free -h` shows how much memory is available. If
+this happens often, give the VM more memory (in UTM: the VM's settings →
+**System** → **Memory**), or keep fewer tabs open.
 
 ## Power
 

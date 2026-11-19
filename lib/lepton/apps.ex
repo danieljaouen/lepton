@@ -305,8 +305,9 @@ defmodule Lepton.Apps do
   @doc """
   Write Firefox's `policies.json` under `prefix` (when Firefox is there):
   Photon draws the title bar, so Firefox uses it rather than drawing its
-  own buttons in the tab strip; it doesn't ask to be the default; and it
-  doesn't use OpenH264. Firefox downloads that video plugin itself, and
+  own buttons in the tab strip; it doesn't ask to be the default; it
+  unloads background tabs when memory runs short (at 10% available,
+  before `Lepton.Memory` steps in at 5%); and it doesn't use OpenH264. Firefox downloads that video plugin itself, and
   Mozilla's aarch64 build of it needs glibc: on Lepton (musl) it crashes
   ("gmpopenh264 crashed") as soon as a page uses H.264, in WebRTC calls
   for example.
@@ -321,7 +322,9 @@ defmodule Lepton.Apps do
           "Preferences" => %{
             "browser.tabs.inTitlebar" => %{"Value" => 0, "Status" => "default"},
             "media.gmp-gmpopenh264.enabled" => %{"Value" => false, "Status" => "locked"},
-            "media.gmp-gmpopenh264.autoupdate" => %{"Value" => false, "Status" => "locked"}
+            "media.gmp-gmpopenh264.autoupdate" => %{"Value" => false, "Status" => "locked"},
+            "browser.tabs.unloadOnLowMemory" => %{"Value" => true, "Status" => "default"},
+            "browser.low_commit_space_threshold_percent" => %{"Value" => 10, "Status" => "default"}
           }
         }
       }
