@@ -88,6 +88,10 @@ it.
 - Fonts are DejaVu, which has no Chinese, Japanese or Korean characters.
 - There is no clipboard between Firefox and other windows yet.
 
+If Firefox hangs, or its window closes but it doesn't finish quitting,
+starting it again stops what was left behind (it would otherwise say
+it's already running) and opens a fresh window.
+
 Firefox plays sound on the [sound card](sound.html) Lepton plays on, at
 the system volume. Set the volume with `volume`, the volume keys or the
 classic desktop's speaker.

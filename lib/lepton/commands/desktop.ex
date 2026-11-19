@@ -41,6 +41,8 @@ defmodule Lepton.Commands.Desktop do
         case session_env(ctx) do
           {:ok, env} ->
             with {:updated, version} <- Apps.maintain("firefox"), do: IO.puts(ctx, "Updated Firefox to #{version}.")
+            stopped = clear_hung("firefox", ctx, env)
+            if stopped > 0, do: IO.puts(ctx, "Stopped #{stopped} Firefox process#{if stopped == 1, do: "", else: "es"} left running without a window.")
             {:ok, pid} = Apps.launch("firefox", args, %{ctx | env: env})
             IO.puts(ctx, "Firefox is starting (process #{pid}; log: ~/.cache/lepton/firefox.log).")
             0
@@ -483,6 +485,7 @@ defmodule Lepton.Commands.Desktop do
 
       app && Apps.installed?(app) ->
         Apps.maintain(app)
+        clear_hung(app, ctx, env)
         Apps.launch(app, [], %{ctx | env: env})
 
       app ->
@@ -513,6 +516,19 @@ defmodule Lepton.Commands.Desktop do
   defp admin_command(argv, root?) do
     quoted = Enum.map_join(argv, " ", &if(&1 =~ ~r/^[A-Za-z0-9_.:\/-]+$/, do: &1, else: "'" <> String.replace(&1, "'", "'\\''") <> "'"))
     "#{if root?, do: "", else: "sudo "}#{quoted} && sleep 2 || read -p 'Press Enter to close this window. ' answer"
+  end
+
+  # An app with programs still running but no window on the desktop is
+  # hung, or was closed and didn't finish exiting (Firefox then refuses to
+  # start: "already running"): stop what's left. One with a window is left
+  # alone (Firefox opens another window in it).
+  defp clear_hung(app, ctx, env) do
+    user = Users.get(ctx.user)
+    windows? = with pid when is_pid(pid) <- Process.whereis(Photon), do: Enum.any?(Photon.info(pid).windows, &(&1.app_id == app)), else: (_ -> false)
+
+    if user && not windows? and Apps.processes(app, user.uid) != [],
+      do: Apps.clear_leftovers(app, user, env["HOME"] || "/root"),
+      else: 0
   end
 
   defp wait(ref, pid, ctx) do

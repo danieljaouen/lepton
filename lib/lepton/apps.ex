@@ -226,6 +226,36 @@ defmodule Lepton.Apps do
   def running?(name), do: Enum.any?(Lepton.Proc.list(), &(&1.cmd == name))
 
   @doc """
+  The app's programs running as `uid` (from `/proc`: their executable is
+  in the app's directory). Firefox's content processes are among them.
+  """
+  def processes(name, uid) do
+    prefix = dir(name) <> "/"
+
+    for entry <- Path.wildcard("/proc/[0-9]*"),
+        {:ok, exe} <- [File.read_link(Path.join(entry, "exe"))],
+        String.starts_with?(exe, prefix),
+        {:ok, status} <- [File.read(Path.join(entry, "status"))],
+        [_, owner] <- [Regex.run(~r/^Uid:\s+(\d+)/m, status)],
+        String.to_integer(owner) == uid,
+        do: String.to_integer(Path.basename(entry))
+  end
+
+  @doc """
+  Stop an app's programs that were left behind (hung, or with no window
+  any more) and the locks they leave in its profile, so it can start
+  again. Returns how many were stopped.
+  """
+  def clear_leftovers(name, %Lepton.Users{uid: uid}, home) do
+    pids = processes(name, uid)
+    for pid <- pids, do: Lepton.Sys.shim("kill", ["-9", to_string(pid)])
+
+    # Firefox's profile locks: a symlink and a lock file.
+    for lock <- Path.wildcard(Path.join(home, ".mozilla/firefox/*/{lock,.parentlock}"), match_dot: true), do: File.rm(lock)
+    length(pids)
+  end
+
+  @doc """
   What starting an app does about updates: apply a staged one (if the app
   isn't running), and, when a check is due, look for a newer build in the
   background. Returns what was applied: `{:updated, version}` or `:none`.
