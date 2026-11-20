@@ -27,6 +27,9 @@ resurrect/continuum plugins are not run.
 Sessions keep running after you detach with `prefix d`. Reattach with
 `tmux attach` (or `tmux attach -t NAME`); `tmux ls` lists them.
 
+`kill-pane` ends the pane's shell and everything running in it,
+background jobs too; `kill-session` does that for every pane.
+
 ## Copy mode
 
 `prefix [` enters vi copy mode: move with the vi keys, `v` starts a

@@ -679,6 +679,24 @@ defmodule Lepton.PhotonTest do
     assert eventually(fn -> Photon.info(ph).windows == [] end)
   end
 
+  test "closing a terminal window stops what runs in it (as System Monitor's top)" do
+    {ph, _out, env} = start_photon()
+    # (top needs Linux's /proc: sleep is a command the shell starts too)
+    {:ok, term} = Photon.Term.start(env: env, user: "root", size: {10, 40}, command: "sleep 600", title: "System Monitor")
+    ref = Process.monitor(term)
+    tty = :sys.get_state(term).tty
+    on_tty = fn -> Enum.filter(Lepton.Proc.list(), &(&1.tty == tty)) end
+    # The shell running the command, and the command.
+    assert eventually(fn -> length(on_tty.()) >= 2 end)
+    procs = on_tty.()
+
+    # Alt+F4 closes the window.
+    for {code, down} <- [{56, true}, {62, true}, {62, false}, {56, false}], do: Photon.input(ph, {:key, code, down})
+    assert_receive {:DOWN, ^ref, _, _, _}, 5000
+    assert eventually(fn -> on_tty.() == [] end)
+    refute Enum.any?(procs, &Process.alive?(&1.beam))
+  end
+
   test "screens: displays side by side, or mirrored and scaled to fit" do
     out = fn w, h -> %Output{path: "d#{w}", width: w, height: h, stride: w * 4} end
     [a, b, c] = [out.(640, 400), out.(320, 200), out.(1280, 1000)]

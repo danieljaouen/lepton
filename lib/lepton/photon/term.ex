@@ -127,6 +127,8 @@ defmodule Lepton.Photon.Term do
 
   @impl true
   def terminate(_reason, st) do
+    # Closing the window hangs up its terminal: what runs in it (top) stops too.
+    Lepton.Proc.hangup(st.tty)
     if st.shell, do: Process.exit(elem(st.shell, 1), :kill)
     Client.close(st.c)
     :ok

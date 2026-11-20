@@ -131,6 +131,21 @@ defmodule Lepton.MuxTest do
       Lepton.Mux.Server.stop(pid)
     end
 
+    test "kill-pane stops what the pane's shell started too" do
+      ctx = %Lepton.Ctx{cwd: tmp_dir("mux"), env: %{"HOME" => dotfiles_home(), "NO_COLOR" => "1"}}
+      {:ok, pid} = DynamicSupervisor.start_child(Lepton.SessionSupervisor, {Lepton.Mux.Server, name: "t#{System.unique_integer([:positive])}", ctx: ctx, size: {24, 80}, command: "sleep 601"})
+      Process.sleep(300)
+      sleeping = fn -> Enum.filter(Lepton.Proc.list(), &(&1.cmd =~ "sleep 601" and &1.tty != nil)) end
+      assert [_ | _] = procs = sleeping.()
+      assert :ok = Lepton.Mux.Server.exec(pid, ["split-window", "-h"])
+      assert :ok = Lepton.Mux.Server.exec(pid, ["select-pane", "-L"])
+      assert :ok = Lepton.Mux.Server.exec(pid, ["kill-pane"])
+      Process.sleep(200)
+      refute Enum.any?(procs, &Process.alive?(&1.beam))
+      assert sleeping.() == []
+      Lepton.Mux.Server.stop(pid)
+    end
+
     @tag :dotfiles
     test "the user's zoom bindings (prefix + / prefix -) work as written" do
       cfg = Config.load(dotfiles_home())

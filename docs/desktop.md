@@ -43,8 +43,10 @@ it through.
 A terminal window runs `lsh` with your account, as your console does.
 Everything that works in a terminal works there, including `le`, `tmux`
 and the colours of your prompt. Resizing a window changes its rows and
-columns. Typing `exit` closes the window, and closing the window ends its
-shell. **Ctrl+Shift+V** pastes the clipboard.
+columns. Typing `exit` closes the window. Closing the window ends its
+shell and everything running in it, as closing a terminal does on Unix:
+close the System Monitor and its `top` stops too. Apps such as Firefox
+keep running. **Ctrl+Shift+V** pastes the clipboard.
 
 ## The clipboard
 

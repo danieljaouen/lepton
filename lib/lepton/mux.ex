@@ -254,7 +254,7 @@ defmodule Lepton.Mux.Server do
 
   def handle_cast(:stop, st) do
     for {c, _} <- st.clients, do: send(c, {:mux_exit, st.name})
-    for {_, p} <- st.panes, do: Process.exit(p.proc, :kill)
+    for {_, p} <- st.panes, do: (Lepton.Proc.hangup(p.tty); Process.exit(p.proc, :kill))
     {:stop, :normal, st}
   end
 
@@ -456,6 +456,8 @@ defmodule Lepton.Mux.Server do
       nil -> st
       p ->
         Process.demonitor(Process.monitor(p.proc))
+        # (and what the pane's shell started)
+        Lepton.Proc.hangup(p.tty)
         Process.exit(p.proc, :kill)
         close_pane(st, id)
     end

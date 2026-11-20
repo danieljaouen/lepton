@@ -106,6 +106,19 @@ defmodule Lepton.Proc do
     end
   end
 
+  @doc """
+  Hang up terminal `tty`: terminate every process it is the controlling
+  terminal of (its shell, and what the shell started: `top`, a pipeline,
+  background jobs), as closing a terminal window does on Unix. Apps
+  started without a terminal (Firefox) carry on.
+  """
+  def hangup(nil), do: :ok
+
+  def hangup(tty) do
+    for %{tty: ^tty, pid: pid} <- list(), pid != 1, do: signal(pid, :hup)
+    :ok
+  end
+
   @impl true
   def init(_) do
     :ets.new(@table, [:named_table, :public, :set])
