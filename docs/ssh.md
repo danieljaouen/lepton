@@ -151,6 +151,8 @@ against the one in `svc logs sshd` before you answer yes.
   `le`, `tmux`, `top` and `sudo` work as on the console. Closing the
   connection ends everything the session started.
 - `svc logs sshd` shows every login and every refused key.
+- To copy files, use [rsync](rsync.html) from the other computer:
+  `rsync -av dir/ alice@192.168.1.23:dir/`.
 - The host key is made the first time `sshd` starts, in
   `/var/lib/lepton/ssh`. An installed system keeps it; the live ISO makes
   a new one each boot.
@@ -166,6 +168,6 @@ address `svc logs sshd` shows.
 
 Logging in with a password (in both directions: keys only),
 passphrase-protected keys, `ssh-agent`, agent and port forwarding, and
-`scp`/`sftp` (to or from Lepton).
+`scp`/`sftp` (to or from Lepton: use [rsync](rsync.html) instead).
 
 <!-- commands: ssh ssh-keygen ssh-keyscan sshd -->

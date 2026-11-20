@@ -23,4 +23,4 @@ allowed).
 
 ## SEE ALSO
 
-mv(1), ln(1), rm(1)
+mv(1), ln(1), rm(1), rsync(1)

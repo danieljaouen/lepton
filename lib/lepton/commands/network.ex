@@ -210,6 +210,11 @@ defmodule Lepton.Commands.Network do
     Lepton.SSH.CLI.keygen(args, ctx)
   end
 
+  defcmd "rsync", "copy and synchronise files, locally or with another machine over SSH, sending only what changed",
+    usage: "rsync [-avrlptnczuh] [--delete] [--exclude PATTERN] [-e 'ssh OPTIONS'] SOURCE... DEST" do
+    Lepton.Rsync.run(args, ctx)
+  end
+
   defcmd "ssh-keyscan", "print a host's SSH public keys (known_hosts lines)", usage: "ssh-keyscan [-p PORT] [-t TYPES] HOST..." do
     Lepton.SSH.CLI.keyscan(args, ctx)
   end

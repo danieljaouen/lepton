@@ -17,6 +17,12 @@ ls /media/CAMERA          # use the files like any others
 eject /media/CAMERA       # ...then unplug it
 ```
 
+To back up to a drive, [rsync](rsync.html) copies only what changed since
+last time: `rsync -av ~/notes/ /media/BACKUP/notes/`. FAT and exFAT
+drives keep times only to the nearest two seconds, so if unchanged files
+are sent again each time, add `--size-only` (or `-c`, to compare
+contents).
+
 **Filesystems**: FAT (FAT12, FAT16, FAT32: most sticks and SD cards),
 exFAT (large SD cards), NTFS (Windows drives), ext2/3/4 (Linux drives) and
 ISO 9660 (CD images written to a stick). FAT, exFAT and NTFS have no

@@ -274,6 +274,7 @@ lib/lepton/            the operating system
   git.ex git/ gh.ex               git + GitHub (HTTPS and SSH remotes)
   ssh.ex ssh/                     SSH client: keys, known hosts, ssh/ssh-keygen
   sshd.ex                         SSH server (keys only): sessions on a TTY or pipes
+  rsync.ex rsync/                 rsync (protocol 27): client, server, file list, delta, -z tokens
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence, upgrades

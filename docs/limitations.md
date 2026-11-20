@@ -29,8 +29,11 @@ summary: What Lepton doesn't do yet.
   `Requires=`), timers, socket activation or resource limits.
 - git: no three-way merge (pulls fast-forward only) and no rebase.
 - SSH: keys only (no password logins, in or out), no passphrase-protected
-  keys, no `ssh-agent`, forwarding or `scp`/`sftp`. The SSH server
-  (`sshd`) offers shells and commands only.
+  keys, no `ssh-agent`, forwarding or `scp`/`sftp` (rsync works). The
+  SSH server (`sshd`) offers shells and commands only.
+- rsync: protocol 27; no hard links (`-H`), relative paths (`-R`),
+  owners and groups, or daemon mode, and Lepton's own transfers aren't
+  compressed.
 - `le` is a Spacemacs work-alike, not Emacs: it doesn't *evaluate* Elisp,
   so layers and packages aren't loaded. Unsupported bindings are
   reported.

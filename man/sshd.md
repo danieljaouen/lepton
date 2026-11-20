@@ -32,7 +32,8 @@ A login gets a shell on a terminal of its own, which follows the
 window's size; `ssh alice@ADDRESS COMMAND` runs COMMAND and returns its
 exit status. Closing the connection ends everything the session
 started, as a hangup does. File transfer (`scp`, `sftp`) and port
-forwarding are not offered.
+forwarding are not offered, but `rsync` works: a Mac's `rsync -av dir/
+alice@ADDRESS:dir/` runs Lepton's rsync on this side.
 
 The host key, an ed25519 key, is made the first time `sshd` starts. An
 installed system keeps it, so clients recognise Lepton after a restart;
@@ -58,4 +59,4 @@ the live ISO makes a new one each boot.
 
 ## SEE ALSO
 
-ssh(1), ssh-keygen(1), svc(1), useradd(1), https://trylepton.app/docs/ssh.html#logging-in-to-lepton
+ssh(1), ssh-keygen(1), rsync(1), svc(1), useradd(1), https://trylepton.app/docs/ssh.html#logging-in-to-lepton
