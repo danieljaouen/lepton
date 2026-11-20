@@ -34,6 +34,8 @@ summary: What Lepton doesn't do yet.
   scp and sshfs reach Lepton's `sshd`).
 - sshfs: no hard links or device files on the mount; a slow connection
   can hold up other file operations while it answers.
+- Printing: network IPP printers that take PDF (or JPEG); no USB
+  printers, raster-only printers or sharing.
 - Proxies carry TCP only: NTP (UDP) goes directly. HTTPS proxies (TLS to
   the proxy itself) and PAC files aren't supported.
 - rsync: protocol 27; no hard links (`-H`), relative paths (`-R`),

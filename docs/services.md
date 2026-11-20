@@ -90,8 +90,10 @@ Other keys are ignored, and `svc status` lists them.
   default.
 - **ntpd**: keeps the clock right and finds the [time zone](time.html).
   On by default.
+- **cups**: [printing](printing.html): the queue, and IPP on
+  127.0.0.1:631. On by default.
 
-Only `cron` and `ntpd` start by themselves: a shipped unit with an `[Install]` section
+Only `cron`, `ntpd` and `cups` start by themselves: a shipped unit with an `[Install]` section
 (`WantedBy=`) is on until you disable it, as systemd's presets do. The
 others start only when you start or enable them.
 

@@ -1,0 +1,12 @@
+# Printing: the print queue, and IPP on 127.0.0.1:631 for lp and Firefox.
+# On by default (it listens only on this machine).
+[Unit]
+Description=cups: printing (the queue, and IPP for lp and Firefox)
+
+[Service]
+ExecStart=cupsd
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

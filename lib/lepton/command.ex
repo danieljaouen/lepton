@@ -161,6 +161,7 @@ defmodule Lepton.Commands do
     Lepton.Commands.Dev,
     Lepton.Commands.Admin,
     Lepton.Commands.Services,
+    Lepton.Commands.Printing,
     Lepton.Commands.Desktop
   ]
 

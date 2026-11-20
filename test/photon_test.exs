@@ -610,7 +610,7 @@ defmodule Lepton.PhotonTest do
              match?([%{maximized: true, x: 0, y: 0} | _], Photon.info(ph).windows)
 
     # The Start menu: Firefox first, then Terminal; Ctrl+Esc opens it too.
-    menu_top = 400 - 28 - 158 + 2
+    menu_top = 400 - 28 - 182 + 2
     click.(20, 390)
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
@@ -619,6 +619,10 @@ defmodule Lepton.PhotonTest do
     click.(20, 390)
     click.(80, menu_top + 3 + 24 + 10)
     assert_receive {:spawned, []}, 1000
+    # Printers, the fifth: the chooser in a terminal window
+    click.(20, 390)
+    click.(80, menu_top + 3 + 4 * 24 + 10)
+    assert_receive {:spawned, [command: "printers" <> _, title: "Printers"]}, 1000
     for {k, down} <- [{29, true}, {1, true}, {1, false}, {29, false}], do: Photon.input(ph, {:key, k, down})
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")

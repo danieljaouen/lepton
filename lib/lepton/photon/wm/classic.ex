@@ -39,6 +39,7 @@ defmodule Lepton.Photon.WM.Classic do
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
+    {"Printers", :printer, [command: "printers; read -p 'Press Enter to close. ' x", title: "Printers"]},
     {"Help", :help, [command: "help | less", title: "Help"]},
     :separator,
     {"Exit Desktop...", :exit, :quit}
@@ -777,6 +778,18 @@ defmodule Lepton.Photon.WM.Classic do
       |> Canvas.fill(x + 2 * s + 1, y + 1, 12 * s - 2, 16 * s - 2, white)
 
     Enum.reduce(1..5, c, fn i, c -> Canvas.fill(c, x + 4 * s, y + (2 + 2 * i) * s, 8 * s, max(s - 1, 1), Render.rgb(@navy)) end)
+  end
+
+  # A printer: grey body, paper coming out of the top and the tray.
+  defp icon(c, x, y, :printer, size) do
+    s = div(size, 16)
+
+    c
+    |> Canvas.fill(x + 4 * s, y + 1 * s, 8 * s, 5 * s, Render.rgb(@white))
+    |> Canvas.bevel(x, y + 5 * s, 16 * s, 7 * s, :raised)
+    |> Canvas.fill(x + 12 * s, y + 7 * s, 2 * s, 1 * s, Render.rgb("#008000"))
+    |> Canvas.fill(x + 3 * s, y + 11 * s, 10 * s, 4 * s, Render.rgb(@white))
+    |> Canvas.fill(x + 5 * s, y + 12 * s, 6 * s, 1 * s, Render.rgb(@shadow))
   end
 
   defp icon(c, x, y, :monitor, size) do

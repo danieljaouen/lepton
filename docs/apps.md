@@ -86,6 +86,7 @@ downloads them in the background, and the start after that uses them.
 
 ## What's different from Firefox elsewhere
 
+- **Print** lists Lepton's [printers](printing.html), and prints to them.
 - It uses Lepton's [proxy](proxy.html), when one is set: Firefox is
   started with `http_proxy` and `https_proxy` pointing at Lepton, which
   takes each connection through the chain (restart Firefox after

@@ -31,6 +31,7 @@ defmodule LeptonBuild.Docs do
     Lepton.Commands.Dev => "Development",
     Lepton.Commands.Admin => "Administration",
     Lepton.Commands.Services => "Services",
+    Lepton.Commands.Printing => "Printing",
     Lepton.Commands.Desktop => "Desktop"
   }
 

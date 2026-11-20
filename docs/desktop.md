@@ -98,7 +98,8 @@ Photon with a different window manager, styled after Windows 95:
   volume's speaker (click it for the volume control: [Sound](sound.html))
   and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
-  Terminal, Text Editor, System Monitor, Help and Exit Desktop
+  Terminal, Text Editor, System Monitor, [Printers](printing.html) (choose
+  your default printer), Help and Exit Desktop
 
 The keys from the table above work here too. Exit Desktop (or
 Ctrl+Alt+Backspace) returns you to the console. Lepton never starts a

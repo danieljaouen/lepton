@@ -32,8 +32,8 @@ A service is a file `NAME.service` in systemd syntax, in
 `ExecStart` (a shell command line), `Restart` (`no`, `on-failure`,
 `always`), `RestartSec`, `Environment`, `WorkingDirectory` and
 `TimeoutStopSec`; `[Unit]` has `Description`. A shipped unit with
-`WantedBy=` in `[Install]` is enabled by default (`cron` and `ntpd`
-are), until disabled.
+`WantedBy=` in `[Install]` is enabled by default (`cron`, `ntpd` and
+`cups` are), until disabled.
 
     [Service]
     ExecStart=httpd -p 8080 ~/public
