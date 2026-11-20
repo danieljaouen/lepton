@@ -92,9 +92,28 @@ follow your terminal; `NO_COLOR=1` turns them off.
 
 `pbcopy` and `pbpaste` (also `xclip`, `xsel`, `wl-copy`, `wl-paste`)
 share one clipboard with tmux copy mode, editor yanks and the programs on
-the [desktop](desktop.html#the-clipboard), such as Firefox. Copies are also
-sent to your computer's terminal with OSC 52, so they can land in the Mac
-clipboard over a serial console.
+the [desktop](desktop.html#the-clipboard), such as Firefox.
+
+### Sharing it with your Mac (UTM)
+
+In UTM, Lepton's clipboard and your Mac's are one: copy on the Mac and
+`pbpaste` has it, so a public key copied on the Mac goes straight in:
+
+```sh
+pbpaste >> ~/.ssh/authorized_keys
+```
+
+and what you copy in Lepton (`pbcopy`, tmux, the editor, Firefox) can be
+pasted on the Mac with Cmd-V. This is UTM's **Clipboard Sharing** (VM
+settings → **Sharing**), which is on by default; Lepton speaks the SPICE
+guest agent's protocol to it, as `spice-vdagent` does on other Linux
+systems. Only text is shared. If `pbpaste` still has nothing after you
+copy on the Mac, check that setting is on and restart the VM (the
+setting adds a device). Other SPICE clients (virt-manager, `remote-viewer`)
+work the same way.
+
+Copies are also sent to your computer's terminal with OSC 52, so they can
+land in the Mac clipboard over a serial console or SSH too.
 
 ## Elixir and Erlang
 

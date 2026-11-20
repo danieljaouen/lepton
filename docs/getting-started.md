@@ -36,7 +36,10 @@ It is a hybrid image: it boots when attached as a CD or as a disk.
    UTM's terminal window. That window speaks xterm, so 256 colours and
    Unicode look better there than on the framebuffer console, and
    full-screen programs follow its window size.
-5. Start the VM. GRUB boots the default entry after 3 seconds. Other
+5. Leave **Sharing → Clipboard Sharing** on (the default): Lepton's
+   clipboard and your Mac's are then one (`pbpaste`, Cmd-V); see
+   [the clipboard](system.html#sharing-it-with-your-mac-utm).
+6. Start the VM. GRUB boots the default entry after 3 seconds. Other
    entries give a verbose boot and a boot that runs the self-tests.
 
 UTM's window shows the console with the default display card

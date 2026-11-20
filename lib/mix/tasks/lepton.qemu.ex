@@ -10,6 +10,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
       mix lepton.qemu --run "cmd"  # headless: boot, run shell commands, print output
       mix lepton.qemu --no-cd --disk DISK --login USER:PASS --run "cmd"  # an installed system
       mix lepton.qemu --ssh-port 2222  # forward the Mac's port 2222 to the VM's sshd (port 22)
+      mix lepton.qemu --vdagent SOCKET # the SPICE agent's port (UTM's clipboard sharing) on a Unix socket
 
   The machine matches UTM's defaults for ARM64 Linux guests: `virt`,
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
@@ -26,7 +27,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
   def run(args) do
     {opts, _} =
       OptionParser.parse!(args,
-        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string, displays: :integer, ssh_port: :integer]
+        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string, displays: :integer, ssh_port: :integer, vdagent: :string]
       )
 
     iso = opts[:iso] || @iso
@@ -84,6 +85,13 @@ defmodule Mix.Tasks.Lepton.Qemu do
     # ISO boots first when both are there (to upgrade the disk's Lepton).
     disk = if d = opts[:disk], do: ["-drive", "if=none,id=hd,file=#{d},format=#{if String.ends_with?(d, ".qcow2"), do: "qcow2", else: "raw"}", "-device", "virtio-blk-pci,drive=hd,bootindex=1"], else: []
 
+    # UTM's clipboard sharing: the port spice-vdagent talks on, here a
+    # socket for a test to play the SPICE client.
+    vdagent =
+      if sock = opts[:vdagent],
+        do: ["-device", "virtio-serial-pci", "-chardev", "socket,id=vda,path=#{sock},server=on,wait=off", "-device", "virtserialport,chardev=vda,name=com.redhat.spice.0"],
+        else: []
+
     accel = if :os.type() == {:unix, :darwin} and arm_host?(), do: ["-accel", "hvf", "-cpu", "host"], else: ["-cpu", "max"]
 
     ["-M", "virt"] ++
@@ -98,6 +106,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
       ] ++
       cd ++
       disk ++
+      vdagent ++
       [
         "-device",
         "virtio-net-pci,netdev=net0",
