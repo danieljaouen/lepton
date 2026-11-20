@@ -40,9 +40,25 @@ defmodule Lepton.Rsync.Delta do
 
   @doc "MD4, from OpenSSL when it has it, else in Elixir."
   def md4(data) do
-    :crypto.hash(:md4, data)
-  rescue
-    _ -> Lepton.Rsync.MD4.hash(IO.iodata_to_binary(data))
+    if crypto_md4?(), do: :crypto.hash(:md4, data), else: Lepton.Rsync.MD4.hash(IO.iodata_to_binary(data))
+  end
+
+  defp crypto_md4? do
+    case :persistent_term.get({__MODULE__, :md4}, nil) do
+      nil ->
+        ok = try do
+          _ = :crypto.hash(:md4, "")
+          true
+        rescue
+          _ -> false
+        end
+
+        :persistent_term.put({__MODULE__, :md4}, ok)
+        ok
+
+      ok ->
+        ok
+    end
   end
 
   # -- the receiver: block checksums -------------------------------------------------------
@@ -277,49 +293,81 @@ defmodule Lepton.Rsync.Delta do
 end
 
 defmodule Lepton.Rsync.MD4 do
-  @moduledoc "MD4 (RFC 1320), for when the crypto library has dropped it."
+  @moduledoc """
+  MD4 (RFC 1320), for when the crypto library has dropped it (as the
+  image's OpenSSL has). The 48 steps are written out, for speed.
+  """
   import Bitwise
-
-  @mask 0xFFFFFFFF
 
   def hash(msg) do
     bits = byte_size(msg) * 8
     pad = rem(55 - rem(byte_size(msg), 64) + 64, 64)
-    msg = msg <> <<0x80>> <> :binary.copy(<<0>>, pad) <> <<bits::little-64>>
-    {a, b, c, d} = blocks(msg, {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476})
+    {a, b, c, d} = blocks(msg <> <<0x80>> <> :binary.copy(<<0>>, pad) <> <<bits::little-64>>, 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476)
     <<a::little-32, b::little-32, c::little-32, d::little-32>>
   end
 
-  defp blocks(<<block::binary-64, rest::binary>>, {a0, b0, c0, d0}) do
-    x = for <<w::little-32 <- block>>, do: w
-    x = List.to_tuple(x)
-    {a, b, c, d} = rounds(x, {a0, b0, c0, d0})
-    blocks(rest, {(a + a0) &&& @mask, (b + b0) &&& @mask, (c + c0) &&& @mask, (d + d0) &&& @mask})
+  defp blocks(<<x0::little-32, x1::little-32, x2::little-32, x3::little-32, x4::little-32, x5::little-32, x6::little-32, x7::little-32, x8::little-32, x9::little-32, x10::little-32, x11::little-32, x12::little-32, x13::little-32, x14::little-32, x15::little-32, rest::binary>>, a0, b0, c0, d0) do
+    {a, b, c, d} = {a0, b0, c0, d0}
+    a = rot(a + f(b, c, d) + x0 + 0, 3)
+    d = rot(d + f(a, b, c) + x1 + 0, 7)
+    c = rot(c + f(d, a, b) + x2 + 0, 11)
+    b = rot(b + f(c, d, a) + x3 + 0, 19)
+    a = rot(a + f(b, c, d) + x4 + 0, 3)
+    d = rot(d + f(a, b, c) + x5 + 0, 7)
+    c = rot(c + f(d, a, b) + x6 + 0, 11)
+    b = rot(b + f(c, d, a) + x7 + 0, 19)
+    a = rot(a + f(b, c, d) + x8 + 0, 3)
+    d = rot(d + f(a, b, c) + x9 + 0, 7)
+    c = rot(c + f(d, a, b) + x10 + 0, 11)
+    b = rot(b + f(c, d, a) + x11 + 0, 19)
+    a = rot(a + f(b, c, d) + x12 + 0, 3)
+    d = rot(d + f(a, b, c) + x13 + 0, 7)
+    c = rot(c + f(d, a, b) + x14 + 0, 11)
+    b = rot(b + f(c, d, a) + x15 + 0, 19)
+    a = rot(a + g(b, c, d) + x0 + 0x5A827999, 3)
+    d = rot(d + g(a, b, c) + x4 + 0x5A827999, 5)
+    c = rot(c + g(d, a, b) + x8 + 0x5A827999, 9)
+    b = rot(b + g(c, d, a) + x12 + 0x5A827999, 13)
+    a = rot(a + g(b, c, d) + x1 + 0x5A827999, 3)
+    d = rot(d + g(a, b, c) + x5 + 0x5A827999, 5)
+    c = rot(c + g(d, a, b) + x9 + 0x5A827999, 9)
+    b = rot(b + g(c, d, a) + x13 + 0x5A827999, 13)
+    a = rot(a + g(b, c, d) + x2 + 0x5A827999, 3)
+    d = rot(d + g(a, b, c) + x6 + 0x5A827999, 5)
+    c = rot(c + g(d, a, b) + x10 + 0x5A827999, 9)
+    b = rot(b + g(c, d, a) + x14 + 0x5A827999, 13)
+    a = rot(a + g(b, c, d) + x3 + 0x5A827999, 3)
+    d = rot(d + g(a, b, c) + x7 + 0x5A827999, 5)
+    c = rot(c + g(d, a, b) + x11 + 0x5A827999, 9)
+    b = rot(b + g(c, d, a) + x15 + 0x5A827999, 13)
+    a = rot(a + h(b, c, d) + x0 + 0x6ED9EBA1, 3)
+    d = rot(d + h(a, b, c) + x8 + 0x6ED9EBA1, 9)
+    c = rot(c + h(d, a, b) + x4 + 0x6ED9EBA1, 11)
+    b = rot(b + h(c, d, a) + x12 + 0x6ED9EBA1, 15)
+    a = rot(a + h(b, c, d) + x2 + 0x6ED9EBA1, 3)
+    d = rot(d + h(a, b, c) + x10 + 0x6ED9EBA1, 9)
+    c = rot(c + h(d, a, b) + x6 + 0x6ED9EBA1, 11)
+    b = rot(b + h(c, d, a) + x14 + 0x6ED9EBA1, 15)
+    a = rot(a + h(b, c, d) + x1 + 0x6ED9EBA1, 3)
+    d = rot(d + h(a, b, c) + x9 + 0x6ED9EBA1, 9)
+    c = rot(c + h(d, a, b) + x5 + 0x6ED9EBA1, 11)
+    b = rot(b + h(c, d, a) + x13 + 0x6ED9EBA1, 15)
+    a = rot(a + h(b, c, d) + x3 + 0x6ED9EBA1, 3)
+    d = rot(d + h(a, b, c) + x11 + 0x6ED9EBA1, 9)
+    c = rot(c + h(d, a, b) + x7 + 0x6ED9EBA1, 11)
+    b = rot(b + h(c, d, a) + x15 + 0x6ED9EBA1, 15)
+    blocks(rest, (a + a0) &&& 0xFFFFFFFF, (b + b0) &&& 0xFFFFFFFF, (c + c0) &&& 0xFFFFFFFF, (d + d0) &&& 0xFFFFFFFF)
   end
 
-  defp blocks(<<>>, acc), do: acc
+  defp blocks(<<>>, a, b, c, d), do: {a, b, c, d}
 
-  defp rounds(x, {a, b, c, d}) do
-    f = fn x, y, z -> (x &&& y) ||| (bnot(x) &&& z) end
-    g = fn x, y, z -> (x &&& y) ||| (x &&& z) ||| (y &&& z) end
-    h = fn x, y, z -> bxor(bxor(x, y), z) end
-    rot = fn v, s -> ((v <<< s) ||| (v >>> (32 - s))) &&& @mask end
+  @compile {:inline, f: 3, g: 3, h: 3, rot: 2}
+  defp f(x, y, z), do: (x &&& y) ||| (bxor(x, 0xFFFFFFFF) &&& z)
+  defp g(x, y, z), do: (x &&& y) ||| (x &&& z) ||| (y &&& z)
+  defp h(x, y, z), do: bxor(bxor(x, y), z)
 
-    r1 = for i <- 0..15, do: {i, Enum.at([3, 7, 11, 19], rem(i, 4))}
-    r2 = for i <- [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15] |> Enum.with_index(), do: {elem(i, 0), Enum.at([3, 5, 9, 13], rem(elem(i, 1), 4))}
-    r3 = for i <- [0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15] |> Enum.with_index(), do: {elem(i, 0), Enum.at([3, 9, 11, 15], rem(elem(i, 1), 4))}
-
-    # Each step computes a new value for the register in turn (a, d, c, b)
-    # and rotates the tuple so the next register comes first.
-    run = fn regs, round, fun, add ->
-      Enum.reduce(round, regs, fn {i, s}, {a, b, c, d} ->
-        a = rot.((a + fun.(b, c, d) + elem(x, i) + add) &&& @mask, s)
-        {d, a, b, c}
-      end)
-    end
-
-    regs = run.({a, b, c, d}, r1, f, 0)
-    regs = run.(regs, r2, g, 0x5A827999)
-    run.(regs, r3, h, 0x6ED9EBA1)
+  defp rot(v, s) do
+    v = v &&& 0xFFFFFFFF
+    ((v <<< s) ||| (v >>> (32 - s))) &&& 0xFFFFFFFF
   end
 end
