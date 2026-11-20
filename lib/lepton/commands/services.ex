@@ -33,11 +33,15 @@ defmodule Lepton.Commands.Services do
     end
   end
 
-  defcmd "httpd", "serve a directory over HTTP (static files)", usage: "httpd [-p PORT] [DIR]" do
-    {opts, rest} = Lepton.Args.getopt(args, "p:")
-    port = Lepton.Args.int(opts, "p", 8080)
-    dir = Ctx.path(ctx, List.first(rest, "."))
-    httpd(ctx, port, dir)
+  defcmd "httpd", "web server: files, and HTTPS in front of web apps (Phoenix), WebSockets too",
+    usage: "httpd [-p PORT] [-s TLS_PORT] [-x APP_URL] [-c CERT -k KEY] [-r] [-f CONFIG] [DIR]" do
+    {opts, rest} = Lepton.Args.getopt(args, "p:s:x:c:k:rf:")
+    httpd(ctx, opts, rest)
+  end
+
+  defcmd "cert", "TLS certificates for httpd: a local CA, self-signed, Let's Encrypt",
+    usage: "cert list | local HOST... | self-signed HOST... | letsencrypt [-m EMAIL] [--staging] DOMAIN... | renew | import NAME CERT KEY | rm NAME | ca | trust" do
+    cert(args, ctx)
   end
 
   defcmd "sshd", "SSH server: log in to Lepton from other machines, with keys only", usage: "sshd [-p PORT]", root: true do
@@ -326,45 +330,112 @@ defmodule Lepton.Commands.Services do
 
   # -- httpd ----------------------------------------------------------------------------------
 
-  defp httpd(ctx, port, dir) do
-    if File.dir?(dir) do
-      :inets.start()
-      root = String.to_charlist(dir)
+  defp httpd(ctx, opts, rest) do
+    log = &IO.puts(ctx, &1)
 
-      # Static files only: no CGI/ESI modules.
-      config = [
-        port: port, bind_address: :any, server_name: ~c"lepton", server_root: root, document_root: root,
-        directory_index: [~c"index.html", ~c"index.htm"], modules: [:mod_alias, :mod_dir, :mod_get, :mod_head],
-        mime_types: [{~c"html", ~c"text/html"}, {~c"htm", ~c"text/html"}, {~c"css", ~c"text/css"}, {~c"js", ~c"text/javascript"},
-                     {~c"json", ~c"application/json"}, {~c"txt", ~c"text/plain"}, {~c"md", ~c"text/plain"}, {~c"png", ~c"image/png"},
-                     {~c"jpg", ~c"image/jpeg"}, {~c"svg", ~c"image/svg+xml"}, {~c"ico", ~c"image/x-icon"}]
-      ]
-
-      # Trap exits so `svc stop` / C-c shut the server down cleanly.
-      Process.flag(:trap_exit, true)
-
-      case :inets.start(:httpd, config, :stand_alone) do
-        {:ok, server} ->
-          IO.puts(ctx, "httpd: serving #{dir} on http://0.0.0.0:#{port}/")
-          serve(server)
-
-        {:error, reason} ->
-          IO.err(ctx, "httpd: cannot listen on port #{port}: #{inspect(reason)}")
-          1
+    base =
+      case opts["f"] do
+        nil -> {:ok, %Lepton.HTTPD{}}
+        path -> Lepton.HTTPD.config(Ctx.path(ctx, path))
       end
+
+    with {:ok, cfg} <- base,
+         {:ok, cfg} <- httpd_flags(ctx, cfg, opts, rest) do
+      Lepton.HTTPD.run(%{cfg | log: log})
     else
-      IO.err(ctx, "httpd: #{dir}: no such directory")
-      1
+      {:error, msg} when is_binary(msg) -> IO.err(ctx, "httpd: #{msg}"); 1
+      {:error, r} -> IO.err(ctx, "httpd: #{opts["f"]}: #{:file.format_error(r)}"); 1
     end
   end
 
-  defp serve(server) do
-    receive do
-      {:EXIT, ^server, reason} -> exit(reason)
-      {:EXIT, _from, reason} -> :inets.stop(:stand_alone, server); exit(reason)
-      {:signal, sig} when sig in [:term, :int] -> :inets.stop(:stand_alone, server); 0
-      _ -> serve(server)
+  # The command line's site (a directory or an app), on top of the config file's.
+  defp httpd_flags(ctx, cfg, opts, rest) do
+    cfg = %{cfg | port: Lepton.Args.int(opts, "p", cfg.port), redirect_https: cfg.redirect_https || opts["r"] == true}
+    cfg = if opts["s"], do: %{cfg | tls_port: Lepton.Args.int(opts, "s", 8443)}, else: cfg
+    cfg = %{cfg | cert: opts["c"] && Ctx.path(ctx, opts["c"]), key: opts["k"] && Ctx.path(ctx, opts["k"])}
+
+    site =
+      cond do
+        opts["x"] -> %{host: "*", proxy: opts["x"], root: nil, cert: nil, key: nil}
+        rest != [] or cfg.sites == [] -> %{host: "*", root: Ctx.path(ctx, List.first(rest, ".")), proxy: nil, cert: nil, key: nil}
+        true -> nil
+      end
+
+    cond do
+      site && site.root && not File.dir?(site.root) -> {:error, "#{site.root}: no such directory"}
+      site && site.proxy && URI.parse(site.proxy).scheme != "http" -> {:error, "#{site.proxy}: the app's address is http://HOST:PORT"}
+      (cfg.cert == nil) != (cfg.key == nil) -> {:error, "-c CERT and -k KEY go together"}
+      true -> {:ok, %{cfg | sites: cfg.sites ++ List.wrap(site)}}
     end
+  end
+
+  # -- cert -----------------------------------------------------------------------------------
+
+  @cert_changes ~w(local self-signed letsencrypt renew import rm trust)
+
+  defp cert([sub | _], ctx) when sub in @cert_changes and ctx.user != "root", do: Lepton.Users.denied(ctx, "cert #{sub}")
+
+  defp cert(args, ctx) do
+    case args do
+      [] -> cert_list(ctx)
+      ["list"] -> cert_list(ctx)
+      ["local" | hosts] when hosts != [] -> cert_made(ctx, Lepton.Certs.local(hosts), "from Lepton's local CA")
+      ["self-signed" | hosts] when hosts != [] -> cert_made(ctx, Lepton.Certs.self_signed(hosts), "self-signed")
+      ["letsencrypt" | rest] -> cert_acme(ctx, rest)
+      ["renew" | _] -> cert_renew(ctx)
+      ["import", name, c, k] -> cert_done(ctx, Lepton.Certs.import(name, Ctx.path(ctx, c), Ctx.path(ctx, k)), "#{name} imported")
+      ["rm", name] -> cert_done(ctx, Lepton.Certs.remove(name), nil)
+      ["ca"] -> Lepton.Certs.ca(); IO.write(ctx, File.read!(Lepton.Certs.ca_cert_path())); 0
+      ["trust"] -> Lepton.Certs.ca(); Lepton.Certs.trust_local_ca(); IO.puts(ctx, "Lepton's local CA is trusted (Firefox: after a restart)."); 0
+      _ -> IO.err(ctx, "usage: cert list | local HOST... | self-signed HOST... | letsencrypt [-m EMAIL] [--staging] DOMAIN... | renew | import NAME CERT KEY | rm NAME | ca | trust"); 2
+    end
+  end
+
+  defp cert_list(ctx) do
+    now = System.os_time(:second)
+
+    for c <- Lepton.Certs.list() do
+      days = div(c.not_after - now, 86_400)
+      left = if days < 0, do: "EXPIRED", else: "#{days} days"
+      IO.puts(ctx, "#{String.pad_trailing(c.name, 24)} #{String.pad_trailing(left, 10)} #{Enum.join(c.hosts, " ")}  (#{c.issuer})")
+    end
+
+    0
+  end
+
+  defp cert_made(ctx, {:ok, name}, how) do
+    IO.puts(ctx, "#{Path.join(Lepton.Certs.dir(), name)}.crt (#{how}); httpd uses it for its names.")
+    0
+  end
+
+  defp cert_done(ctx, :ok, msg) do
+    if msg, do: IO.puts(ctx, msg)
+    0
+  end
+
+  defp cert_done(ctx, {:error, msg}, _), do: (IO.err(ctx, "cert: #{msg}"); 1)
+
+  defp cert_acme(ctx, args) do
+    {opts, domains} = Lepton.Args.getopt(args, "m:")
+
+    if domains == [] do
+      IO.err(ctx, "usage: cert letsencrypt [-m EMAIL] [--staging] DOMAIN...")
+      2
+    else
+      dir = if opts["staging"], do: Lepton.Certs.acme_directory(:staging), else: opts["directory"] || Lepton.Certs.acme_directory(:production)
+
+      case Lepton.Certs.acme(domains, email: opts["m"], directory: dir, log: &IO.puts(ctx, "cert: " <> &1)) do
+        {:ok, name} -> cert_made(ctx, {:ok, name}, "from Let's Encrypt")
+        {:error, msg} -> IO.err(ctx, "cert: #{msg}"); 1
+      end
+    end
+  end
+
+  defp cert_renew(ctx) do
+    Enum.reduce(Lepton.Certs.renew(), 0, fn
+      {name, {:ok, _}}, st -> IO.puts(ctx, "#{name}: renewed"); st
+      {name, {:error, msg}}, _ -> IO.err(ctx, "cert: #{name}: #{msg}"); 1
+    end)
   end
 
   # -- sshd -----------------------------------------------------------------------------------

@@ -57,7 +57,8 @@ defmodule Lepton.Git.Remote do
     if opts[:insecure] do
       [verify: :verify_none]
     else
-      [verify: :verify_peer, cacerts: cacerts(), depth: 10, customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]]
+      # (and Lepton's local CA, for development certificates: Lepton.Certs)
+      [verify: :verify_peer, cacerts: cacerts() ++ Lepton.Certs.extra_cacerts(), depth: 10, customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]]
     end
   end
 

@@ -291,6 +291,7 @@ lib/lepton/            the operating system
   cron.ex                         cron: crontab syntax, crond (the cron service)
   ntp.ex time.ex tz.ex            ntpd (SNTP, GeoIP time zone), local time, TZif zone files
   proxy.ex                        proxies and chains (HTTP CONNECT, SOCKS4/5), the web forwarder
+  httpd.ex certs.ex                the web server (files, reverse proxy, WebSockets, TLS by SNI) and certificates (local CA, ACME)
   ipp.ex print.ex print/          printing: IPP, mDNS discovery, text to PDF, cupsd (IPP server on :631)
   photon.ex photon/ wayland/      Photon: Wayland compositor, displays, window managers, terminal windows, protocol
   apps.ex alpine.ex fd.ex         native apps (Firefox) from Alpine packages; the NIF: close, ioctl

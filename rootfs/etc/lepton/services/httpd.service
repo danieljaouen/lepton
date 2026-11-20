@@ -2,7 +2,7 @@
 #   mkdir -p ~/public && echo hi > ~/public/index.html
 #   svc start httpd; curl http://localhost:8080/
 [Unit]
-Description=Static web server for ~/public (port 8080)
+Description=Web server: ~/public on port 8080 (see https://trylepton.app/docs/web.html)
 
 [Service]
 ExecStart=mkdir -p ~/public && httpd -p 8080 ~/public

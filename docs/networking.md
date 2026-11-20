@@ -39,7 +39,9 @@ connects to any TCP port (`nc -z host 22` checks it's open).
 
 ## Serving
 
-`httpd [-p PORT] [DIR]` serves a directory over HTTP. Run it as a
+`httpd [-p PORT] [DIR]` serves a directory over HTTP; it also serves
+HTTPS in front of a Phoenix app, with certificates from `cert`: see
+[the web server](web.html). Run it as a
 [service](services.html#httpd) to keep it running in the background.
 
 ## Wi-Fi

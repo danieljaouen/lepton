@@ -99,9 +99,9 @@ others start only when you start or enable them.
 
 ## httpd
 
-`httpd [-p PORT] [DIR]` serves a directory over HTTP (static files only),
-using the web server built into Erlang/OTP. It makes a good first
-service:
+`httpd [-p PORT] [DIR]` serves a directory over HTTP (and, with more
+options, HTTPS in front of a web app: see [the web server](web.html)).
+It makes a good first service:
 
 ```sh
 sudo mkdir -p /root/public && echo 'hello' | sudo tee /root/public/index.html
