@@ -317,7 +317,7 @@ defmodule Lepton.Mux.Client do
     |> String.replace("#P", to_string((pane && pane.index) || 0))
     |> String.replace("#H", Lepton.Sys.hostname())
     |> String.replace("#h", Lepton.Sys.hostname() |> String.split(".") |> hd())
-    |> then(&Lepton.Commands.System.strftime(DateTime.utc_now(), &1))
+    |> then(&Lepton.Commands.System.strftime(Lepton.Time.local(), &1))
   end
 
   # -- prompts ---------------------------------------------------------------------------------
@@ -600,7 +600,7 @@ defmodule Lepton.Mux.Client do
         {acc <> styled, len + String.length(label)}
       end)
 
-    now = DateTime.utc_now()
+    now = Lepton.Time.local()
     right_text = " #{Lepton.Commands.System.strftime(now, "%H:%M")} #{sep} #{Lepton.Commands.System.strftime(now, "%d-%b-%y")} "
     host = " #{Lepton.Sys.hostname()} "
     right = "\e[48;5;238;38;5;250m#{right_text}\e[4#{c};30;1m#{host}\e[0m"
@@ -610,7 +610,7 @@ defmodule Lepton.Mux.Client do
   end
 
   defp clock_row(_scr, y, w, h, theme) do
-    {_, {hh, mm, _}} = :calendar.universal_time()
+    {_, {hh, mm, _}} = Lepton.Time.erl()
     text = :io_lib.format("~2..0B:~2..0B", [hh, mm]) |> to_string()
     if y == div(h, 2) do
       centered = text |> String.pad_leading(div(w + 5, 2)) |> String.pad_trailing(w)

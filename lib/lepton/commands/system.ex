@@ -127,7 +127,7 @@ defmodule Lepton.Commands.System do
   end
 
   defp clock do
-    {_, {h, m, s}} = :calendar.local_time()
+    {_, {h, m, s}} = Lepton.Time.erl()
     Enum.map_join([h, m, s], ":", &String.pad_leading(to_string(&1), 2, "0"))
   end
 
@@ -185,20 +185,142 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "date", "print the system date and time", usage: "date [+FORMAT] [-u]" do
+  defcmd "date", "print the date and time (in the local time zone)", usage: "date [-u] [-I] [+FORMAT]" do
     {opts, rest} = getopt(args, "uI")
-    now = DateTime.utc_now()
+    zone = if opts["u"], do: "UTC", else: Lepton.Time.zone(ctx)
+    now = Lepton.Time.local(System.os_time(:second), zone)
 
     text =
       case {rest, opts["I"]} do
         {["+" <> fmt | _], _} -> strftime(now, fmt)
         {_, true} -> Date.to_iso8601(now)
-        _ -> strftime(now, "%a %b %e %H:%M:%S UTC %Y")
+        _ -> strftime(now, "%a %b %e %H:%M:%S %Z %Y")
       end
 
     IO.puts(ctx, text)
     0
   end
+
+  defcmd "ntpd", "keep the clock right with NTP (the ntpd service runs it); -q: set it once",
+    usage: "ntpd [-q] [-p SERVER]...", root: true do
+    {servers, rest} = ntpd_servers(args, [])
+
+    case rest do
+      ["-q"] ->
+        case Lepton.NTP.once(if servers == [], do: Lepton.NTP.servers(), else: servers) do
+          {:ok, a, stepped} ->
+            IO.puts(ctx, "ntpd: #{a.host} (#{:inet.ntoa(a.server)}): offset #{Float.round(a.offset, 3)} s, delay #{Float.round(a.delay, 3)} s; " <>
+              if(stepped, do: "clock set", else: "clock is right"))
+            0
+
+          {:error, reason} ->
+            IO.err(ctx, "ntpd: #{if is_binary(reason), do: reason, else: "no time server answered (#{inspect(reason)})"}")
+            1
+        end
+
+      [] ->
+        Lepton.NTP.daemon(&IO.puts(ctx, &1), if(servers == [], do: [], else: [servers: servers]))
+
+      _ ->
+        IO.err(ctx, "usage: ntpd [-q] [-p SERVER]...")
+        2
+    end
+  end
+
+  defp ntpd_servers(["-p", s | rest], acc), do: ntpd_servers(rest, acc ++ [s])
+  defp ntpd_servers([a | rest], acc), do: (fn {s, r} -> {s, [a | r]} end).(ntpd_servers(rest, acc))
+  defp ntpd_servers([], acc), do: {acc, []}
+
+  defcmd "timedatectl", "the clock and time zone: show them, set the zone, list zones, turn NTP on or off",
+    usage: "timedatectl [status] | set-timezone ZONE|auto | list-timezones [TEXT] | set-ntp yes|no" do
+    timedatectl(args, ctx)
+  end
+
+  defp timedatectl(args, ctx) when args in [[], ["status"]] do
+    now = System.os_time(:second)
+    {zone, mode} = Lepton.Time.setting()
+    local = Lepton.Time.local(now, zone)
+    ntp = Lepton.NTP.status()
+
+    service =
+      case Lepton.Services.status("ntpd") do
+        %{state: state} -> to_string(state)
+        _ -> "unknown"
+      end
+
+    synced =
+      case ntp do
+        %{last_sync: t, server: server, offset: off} when is_integer(t) ->
+          "#{if ntp.synced, do: "yes", else: "no"} (#{server}, offset #{Float.round(off, 3)} s, #{ago(now - t)})"
+
+        _ ->
+          "no"
+      end
+
+    how = if mode == :auto, do: "automatic, from this network's address", else: "set with timedatectl"
+
+    for {k, v} <- [
+          {"Local time", strftime(local, "%a %Y-%m-%d %H:%M:%S %Z")},
+          {"Universal time", strftime(Lepton.Time.local(now, "UTC"), "%a %Y-%m-%d %H:%M:%S UTC")},
+          {"Time zone", "#{zone} (#{local.zone_abbr}, #{Lepton.Time.offset(local)}), #{how}"},
+          {"Clock synchronized", synced},
+          {"NTP service", "#{service} (#{if Lepton.Services.enabled?("ntpd"), do: "enabled", else: "disabled"})"}
+        ] do
+      IO.puts(ctx, String.pad_leading(k, 18) <> ": " <> v)
+    end
+
+    0
+  end
+
+  defp timedatectl(["set-timezone", zone], ctx) do
+    cond do
+      not Lepton.Users.root?(ctx) ->
+        Lepton.Users.denied(ctx, "timedatectl set-timezone")
+
+      zone == "auto" ->
+        :ok = Lepton.Time.set_zone(Lepton.Time.zone(), :auto)
+        IO.puts(ctx, "The time zone is automatic again: ntpd looks it up from this network's address.")
+
+        case Lepton.NTP.geo_zone() do
+          {:ok, z} -> Lepton.Time.set_zone(z, :auto); IO.puts(ctx, "Time zone: #{z}")
+          {:error, _} -> IO.puts(ctx, "(It can't be looked up now; ntpd will when the network is up.)")
+        end
+
+        0
+
+      true ->
+        case Lepton.Time.set_zone(zone, :manual) do
+          :ok -> 0
+          {:error, msg} -> IO.err(ctx, "timedatectl: #{msg} (see timedatectl list-timezones)"); 1
+        end
+    end
+  end
+
+  defp timedatectl(["list-timezones" | filter], ctx) do
+    f = filter |> List.first("") |> String.downcase()
+    for z <- Lepton.TZ.zones(), String.contains?(String.downcase(z), f), do: IO.puts(ctx, z)
+    0
+  end
+
+  defp timedatectl(["set-ntp", on], ctx) when on in ~w(yes no true false 1 0 on off) do
+    if Lepton.Users.root?(ctx) do
+      on? = on in ~w(yes true 1 on)
+      Lepton.Services.set_enabled("ntpd", on?)
+      if on?, do: Lepton.Services.start("ntpd"), else: Lepton.Services.stop("ntpd")
+      0
+    else
+      Lepton.Users.denied(ctx, "timedatectl set-ntp")
+    end
+  end
+
+  defp timedatectl(_, ctx) do
+    IO.err(ctx, "usage: timedatectl [status] | set-timezone ZONE|auto | list-timezones [TEXT] | set-ntp yes|no")
+    2
+  end
+
+  defp ago(s) when s < 60, do: "#{s} s ago"
+  defp ago(s) when s < 3600, do: "#{div(s, 60)} min ago"
+  defp ago(s), do: "#{div(s, 3600)} h ago"
 
   @days ~w(Mon Tue Wed Thu Fri Sat Sun)
   @months ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
@@ -210,7 +332,8 @@ defmodule Lepton.Commands.System do
       case c do
         "Y" -> to_string(dt.year)
         "y" -> p2.(rem(dt.year, 100))
-        "Z" -> "UTC"
+        "Z" -> Map.get(dt, :zone_abbr, "UTC")
+        "z" -> Lepton.Time.offset(dt)
         "A" -> Enum.at(~w(Monday Tuesday Wednesday Thursday Friday Saturday Sunday), Date.day_of_week(dt) - 1)
         "B" -> Enum.at(~w(January February March April May June July August September October November December), dt.month - 1)
         "I" -> p2.(rem(dt.hour + 11, 12) + 1)
@@ -234,7 +357,7 @@ defmodule Lepton.Commands.System do
   end
 
   defcmd "cal", "display a calendar", usage: "cal" do
-    today = Date.utc_today()
+    today = DateTime.to_date(Lepton.Time.local())
     first = Date.new!(today.year, today.month, 1)
     IO.puts(ctx, String.pad_leading("#{Enum.at(~w(January February March April May June July August September October November December), today.month - 1)} #{today.year}", 15))
     IO.puts(ctx, "Su Mo Tu We Th Fr Sa")

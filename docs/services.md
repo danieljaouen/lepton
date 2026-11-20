@@ -88,8 +88,10 @@ Other keys are ignored, and `svc status` lists them.
 
 - **cron**: runs the jobs in everyone's [crontab](cron.html). On by
   default.
+- **ntpd**: keeps the clock right and finds the [time zone](time.html).
+  On by default.
 
-Only `cron` starts by itself: a shipped unit with an `[Install]` section
+Only `cron` and `ntpd` start by themselves: a shipped unit with an `[Install]` section
 (`WantedBy=`) is on until you disable it, as systemd's presets do. The
 others start only when you start or enable them.
 

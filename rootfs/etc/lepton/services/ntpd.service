@@ -1,0 +1,12 @@
+# Keeps the clock right with NTP, and finds the time zone (see timedatectl).
+# On by default; to turn it off: sudo timedatectl set-ntp no
+[Unit]
+Description=ntpd: keeps the clock right (NTP) and finds the time zone
+
+[Service]
+ExecStart=ntpd
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

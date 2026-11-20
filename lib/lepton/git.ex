@@ -481,7 +481,7 @@ defmodule Lepton.Git do
     name = Config.get(cfg, "user", "name") || "root"
     email = Config.get(cfg, "user", "email") || "root@lepton"
     ts = System.os_time(:second)
-    "#{name} <#{email}> #{ts} +0000"
+    "#{name} <#{email}> #{ts} #{Lepton.Time.offset(Lepton.Time.local(ts))}"
   end
 
   def commit(repo, message, opts \\ []) do

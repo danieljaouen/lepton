@@ -404,7 +404,7 @@ defmodule Lepton.Commands.Services do
   @crontab_usage "usage: crontab [-u USER] -l | -e | -r | FILE | -"
 
   @template """
-  # Your crontab: commands to run at set times. Times are UTC (see `date`).
+  # Your crontab: commands to run at set times, in local time (see `date`).
   # Each line: minute hour day-of-month month day-of-week command
   #   *  any     1,15  a list     1-5  a range     */10  every tenth
   # or @reboot, @hourly, @daily, @weekly, @monthly, @yearly, then the command.

@@ -159,7 +159,7 @@ defmodule LeptonBuild.Image do
 
     erl_args =
       "-noshell -noinput -boot #{@erlang_root}/releases/#{otp_release}/start_clean " <>
-        "+fnu +sbwt none +sbwtdcpu none +sbwtdio none +Bi -s Elixir.Lepton.Init main"
+        "+fnu +sbwt none +sbwtdcpu none +sbwtdio none +Bi +C multi_time_warp -s Elixir.Lepton.Init main"
 
     "console=ttyAMA0 console=hvc0 console=tty0 quiet loglevel=3 panic=10 rdinit=/init #{extra} #{env} -- #{erl_args}"
     |> String.replace(~r/\s+/, " ")
@@ -504,7 +504,22 @@ defmodule LeptonBuild.Image do
       {:symlink, "/sbin/modprobe", "../bin/busybox"},
       {:file, "/etc/ssl/certs/ca-certificates.crt", 0o644,
        {:path, Path.join(src["ca-certificates-bundle"].dir, "etc/ssl/certs/ca-certificates.crt")}}
-    ]
+    ] ++ zoneinfo(src)
+  end
+
+  # The zone files, without the posix/ and right/ copies (leap seconds).
+  defp zoneinfo(src) do
+    root = Path.join(src["tzdata"].dir, "usr/share/zoneinfo")
+
+    for file <- Path.wildcard(Path.join(root, "**/*")),
+        rel = Path.relative_to(file, root),
+        not String.starts_with?(rel, ["posix/", "right/"]),
+        type = File.lstat!(file).type,
+        type in [:regular, :symlink] do
+      if type == :symlink,
+        do: {:symlink, "/usr/share/zoneinfo/" <> rel, File.read_link!(file)},
+        else: {:file, "/usr/share/zoneinfo/" <> rel, 0o644, {:path, file}}
+    end
   end
 
   defp overlay(dir) do

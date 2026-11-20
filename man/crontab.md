@@ -38,7 +38,7 @@ Instead of the five fields: `@reboot` (when Lepton starts), `@hourly`,
 `@daily` (or `@midnight`), `@weekly`, `@monthly`, `@yearly` (or
 `@annually`).
 
-Times are UTC, as `date` shows them.
+Times are local, in the time zone `date` shows (see `timedatectl`).
 
 Other lines:
 

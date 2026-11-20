@@ -57,7 +57,9 @@ this happens often, give the VM more memory (in UTM: the VM's settings →
 
 Lepton logs what its services do to `/var/log/messages`, with the
 kernel's messages among them (`kernel: ...`). `dmesg` shows the kernel's
-log alone, and `less /var/log/messages` the whole log.
+log alone, and `less /var/log/messages` the whole log. Its times are UTC,
+whatever the [time zone](time.html); the services' own logs (`svc logs`)
+are in local time.
 
 The live ISO keeps the log in memory, so a restart erases it. An
 installed system keeps `/var/log` on its data partition:

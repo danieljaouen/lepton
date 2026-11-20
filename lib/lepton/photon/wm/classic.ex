@@ -560,7 +560,7 @@ defmodule Lepton.Photon.WM.Classic do
   end
 
   defp clock do
-    {_, {h, m, _}} = :calendar.local_time()
+    {_, {h, m, _}} = Lepton.Time.erl()
     {h12, ampm} = if h >= 12, do: {h - 12, "PM"}, else: {h, "AM"}
     "#{if h12 == 0, do: 12, else: h12}:#{String.pad_leading(to_string(m), 2, "0")} #{ampm}"
   end

@@ -23,7 +23,9 @@ defmodule LeptonBuild.Sources do
   @alpine_packages [
     {"main", "linux-lts"},
     {"main", "busybox-static"},
-    {"main", "ca-certificates-bundle"}
+    {"main", "ca-certificates-bundle"},
+    # The IANA time zones (/usr/share/zoneinfo), for Lepton.TZ and native programs.
+    {"main", "tzdata"}
   ]
 
   # Wi-Fi: wpa_supplicant (and hostapd, for the self-tests' simulated access

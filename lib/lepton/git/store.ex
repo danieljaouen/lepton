@@ -123,7 +123,8 @@ defmodule Lepton.Git.Object do
       end)
 
     {name, email, time} = parse_person(fields[:author] || "")
-    Map.merge(fields, %{message: message, subject: message |> String.split("\n") |> hd(), author_name: name, author_email: email, time: time})
+    tz = case Regex.run(~r/ ([+-]\d{4})$/, fields[:author] || "") do [_, z] -> z; _ -> "+0000" end
+    Map.merge(fields, %{message: message, subject: message |> String.split("\n") |> hd(), author_name: name, author_email: email, time: time, tz: tz})
   end
 
   def parse_person(text) do

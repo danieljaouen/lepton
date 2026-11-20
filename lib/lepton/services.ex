@@ -324,7 +324,7 @@ defmodule Lepton.Services do
 
     now = System.monotonic_time(:millisecond)
     starts = Enum.filter([now | svc.starts], &(now - &1 < @start_interval))
-    note(%{svc | state: :active, pid: pid, ref: ref, since: {now, :calendar.local_time()}, starts: starts, dev: dev, stopping: nil}, "Started #{name}: #{cmd}", st)
+    note(%{svc | state: :active, pid: pid, ref: ref, since: {now, Lepton.Time.erl()}, starts: starts, dev: dev, stopping: nil}, "Started #{name}: #{cmd}", st)
   end
 
   defp exited(name, svc, reason, st) do
@@ -340,7 +340,7 @@ defmodule Lepton.Services do
         other -> {:killed, other}
       end
 
-    base = %{svc | pid: nil, ref: nil, result: result, since: {System.monotonic_time(:millisecond), :calendar.local_time()}}
+    base = %{svc | pid: nil, ref: nil, result: result, since: {System.monotonic_time(:millisecond), Lepton.Time.erl()}}
 
     cond do
       svc.stopping ->
@@ -436,7 +436,7 @@ defmodule Lepton.Services do
   end
 
   defp timestamp do
-    {{_y, mo, d}, {h, mi, s}} = :calendar.local_time()
+    {{_y, mo, d}, {h, mi, s}} = Lepton.Time.erl()
     month = Enum.at(~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec), mo - 1)
     "#{month} #{String.pad_leading(to_string(d), 2)} #{pad(h)}:#{pad(mi)}:#{pad(s)}"
   end

@@ -14,7 +14,8 @@ defmodule Lepton.Cron do
   `NAME=value` lines set the environment for the lines after them; in a
   command an unescaped `%` is a newline and what follows the first one
   is the command's standard input. When both day fields are restricted,
-  a day matching either runs the job. Times are UTC, as `date` shows.
+  a day matching either runs the job. Times are local, in the system's
+  time zone (`Lepton.Time`), as `date` shows them.
   """
 
   alias Lepton.{Persist, Users}
@@ -245,7 +246,7 @@ defmodule Lepton.Cron do
   end
 
   @doc "The next minute (from `from`, exclusive) when `job` is due, within a year."
-  def next(job, from \\ :calendar.universal_time()) do
+  def next(job, from \\ Lepton.Time.erl()) do
     start = from |> NaiveDateTime.from_erl!() |> NaiveDateTime.truncate(:second) |> Map.put(:second, 0) |> NaiveDateTime.add(60)
 
     Stream.iterate(start, &NaiveDateTime.add(&1, 60))
@@ -317,25 +318,26 @@ defmodule Lepton.Cron do
       run_due(:reboot, log)
     end
 
-    log.("crond started; #{length(users())} crontab(s)")
-    tick(log, minute(:calendar.universal_time()))
+    log.("crond started; #{length(users())} crontab(s); local time zone #{Lepton.Time.zone()}")
+    tick(log, minute())
   end
 
-  defp minute(time), do: time |> NaiveDateTime.from_erl!() |> Map.put(:second, 0) |> NaiveDateTime.truncate(:second)
+  # Minutes are counted in UTC; each is matched in local time (the zone may
+  # change while crond runs).
+  defp minute, do: div(System.os_time(:second), 60)
 
   defp tick(log, last) do
-    now = NaiveDateTime.from_erl!(:calendar.universal_time())
-    wait = 60_000 - (now.second * 1000) + 50
+    wait = 60_000 - rem(System.os_time(:millisecond), 60_000) + 50
 
     receive do
       {:signal, sig} when sig in [:term, :int] -> 0
     after
       wait ->
-        current = minute(:calendar.universal_time())
-        missed = div(NaiveDateTime.diff(current, last), 60)
+        current = minute()
+        missed = current - last
 
-        for k <- max(missed - 4, 1)..missed//1 do
-          run_due(NaiveDateTime.to_erl(NaiveDateTime.add(last, k * 60)), log)
+        for m <- max(last + 1, current - 4)..current//1 do
+          run_due(Lepton.Time.erl(m * 60), log)
         end
 
         tick(log, if(missed > 0, do: current, else: last))

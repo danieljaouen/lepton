@@ -168,7 +168,7 @@ defmodule Lepton.Commands.Core do
   end
 
   defp stat(path) do
-    case File.lstat(path, time: :local) do
+    case File.lstat(path, time: :posix) do
       {:ok, s} -> s
       _ -> nil
     end
@@ -184,6 +184,8 @@ defmodule Lepton.Commands.Core do
   def human(n), do: :io_lib.format("~.1fG", [n / 1024 / 1024 / 1024]) |> to_string()
 
   @months ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
+  defp fmt_time(posix) when is_integer(posix), do: fmt_time(Lepton.Time.erl(posix))
+
   defp fmt_time({{_y, m, d}, {hh, mm, _}}) do
     "#{Enum.at(@months, m - 1)} #{String.pad_leading(to_string(d), 2)} #{pad2(hh)}:#{pad2(mm)}"
   end
@@ -598,12 +600,12 @@ defmodule Lepton.Commands.Core do
 
   defcmd "stat", "display file status", usage: "stat FILE..." do
     Enum.reduce(args, 0, fn f, status ->
-      case File.lstat(Ctx.path(ctx, f), time: :local) do
+      case File.lstat(Ctx.path(ctx, f), time: :posix) do
         {:ok, s} ->
           IO.puts(ctx, "  File: #{f}")
           IO.puts(ctx, "  Size: #{s.size}\tType: #{s.type}\tLinks: #{s.links}")
           IO.puts(ctx, "Access: (#{Integer.to_string(s.mode &&& 0o7777, 8) |> String.pad_leading(4, "0")}/#{mode_string(s)})  Inode: #{s.inode}")
-          IO.puts(ctx, "Modify: #{inspect_time(s.mtime)}")
+          IO.puts(ctx, "Modify: #{inspect_time(Lepton.Time.erl(s.mtime))} #{Lepton.Time.offset(Lepton.Time.local(s.mtime))}")
           status
 
         {:error, r} ->

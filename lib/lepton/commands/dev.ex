@@ -286,7 +286,7 @@ defmodule Lepton.Commands.Dev do
       text =
         case format do
           :medium ->
-            date = c.time |> DateTime.from_unix!() |> Lepton.Commands.System.strftime("%a %b %e %H:%M:%S %Y +0000")
+            date = git_date(c)
             color(ctx, "33", "commit #{c.sha}") <> decoration_text(ctx, decorations[c.sha], true) <> "\nAuthor: #{c.author_name} <#{c.author_email}>\nDate:   #{date}\n\n" <> (c.message |> String.trim_trailing() |> String.split("\n") |> Enum.map_join("\n", &("    " <> &1))) <> "\n"
 
           fmt ->
@@ -738,6 +738,14 @@ defmodule Lepton.Commands.Dev do
   defp color_code("magenta"), do: "35"
   defp color_code("cyan"), do: "36"
   defp color_code(_), do: "0"
+
+  # A commit's date as git shows it: in the offset it was made in.
+  defp git_date(c) do
+    tz = Map.get(c, :tz, "+0000")
+    <<sign, hh::binary-2, mm::binary-2>> = tz
+    off = (String.to_integer(hh) * 3600 + String.to_integer(mm) * 60) * if(sign == ?-, do: -1, else: 1)
+    (c.time + off) |> DateTime.from_unix!() |> Lepton.Commands.System.strftime("%a %b %e %H:%M:%S %Y ") |> Kernel.<>(tz)
+  end
 
   defp relative_time(s) when s < 60, do: "#{s} seconds ago"
   defp relative_time(s) when s < 3600, do: "#{div(s, 60)} minutes ago"

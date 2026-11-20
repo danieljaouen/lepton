@@ -45,7 +45,8 @@ matching either runs the job. `@hourly`, `@daily`, `@weekly`,
 `@monthly`, `@yearly` and `@reboot` (when Lepton starts) can stand in
 for the five fields.
 
-Times are **UTC**, as `date` shows them.
+Times are **local**, in the time zone `date` shows (see [time](time.html)): a job at
+`0 9 * * *` runs at 9 in the morning where you are.
 
 - `NAME=value` lines set environment variables for the jobs after them.
 - In a command, `%` starts its standard input (write `\%` for a percent
