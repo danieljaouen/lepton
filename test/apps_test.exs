@@ -152,9 +152,12 @@ defmodule Lepton.AppsTest do
              [{"firefox", "160.0-r0", "161.0-r0"}, {"icu-data-en", "78.1-r0", nil}, {"nss", nil, "3.1"}]
 
     # Never checked: due. Checking with the same versions: up to date, and not due for 10 days.
-    assert Apps.check_due?("firefox")
+    # Installed from another definition of the app (packages Lepton has added since): checked now;
+    # the same packages after all: recorded, and not again.
+    assert Apps.check_due?("firefox") and Apps.redefined?("firefox")
     now = System.os_time(:second)
     assert {:ok, :current} = Apps.stage("firefox", fn _ -> :ok end, index: app_index("160.0-r0"))
+    refute Apps.redefined?("firefox")
     refute Apps.check_due?("firefox", now + 9 * 86_400)
     assert Apps.check_due?("firefox", now + 10 * 86_400 + 60)
 

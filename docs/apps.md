@@ -39,9 +39,9 @@ root's own profile in `/root`.
 
 `app install firefox` reads the package index of
 [Alpine Linux](https://alpinelinux.org/) 3.24, follows Firefox's
-dependencies (GTK, fonts, and so on: about 85 packages), downloads them
-over HTTPS (about 137 MB) and unpacks them into
-`/var/lib/lepton/apps/firefox` (about 366 MB). Then it does the setup the
+dependencies (GTK, fonts, FFmpeg's video decoders, and so on: about 113
+packages), downloads them over HTTPS (about 161 MB) and unpacks them into
+`/var/lib/lepton/apps/firefox` (about 415 MB). Then it does the setup the
 packages' install scripts would: GSettings schemas, the MIME database and
 image loaders. Nothing outside that directory changes, and
 `sudo app remove firefox` removes it all.
@@ -79,13 +79,20 @@ Alpine updates Firefox only in its current release, so when Alpine makes
 a new stable release (about twice a year), a new Lepton release moves to
 it.
 
+When a Lepton release adds packages to Firefox (as when FFmpeg was added
+for H.264 video), Firefox doesn't wait for the 10 days: its next start
+downloads them in the background, and the start after that uses them.
+`sudo app update firefox`, with Firefox closed, does it at once.
+
 ## What's different from Firefox elsewhere
 
 - It draws with the CPU: the VM has no GPU, and the GPU drivers are
   not installed.
-- Video plays in the formats Firefox decodes itself (WebM, VP9, AV1),
-  but not H.264: the FFmpeg codecs are left out to keep the download small.
-  OpenH264, the H.264 plugin Firefox downloads by itself, is turned off:
+- Video plays in every common format: WebM, VP9 and AV1 with Firefox's
+  own decoders, and MP4 (H.264 video, AAC sound: TikTok, LinkedIn,
+  Instagram and many news sites) through Alpine's FFmpeg, which comes with
+  Firefox. The CPU decodes it, so a large video can stutter in a small
+  VM. OpenH264, the H.264 plugin Firefox downloads by itself, is turned off:
   Mozilla's build of it needs glibc, so on Lepton it crashed ("gmpopenh264
   crashed") whenever a page used it. Video calls use VP8 or VP9 instead.
 - Fonts are DejaVu, which has no Chinese, Japanese or Korean characters.

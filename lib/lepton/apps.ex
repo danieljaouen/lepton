@@ -12,10 +12,11 @@ defmodule Lepton.Apps do
   changes.
 
   The one app so far is Firefox. Its packages leave out what a software-
-  rendered browser in a VM doesn't load: Mesa and LLVM (GPU drawing),
-  and FFmpeg and its video codecs (Firefox plays WebM and AV1 with its
-  own decoders). One package comes from Alpine 3.23: gdk-pixbuf, whose
-  3.24 build decodes images in sandboxed helper programs.
+  rendered browser in a VM doesn't load: Mesa and LLVM (GPU drawing).
+  FFmpeg's decoders (libavcodec) are in: Firefox plays WebM and AV1 with
+  its own, but H.264 and AAC (MP4 video: TikTok, LinkedIn, Instagram)
+  only through FFmpeg. One package comes from Alpine 3.23: gdk-pixbuf,
+  whose 3.24 build decodes images in sandboxed helper programs.
   """
 
   alias Lepton.Alpine
@@ -28,8 +29,8 @@ defmodule Lepton.Apps do
       # 3.24's gdk-pixbuf decodes images through glycin, whose loaders run
       # in a bubblewrap sandbox at fixed paths; 3.23's (2.44 too) has its own.
       pins: %{"gdk-pixbuf" => "v3.23"},
-      exclude:
-        ~r/^(mesa.*|llvm.*|spirv-.*|ffmpeg-.*|x26[45]-libs|aom-libs|libSvtAv1Enc|rav1e-libs|libdav1d|xvidcore|lame-libs|libtheora|libvorbis|opus|libogg|soxr|libva|libvdpau|libjxl|libhwy|busybox.*|bubblewrap|pkgconf|hwdata-.*|pciutils-libs|libpciaccess|libdrm|libxshmfence|libxxf86vm|mkfontscale|libgomp)$/,
+      # (FFmpeg's libavcodec is linked with its encoders' libraries too: they stay in.)
+      exclude: ~r/^(mesa.*|llvm.*|spirv-.*|busybox.*|bubblewrap|pkgconf|libxshmfence|libxxf86vm|mkfontscale)$/,
       exe: "usr/lib/firefox/firefox",
       gtk: true,
       # Where it keeps its files in the home (made the user's if root's).
@@ -138,6 +139,8 @@ defmodule Lepton.Apps do
 
       cond do
         changes == [] and !opts[:force] ->
+          # (a definition that changes nothing: recorded, so it isn't checked again)
+          if redefined?(name), do: write_record(dir(name), Map.put(info(name), :definition, definition(app)))
           {:ok, :current}
 
         staged?(name) and changes(staged_info(name).packages, versions) == [] and !opts[:force] ->
@@ -175,7 +178,7 @@ defmodule Lepton.Apps do
     case result do
       :ok ->
         # The record is written last: a staging directory without one is incomplete.
-        write_record(staged, %{packages: versions, size: installed, branch: Alpine.branch()})
+        write_record(staged, %{packages: versions, size: installed, branch: Alpine.branch(), definition: definition(app)})
 
       err ->
         File.rm_rf(staged)
@@ -269,9 +272,23 @@ defmodule Lepton.Apps do
         :none
       end
 
-    if check_due?(name), do: Lepton.Proc.spawn("#{name}-update", [], fn _ -> stage(name) end)
+    if check_due?(name) or redefined?(name), do: Lepton.Proc.spawn("#{name}-update", [], fn _ -> stage(name) end)
     applied
   end
+
+  @doc """
+  Was app `name` installed from a different definition (packages, pins,
+  exclusions) than Lepton's now? Then it is updated without waiting for
+  the 10 days: a package Lepton added comes with the next start.
+  """
+  def redefined?(name) do
+    case {info(name), get(name)} do
+      {%{} = record, %{} = app} -> record[:definition] != definition(app)
+      _ -> false
+    end
+  end
+
+  defp definition(app), do: :erlang.phash2({app.packages, Map.get(app, :pins, %{}), Regex.source(Map.get(app, :exclude, ~r/^$/))})
 
   @doc "The installed version of app `name`'s main package."
   def version(name) do
