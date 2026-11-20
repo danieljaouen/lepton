@@ -57,6 +57,9 @@ RestartSec=2            # seconds before a restart (default 1)
 Environment=GREETING=hi "NAME=a b"
 WorkingDirectory=~      # default: your home
 TimeoutStopSec=5        # wait this long before killing on stop
+
+[Install]
+WantedBy=multi-user.target   # in a shipped unit: on by default
 ```
 
 Other keys are ignored, and `svc status` lists them.
@@ -83,8 +86,12 @@ Other keys are ignored, and `svc status` lists them.
 - **sshd**: the [SSH server](ssh.html#logging-in-to-lepton), keys only.
   Off until you run `sudo svc enable --now sshd`.
 
-No service is enabled when Lepton is installed: each starts only when
-you start or enable it.
+- **cron**: runs the jobs in everyone's [crontab](cron.html). On by
+  default.
+
+Only `cron` starts by itself: a shipped unit with an `[Install]` section
+(`WantedBy=`) is on until you disable it, as systemd's presets do. The
+others start only when you start or enable them.
 
 ## httpd
 

@@ -84,19 +84,52 @@ defmodule Lepton.Services do
 
   defp enabled_path, do: Lepton.Persist.state_path("services/enabled")
 
-  def enabled do
+  # The file lists the services enabled, and `-NAME` for a service on by
+  # default that was disabled.
+  defp enabled_file do
     case File.read(enabled_path()) do
-      {:ok, text} -> text |> String.split("\n", trim: true) |> MapSet.new()
-      _ -> MapSet.new()
+      {:ok, text} -> String.split(text, "\n", trim: true)
+      _ -> []
     end
+  end
+
+  @doc """
+  The services that start at boot: those enabled, and the shipped ones on
+  by default (an `[Install]` section with `WantedBy=`, as systemd's
+  presets enable) unless disabled.
+  """
+  def enabled do
+    lines = enabled_file()
+    off = for "-" <> name <- lines, into: MapSet.new(), do: name
+    on = for l <- lines, not String.starts_with?(l, "-"), into: MapSet.new(), do: l
+    on |> MapSet.union(MapSet.new(defaults())) |> MapSet.difference(off)
+  end
+
+  @doc "Shipped services on by default."
+  def defaults do
+    for path <- Path.wildcard(Path.join(system_dir(), "*.service")),
+        name = Path.basename(path, ".service"),
+        {:ok, %{wanted_by: w}} <- [Unit.parse(name, path, File.read!(path))],
+        w not in [nil, ""],
+        do: name
   end
 
   def enabled?(name), do: MapSet.member?(enabled(), name)
 
   def set_enabled(name, on?) do
-    set = if on?, do: MapSet.put(enabled(), name), else: MapSet.delete(enabled(), name)
+    default? = name in defaults()
+    lines = enabled_file() |> Enum.reject(&(&1 in [name, "-" <> name]))
+
+    lines =
+      cond do
+        on? and default? -> lines
+        on? -> lines ++ [name]
+        default? -> lines ++ ["-" <> name]
+        true -> lines
+      end
+
     File.mkdir_p!(Path.dirname(enabled_path()))
-    File.write!(enabled_path(), Enum.map_join(Enum.sort(set), "", &(&1 <> "\n")))
+    File.write!(enabled_path(), Enum.map_join(Enum.sort(lines), "", &(&1 <> "\n")))
   end
 
   # -- API --------------------------------------------------------------------------------------
@@ -435,7 +468,7 @@ end
 defmodule Lepton.Services.Unit do
   @moduledoc "A parsed `NAME.service` unit file (systemd syntax, the keys in `Lepton.Services`)."
 
-  defstruct [:name, :path, :description, :exec_start, restart: "no", restart_sec: 1.0, working_directory: nil, environment: %{}, timeout_stop_sec: 5.0, ignored: []]
+  defstruct [:name, :path, :description, :exec_start, :wanted_by, restart: "no", restart_sec: 1.0, working_directory: nil, environment: %{}, timeout_stop_sec: 5.0, ignored: []]
 
   @known %{
     {"Unit", "Description"} => :description,
@@ -444,7 +477,8 @@ defmodule Lepton.Services.Unit do
     {"Service", "RestartSec"} => :restart_sec,
     {"Service", "WorkingDirectory"} => :working_directory,
     {"Service", "Environment"} => :environment,
-    {"Service", "TimeoutStopSec"} => :timeout_stop_sec
+    {"Service", "TimeoutStopSec"} => :timeout_stop_sec,
+    {"Install", "WantedBy"} => :wanted_by
   }
 
   def valid_name?(name), do: is_binary(name) and String.match?(name, ~r/^[A-Za-z0-9][A-Za-z0-9_.@-]*$/)

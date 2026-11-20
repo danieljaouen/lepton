@@ -31,7 +31,9 @@ A service is a file `NAME.service` in systemd syntax, in
 `/etc/lepton/services/` (shipped). The `[Service]` keys read are
 `ExecStart` (a shell command line), `Restart` (`no`, `on-failure`,
 `always`), `RestartSec`, `Environment`, `WorkingDirectory` and
-`TimeoutStopSec`; `[Unit]` has `Description`.
+`TimeoutStopSec`; `[Unit]` has `Description`. A shipped unit with
+`WantedBy=` in `[Install]` is enabled by default (`cron` is), until
+disabled.
 
     [Service]
     ExecStart=httpd -p 8080 ~/public
@@ -52,4 +54,4 @@ A service is a file `NAME.service` in systemd syntax, in
 
 ## SEE ALSO
 
-journalctl(1), httpd(1), sshd(1), ps(1), https://trylepton.app/docs/services.html
+journalctl(1), httpd(1), sshd(1), crond(1), ps(1), https://trylepton.app/docs/services.html

@@ -1,0 +1,12 @@
+# Runs the commands in everyone's crontab at their times (see crontab).
+# On by default; to turn it off: sudo svc disable --now cron
+[Unit]
+Description=cron: runs the jobs in the crontabs
+
+[Service]
+ExecStart=crond
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -45,6 +45,15 @@ defmodule Lepton.Commands.Services do
     sshd(ctx, Lepton.Args.int(opts, "p", Lepton.SSHD.default_port()))
   end
 
+  defcmd "crond", "the cron daemon: runs the jobs in the crontabs (the cron service runs it)", usage: "crond", root: true do
+    Lepton.Cron.daemon(&IO.puts(ctx, &1))
+  end
+
+  defcmd "crontab", "your table of commands to run at set times (cron): list, edit, install or remove it",
+    usage: "crontab [-u USER] -l | -e | -r | FILE | -" do
+    crontab(args, ctx)
+  end
+
   # -- svc ------------------------------------------------------------------------------------
 
   # Changing services is for root; looking at them is for everyone.
@@ -387,6 +396,128 @@ defmodule Lepton.Commands.Services do
       {:EXIT, _from, reason} -> Lepton.SSHD.stop(daemon); exit(reason)
       {:signal, sig} when sig in [:term, :int] -> Lepton.SSHD.stop(daemon); 0
       _ -> serve_sshd(ctx, daemon)
+    end
+  end
+
+  # -- crontab --------------------------------------------------------------------------------
+
+  @crontab_usage "usage: crontab [-u USER] -l | -e | -r | FILE | -"
+
+  @template """
+  # Your crontab: commands to run at set times. Times are UTC (see `date`).
+  # Each line: minute hour day-of-month month day-of-week command
+  #   *  any     1,15  a list     1-5  a range     */10  every tenth
+  # or @reboot, @hourly, @daily, @weekly, @monthly, @yearly, then the command.
+  # What a job prints goes to the cron log: svc logs cron
+  #
+  # m  h  dom mon dow  command
+  # */5 *  *   *   *   date >> ~/heartbeat.log
+  # 0  3  *   *   1-5  rsync -a ~/notes/ /media/BACKUP/notes/
+  """
+
+  defp crontab(args, ctx) do
+    {opts, operands} = Lepton.Args.getopt(args, "u:lerih")
+    user = opts["u"] || ctx.user
+
+    cond do
+      opts["u"] && opts["u"] != ctx.user && not Lepton.Users.root?(ctx) ->
+        IO.err(ctx, "crontab: only root may use -u for another user")
+        1
+
+      Lepton.Users.get(user) == nil ->
+        IO.err(ctx, "crontab: no such user: #{user}")
+        1
+
+      opts["l"] ->
+        case Lepton.Cron.read(user) do
+          nil -> IO.err(ctx, "no crontab for #{user}"); 1
+          text -> IO.write(ctx, text); 0
+        end
+
+      opts["r"] ->
+        case Lepton.Cron.remove(user) do
+          :ok -> 0
+          _ -> IO.err(ctx, "no crontab for #{user}"); 1
+        end
+
+      opts["e"] ->
+        edit_crontab(ctx, user)
+
+      match?([_], operands) ->
+        text =
+          case operands do
+            ["-"] -> {:ok, IO.read_all(ctx.stdin)}
+            [file] -> File.read(Ctx.path(ctx, file))
+          end
+
+        case text do
+          {:ok, t} -> install_crontab(ctx, user, t)
+          {:error, r} -> IO.err(ctx, "crontab: #{hd(operands)}: #{:file.format_error(r)}"); 1
+        end
+
+      true ->
+        IO.err(ctx, @crontab_usage)
+        1
+    end
+  end
+
+  defp install_crontab(ctx, user, text) do
+    case Lepton.Cron.install(user, text) do
+      :ok ->
+        0
+
+      {:error, errors} ->
+        for {n, msg} <- errors, do: IO.err(ctx, "crontab: line #{n}: #{msg}")
+        IO.err(ctx, "crontab: errors in crontab file, can't install")
+        1
+    end
+  end
+
+  # Edit a copy; install it if it changed and parses, else offer to edit again.
+  defp edit_crontab(ctx, user) do
+    if ctx.tty == nil do
+      IO.err(ctx, "crontab: -e needs a terminal; use crontab FILE")
+      1
+    else
+      old = Lepton.Cron.read(user)
+      tmp = Path.join(System.tmp_dir() || "/tmp", "crontab.#{user}.#{System.unique_integer([:positive])}")
+      File.write!(tmp, old || @template)
+
+      try do
+        edit_loop(ctx, user, tmp, old || @template)
+      after
+        File.rm(tmp)
+      end
+    end
+  end
+
+  defp edit_loop(ctx, user, tmp, before) do
+    Lepton.Editor.run([tmp], ctx)
+    text = File.read!(tmp)
+
+    cond do
+      text == before ->
+        IO.puts(ctx, "crontab: no changes made to crontab")
+        0
+
+      true ->
+        case Lepton.Cron.install(user, text) do
+          :ok ->
+            IO.puts(ctx, "crontab: installing new crontab")
+            0
+
+          {:error, errors} ->
+            for {n, msg} <- errors, do: IO.err(ctx, "crontab: line #{n}: #{msg}")
+            IO.write(ctx, "Errors in crontab file. Edit again? (y/n) ")
+
+            case IO.read_line(ctx.stdin) do
+              line when is_binary(line) ->
+                if String.trim(line) in ["y", "Y", "yes"], do: edit_loop(ctx, user, tmp, before), else: (IO.puts(ctx, "crontab: edits left in #{tmp} were not installed"); 1)
+
+              _ ->
+                1
+            end
+        end
     end
   end
 end

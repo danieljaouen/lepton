@@ -1,6 +1,6 @@
 ---
 title: Packages (lpm)
-order: 9
+order: 10
 summary: Install Elixir and Erlang packages from hex.pm, and official updates for built-in apps.
 ---
 
