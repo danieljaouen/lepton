@@ -17,8 +17,16 @@ a file named after the URL.
 - `-d DATA`: send DATA as a form POST.
 - `-s`: silent: do not report where the body was saved.
 - `-k`: do not verify the server's certificate.
+- `-x PROXY`, `--proxy=PROXY`: go through PROXY (`http://`, `socks5://`,
+  `socks5h://`, ...) instead of the configured one.
+- `--noproxy=HOSTS`: reach these hosts directly (`*` for all).
 - `-L`, `-H`, `-X`: accepted for compatibility (redirects are always
   followed).
+
+## PROXIES
+
+Requests go through the system's proxy, if one is set (see `proxy`), or
+through `https_proxy`, `http_proxy` or `all_proxy` when set.
 
 ## EXIT STATUS
 
@@ -33,4 +41,4 @@ above), 6 if the request failed.
 
 ## SEE ALSO
 
-www(1), firefox(1), httpd(1), gh(1)
+www(1), firefox(1), httpd(1), gh(1), proxy(1)

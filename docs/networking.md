@@ -28,6 +28,10 @@ www https://trylepton.app/    # a text-mode web browser
 `dhclient` re-runs DHCP on an interface. `curl` (also `wget`) fetches
 over HTTP and HTTPS and can save to a file with `-o`.
 
+On a network that only reaches the internet through a proxy, set it
+with `sudo proxy set http://proxy:3128`: see [proxies](proxy.html). `nc`
+connects to any TCP port (`nc -z host 22` checks it's open).
+
 ## Remote machines
 
 `ssh` logs in to other machines and runs commands on them, with keys from

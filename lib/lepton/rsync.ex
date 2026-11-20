@@ -319,6 +319,9 @@ defmodule Lepton.Rsync do
   defp ssh_args(["-i", key | rest], acc), do: ssh_args(rest, [{:identity, key} | acc])
   defp ssh_args(["-l", user | rest], acc), do: ssh_args(rest, [{:user, user} | acc])
   defp ssh_args(["-o", "StrictHostKeyChecking=" <> v | rest], acc), do: ssh_args(rest, [{:strict, String.downcase(v)} | acc])
+  defp ssh_args(["-o", "ProxyJump=" <> v | rest], acc), do: ssh_args(rest, [{:jump, v} | acc])
+  defp ssh_args(["-o", "ProxyCommand=" <> v | rest], acc), do: ssh_args(rest, [{:proxy_command, v} | acc])
+  defp ssh_args(["-J", v | rest], acc), do: ssh_args(rest, [{:jump, v} | acc])
   defp ssh_args(["-o", _ | rest], acc), do: ssh_args(rest, acc)
   defp ssh_args([flag | rest], acc) when flag in ~w(-T -q -v -4 -6 -x -a -C), do: ssh_args(rest, acc)
   defp ssh_args([other | _], _), do: {:error, "rsync: -e: ssh option #{other} is not supported"}
@@ -333,6 +336,9 @@ defmodule Lepton.Rsync do
              user: sopts[:user],
              identity: identity,
              strict: sopts[:strict],
+             jump: sopts[:jump],
+             proxy_command: sopts[:proxy_command],
+             env: ctx.env,
              on_unknown: if(ctx.tty, do: &confirm_host(ctx, &1, &2))
            ) do
       channel(conn, command, ctx)

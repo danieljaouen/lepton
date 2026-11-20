@@ -5,7 +5,7 @@ defmodule Lepton.SSH.CLI do
 
   # -- ssh -----------------------------------------------------------------------------------
 
-  @ssh_usage "usage: ssh [-p PORT] [-i KEY] [-l USER] [-o StrictHostKeyChecking=VALUE] [-T|-t] DESTINATION [COMMAND...]"
+  @ssh_usage "usage: ssh [-p PORT] [-i KEY] [-l USER] [-J JUMP[,JUMP...]] [-o OPTION=VALUE] [-W HOST:PORT] [-T|-t] DESTINATION [COMMAND...]"
 
   def ssh(args, ctx) do
     case ssh_args(args, %{}) do
@@ -15,7 +15,7 @@ defmodule Lepton.SSH.CLI do
   end
 
   # Options come before the destination; everything after it is the command.
-  defp ssh_args([flag, v | rest], o) when flag in ~w(-p -i -l -o), do: ssh_args(rest, Map.update(o, flag, [v], &(&1 ++ [v])))
+  defp ssh_args([flag, v | rest], o) when flag in ~w(-p -i -l -o -J -W), do: ssh_args(rest, Map.update(o, flag, [v], &(&1 ++ [v])))
   defp ssh_args([flag | rest], o) when flag in ~w(-T -t -q -v -n -A -x -4 -6), do: ssh_args(rest, Map.put(o, flag, true))
   defp ssh_args(["-" <> _ = flag | _], _o), do: {:error, flag}
   defp ssh_args(rest, o), do: {:ok, o, rest}
@@ -35,7 +35,19 @@ defmodule Lepton.SSH.CLI do
     copts = if strict != [], do: [{:strict, List.last(strict)} | copts], else: copts
     target = if user, do: "#{user}@#{host}", else: host
 
+    # -J, and -o ProxyJump= / ProxyCommand= (options as in ~/.ssh/config)
+    settings = for v <- o["-o"] || [], [k, val] <- [String.split(v, "=", parts: 2)], into: %{}, do: {String.downcase(k), val}
+    jump = List.last(o["-J"] || []) || settings["proxyjump"]
+    copts = copts ++ [env: ctx.env] ++ if(jump, do: [jump: jump], else: []) ++ if(settings["proxycommand"], do: [proxy_command: settings["proxycommand"]], else: [])
+
     case SSH.connect(target, copts) do
+      {:ok, conn, _cfg} when is_map_key(o, "-W") ->
+        try do
+          forward_stdio(ctx, conn, List.last(o["-W"]))
+        after
+          SSH.close(conn)
+        end
+
       {:ok, conn, cfg} ->
         try do
           pty? = terminal?(ctx) and !o["-T"] and (command == "" or o["-t"] == true)
@@ -47,6 +59,46 @@ defmodule Lepton.SSH.CLI do
       {:error, msg} ->
         IO.err(ctx, msg)
         255
+    end
+  end
+
+  # -W host:port: standard input and output, connected to host:port
+  # through the server (what a ProxyCommand runs).
+  defp forward_stdio(ctx, conn, spec) do
+    with [_, host, port] <- Regex.run(~r/^\[?(.+?)\]?:(\d+)$/, spec),
+         {:ok, sock, first} <- SSH.tunnel_first(conn, host, String.to_integer(port), 2, 2000) do
+      if first != "", do: Elixir.IO.binwrite(ctx.stdout, first)
+      me = self()
+
+      reader =
+        spawn_link(fn ->
+          pump_out(sock, ctx)
+          send(me, :remote_closed)
+        end)
+
+      :gen_tcp.controlling_process(sock, reader)
+      pump_in(ctx, sock)
+
+      receive do
+        :remote_closed -> 0
+      end
+    else
+      nil -> IO.err(ctx, "ssh: -W needs HOST:PORT"); 255
+      {:error, msg} -> IO.err(ctx, "ssh: #{msg}"); 255
+    end
+  end
+
+  defp pump_in(ctx, sock) do
+    case Elixir.IO.binread(ctx.stdin, 65_536) do
+      data when is_binary(data) -> :gen_tcp.send(sock, data); pump_in(ctx, sock)
+      _ -> :gen_tcp.shutdown(sock, :write)
+    end
+  end
+
+  defp pump_out(sock, ctx) do
+    case :gen_tcp.recv(sock, 0) do
+      {:ok, data} -> Elixir.IO.binwrite(ctx.stdout, data); pump_out(sock, ctx)
+      _ -> :ok
     end
   end
 

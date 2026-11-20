@@ -45,7 +45,9 @@ defmodule Lepton.SSH do
       port: String.to_integer(first["port"] || "22"),
       identity_files: if(ids == [], do: Enum.map(@default_ids, &Path.join([home, ".ssh", &1])), else: ids),
       strict: String.downcase(first["stricthostkeychecking"] || "ask"),
-      known_hosts: Enum.map(known, &expand(&1, home, host))
+      known_hosts: Enum.map(known, &expand(&1, home, host)),
+      proxy_jump: first["proxyjump"],
+      proxy_command: first["proxycommand"]
     }
   end
 
@@ -265,13 +267,20 @@ defmodule Lepton.SSH do
 
   Options: `:home`, `:port`, `:user`, `:identity` (key files, before the
   configured ones), `:strict` (overrides `StrictHostKeyChecking`), `:on_unknown` (`fn host, key -> boolean`, asked about an
-  unknown host key), `:timeout`. Returns `{:ok, conn, settings}` or
-  `{:error, message}`.
+  unknown host key), `:timeout`, `:jump` (`ssh -J`: hosts to go through),
+  `:proxy_command`, `:env` (for `all_proxy`). Returns `{:ok, conn,
+  settings}` or `{:error, message}`.
+
+  The way there, first that applies: a ProxyCommand (`-o ProxyCommand=`
+  or `~/.ssh/config`), a ProxyJump chain (`-J` or the config: each host
+  reached through the one before, over SSH), the proxy chain
+  (`Lepton.Proxy`), or directly. `none` turns either off for a host.
   """
   def connect(target, opts \\ []) do
     home = home(opts)
     {user, host} = split_target(target)
     cfg = config(host, home)
+    cfg = %{cfg | proxy_jump: opts[:jump] || cfg.proxy_jump, proxy_command: opts[:proxy_command] || cfg.proxy_command}
     user = user || opts[:user] || cfg.user || "root"
     port = opts[:port] || cfg.port
     files = (opts[:identity] || []) ++ cfg.identity_files
@@ -279,7 +288,8 @@ defmodule Lepton.SSH do
     keys = for {_, {:ok, k}} <- loaded, do: k
     start()
 
-    private = [host: cfg.hostname, keys: keys, known: cfg.known_hosts, strict: opts[:strict] || cfg.strict, ask: opts[:on_unknown], caller: self()]
+    # The real port: through a tunnel, OTP sees a local one.
+    private = [host: cfg.hostname, port: port, keys: keys, known: cfg.known_hosts, strict: opts[:strict] || cfg.strict, ask: opts[:on_unknown], caller: self()]
 
     ssh_opts = [
       user: String.to_charlist(user),
@@ -294,7 +304,19 @@ defmodule Lepton.SSH do
       connect_timeout: opts[:timeout] || 20_000
     ]
 
-    case :ssh.connect(String.to_charlist(cfg.hostname), port, ssh_opts, opts[:timeout] || 30_000) do
+    # Every other way ends at a port on 127.0.0.1 (OTP's ssh hangs when
+    # handed a connected socket, so it always connects by address).
+    result =
+      case way(cfg, user, port, opts) do
+        :direct -> :ssh.connect(String.to_charlist(cfg.hostname), port, ssh_opts, opts[:timeout] || 30_000)
+        {:local, lport, cleanup} -> with_cleanup(:ssh.connect(~c"127.0.0.1", lport, ssh_opts, opts[:timeout] || 30_000), cleanup)
+        {:error, msg} -> {:error, {:proxy, msg}}
+      end
+
+    case result do
+      {:error, {:proxy, msg}} ->
+        {:error, msg}
+
       {:ok, conn} ->
         {:ok, conn, %{cfg | user: user, port: port}}
 
@@ -306,6 +328,194 @@ defmodule Lepton.SSH do
         end
     end
   end
+
+  # -- the way there: ProxyCommand, ProxyJump, a proxy chain, or directly ------------------
+
+  defp way(cfg, user, port, opts) do
+    cond do
+      cfg.proxy_command not in [nil, "none"] -> proxy_command(cfg.proxy_command, cfg, user, port, opts)
+      cfg.proxy_jump not in [nil, "none"] -> jump(cfg.proxy_jump, cfg.hostname, port, opts)
+      true ->
+        case Lepton.Proxy.chain(cfg.hostname, :tcp, opts[:env] || %{}) do
+          [] -> :direct
+          hops -> with {:ok, sock} <- Lepton.Proxy.connect(cfg.hostname, port, hops), do: relay(sock)
+        end
+    end
+  end
+
+  # When the connection ends, so do the hops it went through.
+  defp with_cleanup({:ok, conn} = ok, cleanup) do
+    spawn(fn ->
+      ref = Process.monitor(conn)
+      receive do: ({:DOWN, ^ref, _, _, _} -> cleanup.())
+    end)
+
+    ok
+  end
+
+  defp with_cleanup(error, cleanup), do: (cleanup.(); error)
+
+  # ProxyJump a,b,c: connect to c through a and b, then open a tunnel from
+  # c to the destination.
+  defp jump(spec, host, port, opts) do
+    hops = String.split(spec, ",", trim: true)
+    {last, before} = List.pop_at(hops, -1)
+    {jump_target, jump_port} = jump_spec(last)
+    jopts = opts |> Keyword.drop([:jump, :proxy_command, :port, :user, :identity]) |> Keyword.put(:jump, if(before == [], do: "none", else: Enum.join(before, ",")))
+    jopts = if jump_port, do: Keyword.put(jopts, :port, jump_port), else: jopts
+
+    case connect(jump_target, jopts) do
+      {:ok, jconn, jcfg} ->
+        case tunnel_first(jconn, host, port, 3, 3000) do
+          {:ok, sock, first} when first != "" -> relay(sock, first, fn -> close(jconn) end)
+          {:ok, sock, ""} -> (:gen_tcp.close(sock); close(jconn); {:error, "#{jcfg.hostname}: no SSH server answered at #{host}:#{port}"})
+          {:error, msg} -> (close(jconn); {:error, "#{jcfg.hostname}: #{msg}"})
+        end
+
+      {:error, msg} ->
+        {:error, "jump host #{last}: #{msg}"}
+    end
+  end
+
+  # user@host:port in -J
+  defp jump_spec(spec) do
+    case Regex.run(~r/^(.*?)(?::(\d+))?$/, spec) do
+      [_, t, p] -> {t, String.to_integer(p)}
+      [_, t] -> {t, nil}
+    end
+  end
+
+  @doc """
+  A TCP connection through an SSH connection's server (`direct-tcpip`,
+  like `ssh -W`): a local socket whose bytes reach `host`:`port`.
+  """
+  def tunnel(conn, host, port) do
+    with {:ok, lport} <- tunnel_port(conn, host, port) do
+      case :gen_tcp.connect({127, 0, 0, 1}, lport, [:binary, active: false, packet: :raw, exit_on_close: false], 15_000) do
+        {:ok, sock} -> {:ok, sock}
+        {:error, r} -> {:error, "tunnel: #{:inet.format_error(r)}"}
+      end
+    end
+  end
+
+  @doc """
+  A tunnel, and the first data from its far end: `{:ok, sock, first}`.
+  OTP's tunnels sometimes lose what the far end sends first (an SSH
+  server's greeting), so when nothing comes within `timeout` a new
+  tunnel is opened, up to `tries` times; after that `first` is "" (a
+  server that waits for the client to speak).
+  """
+  def tunnel_first(conn, host, port, tries, timeout) do
+    with {:ok, sock} <- tunnel(conn, host, port) do
+      case :gen_tcp.recv(sock, 0, timeout) do
+        {:ok, data} -> {:ok, sock, data}
+        {:error, :timeout} when tries > 1 -> (:gen_tcp.close(sock); tunnel_first(conn, host, port, tries - 1, timeout))
+        {:error, :timeout} -> {:ok, sock, ""}
+        {:error, r} -> (:gen_tcp.close(sock); {:error, "tunnel to #{host}:#{port}: #{:inet.format_error(r)}"})
+      end
+    end
+  end
+
+  # The local port of a tunnel through `conn` to host:port.
+  defp tunnel_port(conn, host, port) do
+    # OTP loads its forwarding modules on first use, and the very first
+    # tunnel then loses the data that arrives meanwhile: load them first.
+    for m <- [:ssh_tcpip_forward_client, :ssh_tcpip_forward_acceptor, :ssh_tcpip_forward_acceptor_sup, :ssh_tcpip_forward_srv], do: Code.ensure_loaded(m)
+
+    case :ssh.tcpip_tunnel_to_server(conn, ~c"127.0.0.1", 0, String.to_charlist(host), port, 15_000) do
+      {:ok, lport} -> {:ok, lport}
+      {:error, reason} -> {:error, "the server would not open a tunnel to #{host}:#{port} (#{inspect(reason)}; is TCP forwarding allowed there?)"}
+    end
+  end
+
+  # A port on 127.0.0.1 whose one connection is joined to `sock` (after
+  # `first`, the bytes already read from it).
+  defp relay(sock, first \\ "", cleanup \\ fn -> :ok end) do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, packet: :raw, exit_on_close: false, ip: {127, 0, 0, 1}])
+    {:ok, lport} = :inet.port(listen)
+
+    pid =
+      spawn(fn ->
+        receive do: (:go -> :ok)
+
+        case :gen_tcp.accept(listen, 30_000) do
+          {:ok, c} -> :gen_tcp.close(listen); if(first != "", do: :gen_tcp.send(c, first)); Lepton.Proxy.splice(c, sock)
+          _ -> :gen_tcp.close(listen); :gen_tcp.close(sock)
+        end
+      end)
+
+    :gen_tcp.controlling_process(sock, pid)
+    :gen_tcp.controlling_process(listen, pid)
+    send(pid, :go)
+    {:local, lport, fn -> Process.exit(pid, :kill); cleanup.() end}
+  end
+
+  # ProxyCommand: a command (run by Lepton's shell) whose input and output
+  # are the connection; %h %p %r %n %% as in OpenSSH.
+  defp proxy_command(command, cfg, user, port, opts) do
+    cmd =
+      Regex.replace(~r/%([hprn%])/, command, fn _, c ->
+        case c do
+          "h" -> cfg.hostname
+          "p" -> to_string(port)
+          "r" -> user
+          "n" -> cfg.host
+          "%" -> "%"
+        end
+      end)
+
+    # ssh connects to a local port; its one connection is the command's
+    # input and output.
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, packet: :raw, exit_on_close: false, ip: {127, 0, 0, 1}])
+    {:ok, lport} = :inet.port(listen)
+    home = home(opts)
+    env = Map.merge(%{"HOME" => home, "PATH" => "/bin"}, opts[:env] || %{})
+    pid = spawn(fn -> run_proxy_command(cmd, listen, home, env) end)
+    :gen_tcp.controlling_process(listen, pid)
+    send(pid, :go)
+    {:local, lport, fn -> Process.exit(pid, :kill) end}
+  end
+
+  defp run_proxy_command(cmd, listen, home, env) do
+    receive do: (:go -> :ok)
+    {:ok, sock} = :gen_tcp.accept(listen, 30_000)
+    :gen_tcp.close(listen)
+    {:ok, stdin} = Lepton.Pipe.open()
+    out = spawn_link(fn -> socket_writer(sock) end)
+    me = self()
+    spawn_link(fn -> socket_reader(sock, stdin, me) end)
+    Lepton.Shell.run_string(cmd, cwd: home, env: env, stdin: stdin, stdout: out, stderr: Process.group_leader())
+    :gen_tcp.close(sock)
+  end
+
+  defp socket_reader(sock, pipe, _owner) do
+    case :gen_tcp.recv(sock, 0) do
+      {:ok, data} -> IO.binwrite(pipe, data); socket_reader(sock, pipe, nil)
+      _ -> Lepton.Pipe.close_write(pipe)
+    end
+  end
+
+  # An I/O server writing to the socket (the command's standard output).
+  defp socket_writer(sock) do
+    receive do
+      {:io_request, from, reply_as, req} ->
+        send(from, {:io_reply, reply_as, socket_put(sock, req)})
+        socket_writer(sock)
+    end
+  end
+
+  defp socket_put(sock, {:put_chars, enc, chars}) do
+    data = if enc == :latin1, do: :erlang.iolist_to_binary(chars), else: :unicode.characters_to_binary(chars)
+    case :gen_tcp.send(sock, data) do
+      :ok -> :ok
+      _ -> {:error, :epipe}
+    end
+  end
+
+  defp socket_put(sock, {:put_chars, enc, m, f, a}), do: socket_put(sock, {:put_chars, enc, apply(m, f, a)})
+  defp socket_put(_sock, :getopts), do: [binary: true, encoding: :unicode]
+  defp socket_put(_sock, {:setopts, _}), do: :ok
+  defp socket_put(_sock, _), do: {:error, :enotsup}
 
   @doc "Split `[user@]host`."
   def split_target(target) do
@@ -479,6 +689,8 @@ defmodule Lepton.SSH.KeyCb do
       send(o[:caller], {:lepton_ssh_host_key, :scanned, name, key})
       {:error, :scanned}
     else
+      port = o[:port] || port
+
       case SSH.host_key_status(name, port, key, o[:known]) do
         :known ->
           true

@@ -86,6 +86,11 @@ downloads them in the background, and the start after that uses them.
 
 ## What's different from Firefox elsewhere
 
+- It uses Lepton's [proxy](proxy.html), when one is set: Firefox is
+  started with `http_proxy` and `https_proxy` pointing at Lepton, which
+  takes each connection through the chain (restart Firefox after
+  changing it).
+
 - It draws with the CPU: the VM has no GPU, and the GPU drivers are
   not installed.
 - Video plays in every common format: WebM, VP9 and AV1 with Firefox's

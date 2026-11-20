@@ -151,8 +151,8 @@ defmodule Lepton.Commands.Network do
   defp pad_even(b) when rem(byte_size(b), 2) == 1, do: b <> <<0>>
   defp pad_even(b), do: b
 
-  defcmd "curl", "transfer a URL (HTTP/HTTPS)", aliases: ["wget", "fetch"], usage: "curl [-o FILE] [-I] [-s] URL" do
-    {opts, urls} = getopt(args, "o:O:IsLkX:H:d:")
+  defcmd "curl", "transfer a URL (HTTP/HTTPS)", aliases: ["wget", "fetch"], usage: "curl [-o FILE] [-I] [-s] [-x PROXY] URL" do
+    {opts, urls} = getopt(args, "o:O:IsLkX:H:d:x:")
 
     case urls do
       [url | _] ->
@@ -164,7 +164,15 @@ defmodule Lepton.Commands.Network do
         headers = [{~c"user-agent", ~c"curl/8.0 (lepton)"}]
         req = if method == :post, do: {String.to_charlist(url), headers, ~c"application/x-www-form-urlencoded", opts["d"]}, else: {String.to_charlist(url), headers}
 
-        case :httpc.request(method, req, [ssl: ssl, timeout: 60_000, autoredirect: true], body_format: :binary) do
+        # -x/--proxy wins over the environment and the system's; --noproxy '*' goes direct.
+        env =
+          cond do
+            opts["noproxy"] -> Map.put(ctx.env, "no_proxy", opts["noproxy"])
+            px = opts["x"] || opts["proxy"] -> %{"all_proxy" => px}
+            true -> ctx.env
+          end
+
+        case :httpc.request(method, req, [ssl: ssl, timeout: 60_000, autoredirect: true], [body_format: :binary], Lepton.Proxy.httpc_profile(url, env)) do
           {:ok, {{_, code, reason}, hdrs, body}} ->
             if opts["I"] do
               IO.puts(ctx, "HTTP/1.1 #{code} #{reason}")
@@ -188,6 +196,137 @@ defmodule Lepton.Commands.Network do
       [] ->
         IO.err(ctx, "curl: try 'curl URL'")
         2
+    end
+  end
+
+  defcmd "proxy", "the internet proxy (or chain of proxies) for web and SSH connections",
+    usage: "proxy [status] | set URL... | off | no-proxy HOST,... | test [URL]" do
+    proxy(args, ctx)
+  end
+
+  defp proxy(args, ctx) when args in [[], ["status"]] do
+    sys = Lepton.Proxy.system()
+
+    case sys.chain do
+      [] -> IO.puts(ctx, "No proxy: connections go directly.")
+      chain ->
+        IO.puts(ctx, "Through #{if length(chain) > 1, do: "a chain of #{length(chain)} proxies", else: "a proxy"}, for web and SSH connections:")
+        for {u, i} <- Enum.with_index(chain, 1), {:ok, hop} <- [Lepton.Proxy.parse(u)], do: IO.puts(ctx, "  #{i}. #{Lepton.Proxy.show(hop)}")
+    end
+
+    IO.puts(ctx, "Directly: #{Enum.join(sys.no_proxy, ", ")} (no_proxy)")
+
+    vars = for v <- ~w(http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY), val = ctx.env[v], val not in [nil, ""], do: "#{v}=#{val}"
+    if vars != [], do: IO.puts(ctx, "This shell's variables take precedence: " <> Enum.join(vars, " "))
+    0
+  end
+
+  defp proxy(["test" | rest], ctx) do
+    url = List.first(rest) || "https://trylepton.app/"
+    uri = URI.parse(url)
+    hops = Lepton.Proxy.chain(uri.host || "", if(uri.scheme == "https", do: :https, else: :http), ctx.env)
+    IO.puts(ctx, if(hops == [], do: "#{uri.host}: directly (no proxy applies)", else: "#{uri.host}: through " <> Enum.map_join(hops, " -> ", &Lepton.Proxy.show/1)))
+
+    with {:ok, sock} <- Lepton.Proxy.connect(uri.host, uri.port || 443, hops) do
+      :gen_tcp.close(sock)
+      IO.puts(ctx, "connected to #{uri.host}:#{uri.port}")
+      :inets.start()
+      :ssl.start()
+
+      case :httpc.request(:head, {String.to_charlist(url), []}, [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 20_000], [], Lepton.Proxy.httpc_profile(url, ctx.env)) do
+        {:ok, {{_, code, reason}, _, _}} -> IO.puts(ctx, "#{url}: HTTP #{code} #{reason}"); 0
+        {:error, e} -> IO.err(ctx, "proxy: #{url}: #{inspect(e)}"); 1
+      end
+    else
+      {:error, msg} -> IO.err(ctx, "proxy: #{msg}"); 1
+    end
+  end
+
+  defp proxy([cmd | _], ctx) when cmd in ~w(set off no-proxy) and ctx.user != "root", do: Lepton.Users.denied(ctx, "proxy #{cmd}")
+
+  defp proxy(["set" | urls], ctx) when urls != [] do
+    case Lepton.Proxy.set(urls) do
+      :ok -> proxy([], ctx)
+      {:error, msg} -> IO.err(ctx, "proxy: #{msg}"); 1
+    end
+  end
+
+  defp proxy(["off"], ctx) do
+    :ok = Lepton.Proxy.set([])
+    proxy([], ctx)
+  end
+
+  defp proxy(["no-proxy" | hosts], ctx) when hosts != [] do
+    list = hosts |> Enum.join(",") |> String.split([",", " "], trim: true)
+    :ok = Lepton.Proxy.set(Lepton.Proxy.system().chain, list)
+    proxy([], ctx)
+  end
+
+  defp proxy(_, ctx) do
+    IO.err(ctx, "usage: proxy [status] | set URL... | off | no-proxy HOST,... | test [URL]")
+    2
+  end
+
+  defcmd "nc", "connect to a TCP port and pass standard input and output (netcat), optionally through a proxy",
+    usage: "nc [-x PROXY[:PORT]] [-X 4|5|connect] [-w SECONDS] [-z] [-v] HOST PORT" do
+    {opts, operands} = getopt(args, "x:X:w:zvN")
+    timeout = Lepton.Args.int(opts, "w", 20) * 1000
+
+    hops =
+      case opts["x"] do
+        nil ->
+          {:ok, []}
+
+        px ->
+          scheme = case opts["X"] do
+            "connect" -> "http"
+            "4" -> "socks4a"
+            _ -> "socks5h"
+          end
+
+          with {:ok, hop} <- Lepton.Proxy.parse("#{scheme}://#{px}"), do: {:ok, [hop]}
+      end
+
+    with [host, port] <- operands,
+         {p, ""} <- Integer.parse(port),
+         {:ok, hops} <- hops,
+         {:ok, sock} <- Lepton.Proxy.connect(host, p, hops, timeout) do
+      if opts["v"] || opts["z"], do: IO.err(ctx, "Connection to #{host} port #{port} succeeded!")
+
+      if opts["z"] do
+        :gen_tcp.close(sock)
+        0
+      else
+        nc_session(ctx, sock)
+      end
+    else
+      {:error, msg} -> IO.err(ctx, "nc: #{msg}"); 1
+      _ -> IO.err(ctx, "usage: nc [-x PROXY[:PORT]] [-X 4|5|connect] [-w SECONDS] [-z] [-v] HOST PORT"); 1
+    end
+  end
+
+  defp nc_session(ctx, sock) do
+    me = self()
+    reader = spawn_link(fn -> nc_out(sock, ctx); send(me, :closed) end)
+    :gen_tcp.controlling_process(sock, reader)
+    nc_in(ctx, sock)
+
+    receive do
+      :closed -> 0
+    end
+  end
+
+  defp nc_in(ctx, sock) do
+    case Elixir.IO.binread(ctx.stdin, 65_536) do
+      data when is_binary(data) -> :gen_tcp.send(sock, data); nc_in(ctx, sock)
+      _ -> :gen_tcp.shutdown(sock, :write)
+    end
+  end
+
+  defp nc_out(sock, ctx) do
+    case :gen_tcp.recv(sock, 0) do
+      {:ok, data} -> Elixir.IO.binwrite(ctx.stdout, data); nc_out(sock, ctx)
+      _ -> :ok
     end
   end
 

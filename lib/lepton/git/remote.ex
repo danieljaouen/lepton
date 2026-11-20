@@ -43,7 +43,7 @@ defmodule Lepton.Git.Remote do
         :post -> {String.to_charlist(url), headers, String.to_charlist(content_type), body}
       end
 
-    case :httpc.request(method, request, [ssl: ssl_opts(opts), timeout: 120_000, autoredirect: true], body_format: :binary) do
+    case :httpc.request(method, request, [ssl: ssl_opts(opts), timeout: 120_000, autoredirect: true], [body_format: :binary], Lepton.Proxy.httpc_profile(url, opts[:env] || %{})) do
       {:ok, {{_, 200, _}, _h, resp}} -> {:ok, resp}
       {:ok, {{_, 401, _}, _, _}} -> {:error, "authentication required (run `gh auth login` or set GH_TOKEN)"}
       {:ok, {{_, 403, _}, _, body}} -> {:error, "permission denied: #{String.slice(to_string(body), 0, 200)}"}

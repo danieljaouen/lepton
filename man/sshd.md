@@ -31,8 +31,9 @@ logs sshd` before you answer yes.
 A login gets a shell on a terminal of its own, which follows the
 window's size; `ssh alice@ADDRESS COMMAND` runs COMMAND and returns its
 exit status. Closing the connection ends everything the session
-started, as a hangup does. File transfer (`scp`, `sftp`) and port
-forwarding are not offered, but `rsync` works: a Mac's `rsync -av dir/
+started, as a hangup does. Lepton can be a jump host: a client's `ssh -J
+lepton server` or `-L` tunnels go on through it, as OpenSSH allows. File
+transfer (`scp`, `sftp`) and remote forwarding (`-R`) are not offered, but `rsync` works: a Mac's `rsync -av dir/
 alice@ADDRESS:dir/` runs Lepton's rsync on this side.
 
 The host key, an ed25519 key, is made the first time `sshd` starts. An

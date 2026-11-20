@@ -161,7 +161,7 @@ defmodule Lepton.NTP do
     ssl = Lepton.Git.Remote.ssl_opts([])
     headers = [{~c"user-agent", ~c"lepton-ntpd"}]
 
-    case :httpc.request(:get, {String.to_charlist(url), headers}, [ssl: ssl, timeout: 8000, connect_timeout: 5000], body_format: :binary) do
+    case :httpc.request(:get, {String.to_charlist(url), headers}, [ssl: ssl, timeout: 8000, connect_timeout: 5000], [body_format: :binary], Lepton.Proxy.httpc_profile(url)) do
       {:ok, {{_, 200, _}, _, body}} -> {:ok, body}
       other -> {:error, other}
     end

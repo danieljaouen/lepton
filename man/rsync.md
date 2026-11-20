@@ -45,7 +45,8 @@ src/ dst` makes `dst` a copy of `src`, while `rsync -a src dst` makes
   rsync asks it to; its own transfers are not compressed.
 - `-e COMMAND`, `--rsh COMMAND`: the ssh command line for another
   machine, with the ssh options Lepton's `ssh` takes, as in `-e 'ssh -p
-  2222 -i ~/.ssh/work_ed25519'`.
+  2222 -i ~/.ssh/work_ed25519'` or `-e 'ssh -J bastion'`. Proxies and
+  `~/.ssh/config`'s ProxyJump apply as for `ssh`.
 - `--rsync-path PATH`: the rsync to run on the other machine.
 - `-h`, `-P`, `--progress`, `--stats`, `-q` and the like are accepted and
   ignored.

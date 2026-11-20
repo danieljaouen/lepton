@@ -671,7 +671,7 @@ defmodule Lepton.Pkg do
     :inets.start()
     :ssl.start()
 
-    case :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"lepton-lpm/0.1"}, {~c"accept", ~c"application/json"}]}, [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 60_000, autoredirect: true], body_format: :binary) do
+    case :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"lepton-lpm/0.1"}, {~c"accept", ~c"application/json"}]}, [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 60_000, autoredirect: true], [body_format: :binary], Lepton.Proxy.httpc_profile(url)) do
       {:ok, {{_, 200, _}, _, body}} -> {:ok, body}
       {:ok, {{_, 404, _}, _, _}} -> {:error, "not found on #{URI.parse(url).host}"}
       {:ok, {{_, code, _}, _, _}} -> {:error, "#{URI.parse(url).host} returned HTTP #{code}"}

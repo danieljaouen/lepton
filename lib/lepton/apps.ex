@@ -447,7 +447,8 @@ defmodule Lepton.Apps do
     log = Path.join([home, ".cache", "lepton", name <> ".log"])
     File.mkdir_p!(Path.dirname(log))
     prepare_home(home, user, app)
-    env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name)
+    # The proxy, if any, through Lepton's forwarder (Firefox reads http_proxy & co.).
+    env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name) |> Map.merge(Lepton.Proxy.app_env(ctx.env))
     if Lepton.Sys.native?(), do: musl_path(prefix)
     # Firefox installed before a policy was added gets it too.
     firefox_policies(prefix)

@@ -57,7 +57,7 @@ defmodule Lepton.GH do
         do: {String.to_charlist(url), headers, ~c"application/json", JSON.encode!(body)},
         else: {String.to_charlist(url), headers}
 
-    case :httpc.request(method, req, [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 60_000], body_format: :binary) do
+    case :httpc.request(method, req, [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 60_000], [body_format: :binary], Lepton.Proxy.httpc_profile(url, ctx.env)) do
       {:ok, {{_, code, _}, _h, resp}} when code in 200..299 ->
         {:ok, if(resp == "", do: nil, else: JSON.decode!(resp))}
 

@@ -53,7 +53,7 @@ defmodule Lepton.Browser do
     :inets.start()
     :ssl.start()
 
-    case :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"Mozilla/5.0 (Lepton; aarch64) lepton-www/0.1"}]}, [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 30_000, autoredirect: true], body_format: :binary) do
+    case :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"Mozilla/5.0 (Lepton; aarch64) lepton-www/0.1"}]}, [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 30_000, autoredirect: true], [body_format: :binary], Lepton.Proxy.httpc_profile(url)) do
       {:ok, {{_, code, _}, _headers, body}} when code < 400 -> {:ok, url, to_utf8(body)}
       {:ok, {{_, code, reason}, _, _}} -> {:error, "HTTP #{code} #{reason}"}
       {:error, e} -> {:error, inspect(e)}

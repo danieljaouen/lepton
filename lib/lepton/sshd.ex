@@ -16,8 +16,9 @@ defmodule Lepton.SSHD do
   `Lepton.TTY` whose backend is the SSH channel: the line discipline,
   C-c, full-screen programs and window resizes work as on the console. A
   command without one (`ssh lepton ls`) runs with pipes for standard
-  input and output, and its exit status goes back to the client. The SFTP
-  subsystem and port forwarding are not offered.
+  input and output, and its exit status goes back to the client. Tunnels
+  out are allowed (Lepton can be a jump host: `ssh -J`); the SFTP
+  subsystem and remote forwarding are not offered.
   """
 
   require Logger
@@ -56,6 +57,8 @@ defmodule Lepton.SSHD do
   """
   def start(port \\ @default_port, opts \\ []) do
     :ssh.start()
+    # Loaded now: on first use OTP loses a tunnel's first data while it loads them.
+    for m <- [:ssh_tcpip_forward_srv, :ssh_tcpip_forward_client], do: Code.ensure_loaded(m)
 
     with {:ok, key} <- host_key(opts[:host_key] || host_key_path()) do
       log = opts[:log]
@@ -67,7 +70,10 @@ defmodule Lepton.SSHD do
         auth_methods: ~c"publickey",
         ssh_cli: {Lepton.SSHD.Channel, [home: opts[:home]]},
         subsystems: [],
-        tcpip_tunnel_in: false,
+        # Tunnels from here to other hosts (direct-tcpip: ssh -J, -W and -L
+        # through Lepton), as OpenSSH allows them; OTP calls these "in".
+        # No listening for the client (-R: "out").
+        tcpip_tunnel_in: true,
         tcpip_tunnel_out: false,
         id_string: ~c"Lepton_sshd",
         parallel_login: true,

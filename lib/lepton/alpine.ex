@@ -147,7 +147,7 @@ defmodule Lepton.Alpine do
     :inets.start()
     :ssl.start()
 
-    case :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"lepton-apps/0.1"}]}, http_opts(), body_format: :binary) do
+    case :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"lepton-apps/0.1"}]}, http_opts(), [body_format: :binary], Lepton.Proxy.httpc_profile(url)) do
       {:ok, {{_, 200, _}, _, body}} -> {:ok, body}
       {:ok, {{_, code, _}, _, _}} -> {:error, {:http, code, url}}
       {:error, reason} -> {:error, reason}
@@ -162,7 +162,7 @@ defmodule Lepton.Alpine do
     {:ok, f} = :file.open(String.to_charlist(path), [:raw, :binary, :write])
 
     try do
-      {:ok, ref} = :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"lepton-apps/0.1"}]}, http_opts(), sync: false, stream: :self)
+      {:ok, ref} = :httpc.request(:get, {String.to_charlist(url), [{~c"user-agent", ~c"lepton-apps/0.1"}]}, http_opts(), [sync: false, stream: :self], Lepton.Proxy.httpc_profile(url))
       receive_body(ref, f, 0, progress, url)
     after
       :file.close(f)

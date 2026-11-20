@@ -100,6 +100,8 @@ wins, as in OpenSSH. These keywords are read:
 | `IdentityFile` | a key to try; several add up |
 | `StrictHostKeyChecking` | `ask` (default), `accept-new`/`no` to add new hosts silently, `yes` to refuse them |
 | `UserKnownHostsFile` | instead of `~/.ssh/known_hosts` |
+| `ProxyJump` | go through these hosts first ([jump hosts](#jump-hosts-and-proxies)) |
+| `ProxyCommand` | a command that is the connection (`none`: none) |
 
 ```
 Host gh
@@ -110,6 +112,42 @@ Host gh
 
 Aliases work everywhere, including in git remotes: `git clone
 gh:you/repo.git`.
+
+## Jump hosts and proxies
+
+To reach a server you can only get to through another one (a bastion),
+go through it with `-J`, or with `ProxyJump` in `~/.ssh/config`. Each
+host of a chain is reached through the one before:
+
+```sh
+ssh -J bastion.example.com server.internal
+ssh -J me@hop1,me@hop2:2222 server.internal
+```
+
+```
+Host inside
+  HostName server.internal
+  ProxyJump bastion.example.com
+```
+
+`ProxyCommand` runs a command whose input and output are the
+connection, as in OpenSSH (`%h` and `%p` are the host and port). Lepton
+has the commands it is usually given: `ssh -W` and `nc`, which can go
+through an HTTP or SOCKS proxy:
+
+```sh
+ssh -o ProxyCommand='ssh -W %h:%p bastion' server.internal
+ssh -o ProxyCommand='nc -X connect -x proxy.example.com:3128 %h %p' server.example.com
+```
+
+SSH also goes through the system's [proxy](proxy.html) chain, or the
+`all_proxy` variable, when one is set. `ProxyJump none` or
+`ProxyCommand none` in a `Host` block turns them off for that host. git
+and rsync over SSH take the same ways, and host keys are always checked
+under the server's own name.
+
+Lepton's own SSH server can be a jump host: `ssh -J alice@lepton
+server` from another computer goes on through it.
 
 ## Logging in to Lepton
 
@@ -167,7 +205,8 @@ address `svc logs sshd` shows.
 ## Not supported
 
 Logging in with a password (in both directions: keys only),
-passphrase-protected keys, `ssh-agent`, agent and port forwarding, and
-`scp`/`sftp` (to or from Lepton: use [rsync](rsync.html) instead).
+passphrase-protected keys, `ssh-agent`, agent forwarding, `-L`/`-R`/`-D`
+port forwarding from Lepton's `ssh`, and `scp`/`sftp` (to or from
+Lepton: use [rsync](rsync.html) instead).
 
-<!-- commands: ssh ssh-keygen ssh-keyscan sshd -->
+<!-- commands: ssh ssh-keygen ssh-keyscan sshd nc -->

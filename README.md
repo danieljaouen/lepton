@@ -223,9 +223,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 239 tests, 0 failures inside the VM (run from the live
+Current results: 250 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-235 passing plus 17 excluded (native/network) on the host.
+246 passing plus 17 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -289,6 +289,7 @@ lib/lepton/            the operating system
   services.ex power.ex            svc service manager, power button
   cron.ex                         cron: crontab syntax, crond (the cron service)
   ntp.ex time.ex tz.ex            ntpd (SNTP, GeoIP time zone), local time, TZif zone files
+  proxy.ex                        proxies and chains (HTTP CONNECT, SOCKS4/5), the web forwarder
   photon.ex photon/ wayland/      Photon: Wayland compositor, displays, window managers, terminal windows, protocol
   apps.ex alpine.ex fd.ex         native apps (Firefox) from Alpine packages; the NIF: close, ioctl
   run_as.ex                       running native programs as the logged-in user
