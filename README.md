@@ -77,6 +77,7 @@ The user documentation is at **<https://trylepton.app/docs/>**:
   [your dotfiles](https://trylepton.app/docs/dotfiles.html) and
   [limitations](https://trylepton.app/docs/limitations.html)
 - Reference: [every command](https://trylepton.app/docs/commands.html),
+  [manual pages](https://trylepton.app/docs/man.html),
   [key bindings](https://trylepton.app/docs/keybindings.html) and
   [the tutorial](https://trylepton.app/docs/tutorial.html)
 
@@ -86,7 +87,10 @@ code: the command registry (every `defcmd`'s summary, usage and aliases),
 `Lepton.Tutorial.lessons/1`, and the output of `keys`, `bindkey` and
 `alias` for the dotfiles the ISO is built with. A guide can embed
 `<!-- commands: ip ping -->` to get a table of those commands from the
-registry.
+registry. The manual pages are `man/*.md`, one per command: `man` shows
+them inside Lepton (`Lepton.Man` compiles them in, adding NAME and
+SYNOPSIS from the registry), and the docs publish each as
+`man-NAME.html`.
 
 - `mix lepton.docs` writes `docs/` in the site checkout (see
   [Repositories](#repositories); preview it locally); `--check` only
@@ -95,11 +99,11 @@ registry.
   release, so they always describe the downloadable ISO. It publishes
   documentation-only changes too, even when the ISO is unchanged.
 - `mix test` fails if a page has a broken link, a guide names a command
-  that doesn't exist, a guide isn't linked, or a command has no summary
-  or usage line.
+  that doesn't exist, a guide isn't linked, a command has no summary
+  or usage line, or a command or builtin has no manual page.
 
 So a user-facing change means: update the code (with `usage:` on any new
-`defcmd`), update the relevant `docs/*.md` guide, run `mix test`, then
+`defcmd`), its manual page in `man/`, the relevant `docs/*.md` guide, run `mix test`, then
 publish.
 
 ## Quick start
@@ -214,9 +218,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 194 tests, 0 failures inside the VM (run from the live
+Current results: 204 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-190 passing plus 17 excluded (native/network) on the host.
+200 passing plus 17 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -279,10 +283,12 @@ lib/lepton/            the operating system
   photon.ex photon/ wayland/      Photon: Wayland compositor, displays, window managers, terminal windows, protocol
   apps.ex alpine.ex fd.ex         native apps (Firefox) from Alpine packages; the NIF: close, ioctl
   run_as.ex                       running native programs as the logged-in user
+  man.ex pager.ex                 man (pages from man/), less, top
   selftest.ex                     lepton-test
 lib/lepton_build/      image and docs build tooling (not shipped in the image)
 lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs
 docs/                  the user guides (Markdown; published to trylepton.app/docs)
+man/                   a manual page per command (Markdown; compiled into man, published with the docs)
 rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ssh/ssh_known_hosts, ...)
 rootfs/usr/share/      the Terminus console fonts Photon draws text with
 test/                  ExUnit suite (host + in-OS)

@@ -29,9 +29,9 @@ defmodule Lepton.Pager do
     body =
       for i <- 0..(h - 1) do
         line = Enum.at(visible, i)
-        text = if line, do: String.slice(line, 0, cols), else: "~"
-        text = if st.search && line, do: Regex.replace(st.search, text, "\e[7m\\0\e[27m"), else: text
-        ["\e[#{i + 1};1H\e[2K", text]
+        text = if line, do: fit(line, cols), else: "~"
+        text = if st.search && line, do: highlight(text, st.search), else: text
+        ["\e[#{i + 1};1H\e[2K", text, "\e[0m"]
       end
 
     pct = if length(st.lines) <= h, do: "(END)", else: "#{div((st.top + h) * 100, length(st.lines)) |> min(100)}%"
@@ -83,13 +83,36 @@ defmodule Lepton.Pager do
     end
   end
 
+  # Text with escape sequences (man's bold): cut to `cols` visible
+  # characters, and highlight matches only outside the escapes.
+  @sgr ~r/\e\[[0-9;]*m/
+
+  @doc false
+  def fit(line, cols) do
+    if String.length(Lepton.Style.strip(line)) <= cols, do: line, else: cut(Regex.split(@sgr, line, include_captures: true), cols, [])
+  end
+
+  defp cut([], _room, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+  defp cut(["\e[" <> _ = esc | rest], room, acc), do: cut(rest, room, [esc | acc])
+  defp cut([text | rest], room, acc), do: if(room <= 0, do: cut(rest, 0, acc), else: cut(rest, room - String.length(text), [String.slice(text, 0, room) | acc]))
+
+  @doc false
+  def highlight(line, re) do
+    @sgr
+    |> Regex.split(line, include_captures: true)
+    |> Enum.map_join(fn
+      "\e[" <> _ = esc -> esc
+      text -> Regex.replace(re, text, "\e[7m\\0\e[27m")
+    end)
+  end
+
   defp find(%{search: nil} = st, _dir), do: %{st | msg: "No previous search"}
   defp find(st, dir), do: find(st, dir, st.top + dir)
 
   defp find(st, dir, from) do
     indices = if dir > 0, do: from..(length(st.lines) - 1)//1, else: from..0//-1
 
-    case Enum.find(indices, &Regex.match?(st.search, Enum.at(st.lines, &1) || "")) do
+    case Enum.find(indices, &Regex.match?(st.search, Lepton.Style.strip(Enum.at(st.lines, &1) || ""))) do
       nil -> %{st | msg: "Pattern not found"}
       i -> %{st | top: i}
     end

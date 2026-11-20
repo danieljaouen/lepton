@@ -616,7 +616,7 @@ defmodule Lepton.Commands.System do
 
   defcmd "help", "list available commands", usage: "help [COMMAND]" do
     case args do
-      [name | _] -> man(ctx, name)
+      [name | _] -> brief(ctx, name)
       [] ->
         IO.puts(ctx, "Lepton OS #{Lepton.Init.version()} - commands (`help CMD` or `man CMD` for details)\n")
         cmds = Lepton.Commands.all() |> Map.values() |> Enum.uniq_by(& &1.name) |> Enum.sort_by(& &1.name)
@@ -628,29 +628,68 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defcmd "man", "show the manual for a command", usage: "man COMMAND" do
+  # `help CMD`: the summary and synopsis.
+  defp brief(ctx, name) do
+    case Lepton.Commands.lookup(name) do
+      {:ok, c} ->
+        IO.puts(ctx, "#{c.name} - #{c.summary}")
+        if c.usage, do: IO.puts(ctx, "usage: #{c.usage}")
+        if c.aliases != [], do: IO.puts(ctx, "also: #{Enum.join(c.aliases, ", ")}")
+        IO.puts(ctx, "`man #{c.name}` for the manual")
+        0
+
+      :error ->
+        if Lepton.Shell.Builtins.builtin?(name), do: (IO.puts(ctx, "#{name}: shell builtin (`man #{name}`)"); 0), else: (IO.err(ctx, "help: no such command: #{name}"); 1)
+    end
+  end
+
+  defcmd "man", "show the manual page for a command", usage: "man [-k KEYWORD | -f NAME] [1] NAME" do
     case args do
-      [name | _] -> man(ctx, name)
-      [] -> IO.err(ctx, "What manual page do you want?"); 1
+      ["-k", word | _] -> apropos(ctx, word, :keyword)
+      ["-f" | names] when names != [] -> Enum.reduce(names, 0, &max(apropos(ctx, &1, :name), &2))
+      ["1", name | _] -> man(ctx, name)
+      [name | _] when name not in ["-k", "-f"] -> man(ctx, name)
+      _ -> IO.err(ctx, "What manual page do you want?\nusage: man [-k KEYWORD | -f NAME] NAME"); 1
     end
   end
 
   defp man(ctx, name) do
-    case Lepton.Commands.lookup(name) do
-      {:ok, c} ->
-        IO.puts(ctx, "#{String.upcase(c.name)}(1)\n\nNAME\n    #{c.name} - #{c.summary}\n")
-        if c.usage, do: IO.puts(ctx, "SYNOPSIS\n    #{c.usage}\n")
-        if c.aliases != [], do: IO.puts(ctx, "ALIASES\n    #{Enum.join(c.aliases, ", ")}\n")
+    case Lepton.Man.page(name) do
+      nil ->
+        IO.err(ctx, "No manual entry for #{name}")
+        16
 
-        case c.fun do
-          {mod, _} -> IO.puts(ctx, "IMPLEMENTATION\n    #{inspect(mod)} (Elixir)")
-          _ -> :ok
-        end
-
+      page ->
+        tty? = ctx.tty != nil and Lepton.TTY.tty?(ctx.stdout)
+        width = man_width(ctx, tty?)
+        text = Lepton.Man.render(page, width, tty? and Lepton.Style.color?(ctx))
+        if tty?, do: Lepton.Pager.run(ctx, text, "#{page.name}(1)"), else: IO.write(ctx, text)
         0
+    end
+  end
 
-      :error ->
-        if Lepton.Shell.Builtins.builtin?(name), do: (IO.puts(ctx, "#{name}: shell builtin (see `help`)"); 0), else: (IO.err(ctx, "No manual entry for #{name}"); 16)
+  # MANWIDTH, else the terminal's width up to 80 columns.
+  defp man_width(ctx, tty?) do
+    case Integer.parse(Ctx.get_env(ctx, "MANWIDTH", "")) do
+      {w, ""} when w >= 20 -> w
+      _ -> if tty?, do: ctx.tty |> Lepton.TTY.size() |> elem(1) |> min(80), else: 80
+    end
+  end
+
+  defp apropos(ctx, word, how) do
+    found =
+      case how do
+        :keyword -> Lepton.Man.apropos(word)
+        :name -> for p <- [Lepton.Man.page(word)], p != nil, do: {p.name, p.summary}
+      end
+
+    if found == [] do
+      IO.err(ctx, "#{word}: nothing appropriate.")
+      16
+    else
+      w = found |> Enum.map(&String.length(elem(&1, 0))) |> Enum.max() |> max(10)
+      for {n, s} <- found, do: IO.puts(ctx, String.pad_trailing("#{n}(1)", w + 3) <> " - " <> s)
+      0
     end
   end
 

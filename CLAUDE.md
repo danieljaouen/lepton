@@ -12,14 +12,20 @@ anything a user would notice. For each one:
 1. **Code**: every `defcmd` needs a `usage:` (and a summary). The command
    reference, tutorial page and key bindings page are generated from the
    code, so they update themselves.
-2. **Guides**: update the relevant `docs/*.md` page (one per topic; front
+2. **Manual page**: every command (and shell builtin) has a page,
+   `man/NAME.md` (builtins: `man/builtins.md`), that `man` shows and the
+   site publishes. NAME and SYNOPSIS come from the `defcmd`; the page
+   has `## DESCRIPTION`, `## OPTIONS`, `## EXAMPLES`, `## SEE ALSO`, ...
+   (format: `Lepton.Man`). Update it when options or behaviour change.
+3. **Guides**: update the relevant `docs/*.md` page (one per topic; front
    matter: `title`, `order`, `summary`). New topic: add a new page; it is
    linked automatically. Use `<!-- commands: a b -->` to embed command
    tables from the registry rather than copying usage text.
-3. **Check**: `mix test` (includes `test/docs_test.exs`: links, every
-   guide linked, every command documented). `mix lepton.docs` writes
+4. **Check**: `mix test` (includes `test/docs_test.exs`: links, every
+   guide linked, every command documented; `test/man_test.exs`: every
+   command has a manual page). `mix lepton.docs` writes
    `docs/` in the site checkout (below) for a local preview.
-4. **Publish**: `mix lepton.publish` builds and releases the ISO and
+5. **Publish**: `mix lepton.publish` builds and releases the ISO and
    regenerates and pushes the docs (even when the ISO is unchanged).
    `mix lepton.docs --publish` publishes documentation-only fixes.
 

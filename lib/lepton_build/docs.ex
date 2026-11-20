@@ -59,8 +59,8 @@ defmodule LeptonBuild.Docs do
       end
       |> Enum.sort_by(&{&1.order, &1.slug})
 
-    reference = [commands_page(), keybindings_page(home), tutorial_page(home)]
-    pages = guides ++ reference
+    reference = [commands_page(), manual_page(), keybindings_page(home), tutorial_page(home)]
+    pages = guides ++ reference ++ man_pages()
     index = index_page(guides, reference)
 
     for page <- [index | pages] do
@@ -72,7 +72,7 @@ defmodule LeptonBuild.Docs do
   @doc "Write the pages to `out` (e.g. `../danieljaouen.github.io/docs`). Returns the paths written."
   def write(pages, out, rev) do
     File.mkdir_p!(out)
-    nav = Enum.reject(pages, &(&1.slug == "index"))
+    nav = Enum.reject(pages, &(&1.slug == "index" or &1.kind == :man))
 
     written =
       for page <- pages do
@@ -158,7 +158,7 @@ defmodule LeptonBuild.Docs do
           |> Enum.sort_by(& &1.name)
           |> Enum.map_join("\n", fn c ->
             also = if c.aliases == [], do: "", else: " · also " <> Enum.map_join(c.aliases, ", ", &"`#{cell(&1)}`")
-            "| {##{anchor(c.name)}}`#{cell(c.name)}`#{also} | #{cell(summary(c))} | `#{cell(c.usage)}` |"
+            "| {##{anchor(c.name)}}[`#{cell(c.name)}`](man-#{c.name}.html)#{also} | #{cell(summary(c))} | `#{cell(c.usage)}` |"
           end)
 
         "## #{title}\n\n| Command | What it does | Usage |\n|---|---|---|\n#{rows}\n"
@@ -178,14 +178,70 @@ defmodule LeptonBuild.Docs do
       # Command reference
 
       All #{count} commands that ship with Lepton, generated from the command
-      registry. Inside Lepton, `help` lists them and `man COMMAND` shows one.
+      registry. Each name links to its [manual page](man.html). Inside
+      Lepton, `help` lists them and `man COMMAND` shows one.
       Packages can add more ([packages](packages.html#packages-that-add-commands)).
 
       #{Enum.join(sections, "\n")}
       ## Shell builtins
 
-      These run inside the shell itself ([the shell](shell.html#builtins)):
-      #{builtins}.
+      These run inside the shell itself ([the shell](shell.html#builtins),
+      [builtins(1)](man-builtins.html)): #{builtins}.
+      """
+    }
+  end
+
+  # Every manual page `man` shows, one site page each (not in the menu:
+  # manual_page/0 lists them).
+  defp man_pages do
+    for name <- Lepton.Man.names(), page = Lepton.Man.page(name), page.name == name do
+      %Page{
+        slug: "man-" <> name,
+        kind: :man,
+        title: "#{name}(1)",
+        order: 2000,
+        summary: page.summary,
+        source: if(Lepton.Man.source(name), do: "man/#{name}.md", else: "man/builtins.md"),
+        markdown: Lepton.Man.markdown(page)
+      }
+    end
+  end
+
+  defp manual_page do
+    row = fn name ->
+      page = Lepton.Man.page(name)
+      "| [`#{cell(name)}`(1)](man-#{name}.html) | #{cell(page.summary)} |"
+    end
+
+    sections =
+      for set <- Lepton.Commands.sets(), Code.ensure_loaded?(set) do
+        title = @set_titles[set] || set |> Module.split() |> List.last()
+        rows = set.__commands__() |> Enum.map(& &1.name) |> Enum.sort() |> Enum.map_join("\n", row)
+        "## #{title}\n\n| Page | What it does |\n|---|---|\n#{rows}\n"
+      end
+
+    builtins = ["builtins" | Enum.sort(Lepton.Shell.Builtins.names())] |> Enum.map_join("\n", row)
+
+    %Page{
+      slug: "man",
+      kind: :reference,
+      title: "Manual pages",
+      order: 1000,
+      summary: "The manual page of every command and shell builtin, as man shows them inside Lepton.",
+      source: :generated,
+      markdown: """
+      # Manual pages
+
+      Every command that ships with Lepton has a manual page, and so does
+      each shell builtin. Inside Lepton, `man COMMAND` shows one, and
+      `man -k WORD` searches them. These are the same pages.
+
+      #{Enum.join(sections, "\n")}
+      ## Shell builtins
+
+      | Page | What it does |
+      |---|---|
+      #{builtins}
       """
     }
   end

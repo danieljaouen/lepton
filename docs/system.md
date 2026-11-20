@@ -105,11 +105,25 @@ clipboard over a serial console.
 
 ## Help and information
 
-`help` lists every command, and `man CMD` or `help CMD` describes one
-(the [command reference](commands.html) has them all). `keys` shows the
-bindings loaded from your dotfiles, `neofetch` summarises the system, and
-`credits` says who made Lepton. The login message and `help` point here,
-to <https://trylepton.app/docs/>.
+`help` lists every command, and `help CMD` gives one's usage in a line or
+two. `man CMD` shows its manual page: what it does, every option, and
+examples. Every command has one, and so does each shell builtin (`man
+cd`, or `man builtins` for them all).
+
+```sh
+man ls              # the manual page, in the pager: Space, /search, q to quit
+man -k usb          # pages whose name or summary mentions usb
+man -f grep         # grep's one-line summary
+man ls | grep -- -h # plain text when it isn't a terminal
+```
+
+`MANWIDTH` sets the width pages are laid out at (by default the
+terminal's, up to 80 columns). The same pages are on this site:
+[manual pages](man.html).
+
+`keys` shows the bindings loaded from your dotfiles, `neofetch`
+summarises the system, and `credits` says who made Lepton. The login
+message and `help` point here, to <https://trylepton.app/docs/>.
 
 ## Self-tests
 

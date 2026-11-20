@@ -12,8 +12,8 @@ to a new release. Each lesson has commands to try. Type them as they
 are, then follow the link at the end of the lesson to the full guide.
 
 Lines starting with `#` in the examples are comments: you don't type
-them. Inside Lepton, `help` lists every command and `man COMMAND` explains
-one. There's also a shorter tour you can take inside the OS itself:
+them. Inside Lepton, `help` lists every command and `man COMMAND` shows
+its manual page (they're [on the site](man.html) too). There's also a shorter tour you can take inside the OS itself:
 `lepton-tutorial` ([its lessons](lepton-tutorial.html)).
 
 ## 1. Run Lepton
