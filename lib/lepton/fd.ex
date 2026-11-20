@@ -1,6 +1,6 @@
 defmodule Lepton.FD do
   @moduledoc """
-  Closing file descriptors the VM didn't open, and `ioctl`.
+  Closing file descriptors the VM didn't open, `ioctl`, and `mount`.
 
   ERTS closes only descriptors it owns (files it opened, its sockets).
   A descriptor that arrives over a Unix socket (`SCM_RIGHTS`, as Wayland
@@ -8,8 +8,9 @@ defmodule Lepton.FD do
   closes it. Nor can OTP make `ioctl` calls, which device drivers are
   controlled with (sound cards' formats and volume, input devices'
   ranges). So this module carries a small NIF: a shared object, written
-  here byte by byte (no compiler), with two functions that make the
-  system calls.
+  here byte by byte (no compiler), with functions that make the system
+  calls. (`mount` is here for FUSE: the kernel takes the `/dev/fuse`
+  descriptor from the process that mounts, so a helper program can't.)
 
   The library is about 1 KB: an ELF header, three program headers, a
   dynamic table and three functions of aarch64 code. `nif_init` fills in
@@ -83,6 +84,24 @@ defmodule Lepton.FD do
   @doc false
   def nif_ioctl(_fd, _request, _arg), do: :erlang.nif_error(:unsupported)
 
+  @doc """
+  The `mount` system call (a FUSE mount needs the `/dev/fuse` descriptor
+  to be this process's, so it can't be done by a helper program).
+  """
+  def mount(source, target, type, flags, data) do
+    strings = [source, target, type, data]
+    {offsets, blob} = Enum.map_reduce(strings, 40, fn s, off -> {off, off + byte_size(s) + 1} end)
+    [src, tgt, typ, dat] = offsets
+    _ = blob
+    bin = <<src::little-64, tgt::little-64, typ::little-64, flags::little-64, dat::little-64>> <> Enum.map_join(strings, &(&1 <> <<0>>))
+    nif_mount(bin) |> result()
+  catch
+    :error, :unsupported -> {:error, :unsupported}
+  end
+
+  @doc false
+  def nif_mount(_bin), do: :erlang.nif_error(:unsupported)
+
   @errnos %{2 => :enoent, 4 => :eintr, 5 => :eio, 9 => :ebadf, 11 => :eagain, 16 => :ebusy, 19 => :enodev, 22 => :einval, 25 => :enotty, 32 => :epipe, 77 => :ebadfd}
   defp errno(n), do: Map.get(@errnos, n, n)
 
@@ -124,12 +143,32 @@ defmodule Lepton.FD do
   @ioctl_got 52 * 4
   @imports ["enif_inspect_binary", "enif_make_new_binary", "enif_make_tuple_from_array", "enif_make_badarg"]
 
+  # nif_mount(env, argc, argv): mount(p + p[0], p + p[1], p + p[2], p[3],
+  # p + p[4]) where p is the binary's data: offsets of the source, target,
+  # type and data strings, and the flags. Returns the result as a small
+  # integer (-errno). Assembled from:
+  #
+  #     stp x29, x30, [sp, #-80]! ; mov x29, sp ; str x19, [sp, #16]
+  #     mov x19, x0 ; ldr x1, [x2] ; add x2, sp, #24
+  #     enif_inspect_binary(env, argv[0], sp + 24)    // cbz x0, badarg
+  #     x9 = bin.data ; x0..x4 = the strings and flags ; mov x8, #40 ; svc #0
+  #     return x0 << 4 | 0xf
+  #   badarg: return enif_make_badarg(env)
+  #
+  # Words 6 and 25 load GOT slots 0 and 3 (patched in `library/0`).
+  @mount_code [
+    0xA9BB7BFD, 0x910003FD, 0xF9000BF3, 0xAA0003F3, 0xF9400041, 0x910063E2, :got0, 0xD63F0200,
+    0xB4000200, 0xF94013E9, 0xF940012A, 0x8B0A0120, 0xF940052A, 0x8B0A0121, 0xF940092A, 0x8B0A0122,
+    0xF9400D23, 0xF940112A, 0x8B0A0124, 0xD2800508, 0xD4000001, 0xD37CEC00, 0xB2400C00, 0x14000004,
+    0xAA1303E0, :got3, 0xD63F0200, 0xF9400BF3, 0xA8C57BFD, 0xD65F03C0
+  ]
+
   @doc "The NIF library's bytes (an ELF64 aarch64 shared object)."
   def library do
     # Layout (one RWX load segment at address 0):
     #   ELF header, program headers, .dynsym, .dynstr, .hash, .rela.dyn,
-    #   .dynamic, strings, ErlNifEntry, ErlNifFunc[2], code (nif_init,
-    #   nif_close, nif_ioctl and its GOT)
+    #   .dynamic, strings, ErlNifEntry, ErlNifFunc[3], code (nif_init,
+    #   nif_close, nif_ioctl and its GOT, nif_mount)
     ehdr = 64
     phnum = 3
     dynsym = ehdr + phnum * 56
@@ -146,7 +185,7 @@ defmodule Lepton.FD do
     dyn_count = 9
     strings = dynamic + dyn_count * 16
 
-    strs = [module: @module, variant: "beam.vanilla", min_erts: "erts-14.0", close: "nif_close", ioctl: "nif_ioctl"]
+    strs = [module: @module, variant: "beam.vanilla", min_erts: "erts-14.0", close: "nif_close", ioctl: "nif_ioctl", mount: "nif_mount"]
 
     {str_off, strings_end} =
       Enum.map_reduce(strs, strings, fn {k, s}, off -> {{k, off}, off + byte_size(s) + 1} end)
@@ -154,7 +193,7 @@ defmodule Lepton.FD do
     str_off = Map.new(str_off)
     entry = align(strings_end, 8)
     funcs = entry + 96
-    code = funcs + 2 * 32
+    code = funcs + 3 * 32
 
     # nif_close(env, argc, argv): close(argv[0] >> 4). Success returns
     # argv[0]; failure returns -errno as a small integer.
@@ -177,11 +216,12 @@ defmodule Lepton.FD do
     ]
 
     # nif_init(): fill in the entry's and the functions' pointers, return the entry.
-    init_len = 19
+    init_len = 23
     close_at = code + init_len * 4
     # (nif_ioctl's GOT must be 8-byte aligned)
     ioctl_at = align(close_at + length(close_fn) * 4, 8)
     got = ioctl_at + @ioctl_got
+    mount_at = got + length(@imports) * 8
 
     init = [
       adr(0, entry, code + 0),
@@ -202,13 +242,26 @@ defmodule Lepton.FD do
       str(1, 2, 32),
       adr(1, ioctl_at, code + 64),
       str(1, 2, 48),
+      adr(1, str_off.mount, code + 72),
+      str(1, 2, 64),
+      adr(1, mount_at, code + 80),
+      str(1, 2, 80),
       ret()
     ]
 
     ^init_len = length(init)
 
     words = fn list -> for i <- list, into: <<>>, do: <<i::little-32>> end
-    code_bin = pad(words.(init ++ close_fn), ioctl_at - code) <> words.(@ioctl_code)
+    mount_fn =
+      @mount_code
+      |> Enum.with_index()
+      |> Enum.map(fn
+        {:got0, i} -> ldr_literal(16, got, mount_at + i * 4)
+        {:got3, i} -> ldr_literal(16, got + 3 * 8, mount_at + i * 4)
+        {w, _} -> w
+      end)
+
+    code_bin = pad(words.(init ++ close_fn), ioctl_at - code) <> words.(@ioctl_code) <> words.(mount_fn)
     size = code + byte_size(code_bin)
 
     header =
@@ -247,10 +300,13 @@ defmodule Lepton.FD do
     # ErlNifEntry {major, minor, name, num_of_funcs, funcs, load, reload,
     # upgrade, unload, vm_variant, options, sizeof(ErlNifResourceTypeInit),
     # min_erts}: the pointers are filled in by nif_init.
-    entry_bin = <<2::little-32, 17::little-32, 0::64, 2::little-32, 0::32, 0::64, 0::64, 0::64, 0::64, 0::64, 0::64, 1::little-32, 0::32, 40::little-64, 0::64>>
+    entry_bin = <<2::little-32, 17::little-32, 0::64, 3::little-32, 0::32, 0::64, 0::64, 0::64, 0::64, 0::64, 0::64, 1::little-32, 0::32, 40::little-64, 0::64>>
     # ErlNifFunc {name, arity, fptr, flags}: close/1, and ioctl/3 on a
     # dirty I/O scheduler (flags 2: it may block, draining sound say).
-    funcs_bin = <<0::64, 1::little-32, 0::32, 0::64, 0::little-32, 0::32>> <> <<0::64, 3::little-32, 0::32, 0::64, 2::little-32, 0::32>>
+    # mount/1 on a dirty I/O scheduler too.
+    funcs_bin =
+      <<0::64, 1::little-32, 0::32, 0::64, 0::little-32, 0::32>> <> <<0::64, 3::little-32, 0::32, 0::64, 2::little-32, 0::32>> <>
+        <<0::64, 1::little-32, 0::32, 0::64, 2::little-32, 0::32>>
 
     [
       {0, header},
@@ -275,6 +331,10 @@ defmodule Lepton.FD do
   defp pad(bin, off) when byte_size(bin) <= off, do: bin <> :binary.copy(<<0>>, off - byte_size(bin))
 
   # -- aarch64 encodings ---------------------------------------------------------------------------
+
+  @doc false
+  # ldr xT, <literal at target>
+  def ldr_literal(rt, target, pc), do: 0x58000000 ||| (div(target - pc, 4) &&& 0x7FFFF) <<< 5 ||| rt
 
   @doc false
   def adr(rd, target, pc) do

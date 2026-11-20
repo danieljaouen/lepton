@@ -46,6 +46,7 @@ defmodule LeptonBuild.Image do
   @storage_modules ~w(
     mmc_block sdhci-pci sdhci-pltfm sdhci-iproc bcm2835 rtsx_usb_sdmmc ums-realtek
     vfat exfat ntfs3 udf nls_cp437 nls_utf8 nls_iso8859-1 loop
+    fuse
   )
 
   # Bluetooth (Lepton.Bluetooth): the stack, USB adapters (with Realtek's,
@@ -159,7 +160,7 @@ defmodule LeptonBuild.Image do
 
     erl_args =
       "-noshell -noinput -boot #{@erlang_root}/releases/#{otp_release}/start_clean " <>
-        "+fnu +sbwt none +sbwtdcpu none +sbwtdio none +Bi +C multi_time_warp -s Elixir.Lepton.Init main"
+        "+fnu +sbwt none +sbwtdcpu none +sbwtdio none +Bi +C multi_time_warp +SDio 32 -s Elixir.Lepton.Init main"
 
     "console=ttyAMA0 console=hvc0 console=tty0 quiet loglevel=3 panic=10 rdinit=/init #{extra} #{env} -- #{erl_args}"
     |> String.replace(~r/\s+/, " ")

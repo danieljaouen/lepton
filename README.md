@@ -223,9 +223,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 250 tests, 0 failures inside the VM (run from the live
+Current results: 253 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-246 passing plus 17 excluded (native/network) on the host.
+248 passing plus 18 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -273,7 +273,8 @@ lib/lepton/            the operating system
   mux.ex mux/                     tmux: server, client, layout, copy mode, config
   git.ex git/ gh.ex               git + GitHub (HTTPS and SSH remotes)
   ssh.ex ssh/                     SSH client: keys, known hosts, ssh/ssh-keygen
-  sshd.ex                         SSH server (keys only): sessions on a TTY or pipes
+  sshd.ex                         SSH server (keys only): sessions on a TTY or pipes, SFTP
+  sshfs.ex fd.ex                  sshfs: a FUSE server over SFTP (the NIF mounts it)
   rsync.ex rsync/                 rsync (protocol 27): client, server, file list, delta, -z tokens
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers

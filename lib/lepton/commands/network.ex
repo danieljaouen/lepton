@@ -330,6 +330,92 @@ defmodule Lepton.Commands.Network do
     end
   end
 
+  defcmd "sshfs", "mount a directory of another machine over SSH (SFTP)",
+    usage: "sshfs [USER@]HOST:[DIR] MOUNTPOINT [-p PORT] [-o OPTION=VALUE]..." do
+    sshfs(args, ctx)
+  end
+
+  defp sshfs(args, ctx) do
+    {opts, operands} = getopt(args, "p:o:fh")
+    settings = for v <- List.wrap(opts["o"]), kv <- String.split(v, ","), [k, val] <- [String.split(kv, "=", parts: 2) ++ [""]] |> Enum.map(&Enum.take(&1, 2)), into: %{}, do: {String.downcase(k), val}
+
+    case operands do
+      [remote, mountpoint] ->
+        dir = Ctx.path(ctx, mountpoint)
+        account = Lepton.Users.get(ctx.user) || %Lepton.Users{uid: 0, gid: 0}
+
+        cond do
+          not String.contains?(remote, ":") ->
+            IO.err(ctx, "sshfs: #{remote}: write it as [USER@]HOST:[DIR]")
+            1
+
+          not File.dir?(dir) ->
+            IO.err(ctx, "sshfs: #{mountpoint}: no such directory (create it first: mkdir #{mountpoint})")
+            1
+
+          Lepton.Users.check_write(ctx, dir) != :ok ->
+            IO.err(ctx, "sshfs: #{mountpoint}: permission denied (mount in your home)")
+            1
+
+          true ->
+            sopts =
+              [home: Ctx.home(ctx), env: ctx.env, uid: account.uid, gid: account.gid,
+               on_unknown: if(ctx.tty, do: &sshfs_confirm(ctx, &1, &2))] ++
+                if(opts["p"], do: [port: String.to_integer(opts["p"])], else: []) ++
+                if(settings["port"], do: [port: String.to_integer(settings["port"])], else: []) ++
+                if(settings["identityfile"], do: [identity: [Ctx.path(ctx, settings["identityfile"])]], else: []) ++
+                if(settings["proxyjump"], do: [jump: settings["proxyjump"]], else: []) ++
+                if(settings["proxycommand"], do: [proxy_command: settings["proxycommand"]], else: []) ++
+                if(settings["stricthostkeychecking"], do: [strict: String.downcase(settings["stricthostkeychecking"])], else: [])
+
+            case Lepton.SSHFS.mount(remote, dir, sopts) do
+              {:ok, pid} ->
+                Lepton.Proc.register(pid, "sshfs #{remote} #{Ctx.tildify(ctx, dir)}")
+                0
+
+              {:error, msg} ->
+                IO.err(ctx, "sshfs: #{msg}")
+                1
+            end
+        end
+
+      _ ->
+        IO.err(ctx, "usage: sshfs [USER@]HOST:[DIR] MOUNTPOINT [-p PORT] [-o OPTION=VALUE]...")
+        2
+    end
+  end
+
+  defp sshfs_confirm(ctx, name, key) do
+    IO.write(ctx.stderr, "The authenticity of host '#{name}' can't be established.\n#{Lepton.SSH.kind(key)} key fingerprint is #{Lepton.SSH.fingerprint(key)}.\nAre you sure you want to continue connecting (yes/no)? ")
+
+    case IO.read_line(ctx.stdin) do
+      line when is_binary(line) -> String.trim(line) in ["yes", "y"]
+      _ -> false
+    end
+  end
+
+  defcmd "fusermount", "unmount a FUSE filesystem (sshfs) you mounted", usage: "fusermount -u MOUNTPOINT" do
+    case getopt(args, "uqz") do
+      {%{"u" => true}, [mountpoint]} ->
+        dir = Ctx.path(ctx, mountpoint)
+        fuse? = Enum.any?(Lepton.Sys.mounts(), &(&1.dir == dir and String.starts_with?(&1.type, "fuse")))
+
+        cond do
+          not fuse? -> IO.err(ctx, "fusermount: #{mountpoint}: not a FUSE mount"); 1
+          Lepton.Users.check_write(ctx, dir) != :ok -> IO.err(ctx, "fusermount: #{mountpoint}: permission denied"); 1
+          true ->
+            case Lepton.SSHFS.unmount(dir) do
+              :ok -> 0
+              {:error, msg} -> IO.err(ctx, "fusermount: #{msg}"); 1
+            end
+        end
+
+      _ ->
+        IO.err(ctx, "usage: fusermount -u MOUNTPOINT")
+        2
+    end
+  end
+
   defcmd "www", "text-mode web browser (preview of the Lepton browser)", aliases: ["lynx", "browse"], usage: "www URL" do
     case args do
       [url | _] -> Lepton.Browser.run(ctx, url)

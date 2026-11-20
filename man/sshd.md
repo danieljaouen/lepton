@@ -32,8 +32,10 @@ A login gets a shell on a terminal of its own, which follows the
 window's size; `ssh alice@ADDRESS COMMAND` runs COMMAND and returns its
 exit status. Closing the connection ends everything the session
 started, as a hangup does. Lepton can be a jump host: a client's `ssh -J
-lepton server` or `-L` tunnels go on through it, as OpenSSH allows. File
-transfer (`scp`, `sftp`) and remote forwarding (`-R`) are not offered, but `rsync` works: a Mac's `rsync -av dir/
+lepton server` or `-L` tunnels go on through it, as OpenSSH allows.
+SFTP is offered, so `sftp`, `scp` and `sshfs` work from other computers:
+each account sees only its home (root, everything). Remote forwarding
+(`-R`) is not offered, but `rsync` works: a Mac's `rsync -av dir/
 alice@ADDRESS:dir/` runs Lepton's rsync on this side.
 
 The host key, an ed25519 key, is made the first time `sshd` starts. An

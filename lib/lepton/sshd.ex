@@ -17,8 +17,9 @@ defmodule Lepton.SSHD do
   C-c, full-screen programs and window resizes work as on the console. A
   command without one (`ssh lepton ls`) runs with pipes for standard
   input and output, and its exit status goes back to the client. Tunnels
-  out are allowed (Lepton can be a jump host: `ssh -J`); the SFTP
-  subsystem and remote forwarding are not offered.
+  out are allowed (Lepton can be a jump host: `ssh -J`), and SFTP is
+  offered (sftp, scp, sshfs), each account confined to its home (root to
+  the whole system). Remote forwarding is not.
   """
 
   require Logger
@@ -69,7 +70,8 @@ defmodule Lepton.SSHD do
         # Public keys only: no password, no keyboard-interactive.
         auth_methods: ~c"publickey",
         ssh_cli: {Lepton.SSHD.Channel, [home: opts[:home]]},
-        subsystems: [],
+        # SFTP (sftp, scp, sshfs), each account in its own home.
+        subsystems: [{~c"sftp", {Lepton.SSHD.SFTP, [home: opts[:home]]}}],
         # Tunnels from here to other hosts (direct-tcpip: ssh -J, -W and -L
         # through Lepton), as OpenSSH allows them; OTP calls these "in".
         # No listening for the client (-R: "out").
@@ -131,6 +133,85 @@ defmodule Lepton.SSHD do
         []
     end
   end
+end
+
+defmodule Lepton.SSHD.SFTP do
+  @moduledoc false
+  # OTP's SFTP server, rooted at the account's home (root: everything).
+  # Which account is known only once the channel is up, so the real
+  # server is started then and every message passed on to it.
+  @behaviour :ssh_server_channel
+
+  @impl true
+  def init(opts), do: {:ok, %{opts: opts, inner: nil}}
+
+  @impl true
+  def handle_msg({:ssh_channel_up, _ch, conn} = msg, st) do
+    [user: user] = :ssh.connection_info(conn, [:user])
+    account = Lepton.SSHD.account(user)
+    home = if st.opts[:home], do: st.opts[:home].(account), else: account.home
+    root = if account.name == "root" and st.opts[:home] == nil, do: "/", else: home
+    {:ok, inner} = :ssh_sftpd.init(root: String.to_charlist(root), cwd: ~c"/", file_handler: Lepton.SSHD.SFTPFile)
+    wrap(:ssh_sftpd.handle_msg(msg, inner), st)
+  end
+
+  def handle_msg(msg, %{inner: inner} = st) when inner != nil, do: wrap(:ssh_sftpd.handle_msg(msg, inner), st)
+  def handle_msg(_msg, st), do: {:ok, st}
+
+  @impl true
+  def handle_ssh_msg(msg, %{inner: inner} = st) when inner != nil, do: wrap(:ssh_sftpd.handle_ssh_msg(msg, inner), st)
+  def handle_ssh_msg(_msg, st), do: {:ok, st}
+
+  @impl true
+  def terminate(reason, %{inner: inner}) when inner != nil, do: :ssh_sftpd.terminate(reason, inner)
+  def terminate(_reason, _st), do: :ok
+
+  defp wrap({:ok, inner}, st), do: {:ok, %{st | inner: inner}}
+  defp wrap({:stop, ch, inner}, st), do: {:stop, ch, %{st | inner: inner}}
+end
+
+defmodule Lepton.SSHD.SFTPFile do
+  @moduledoc false
+  # SFTP's file operations, raw: OTP's default handler goes through the
+  # VM's file server, which every non-raw file operation in Lepton
+  # shares. One that waits (on an sshfs mount, say) would hold up the
+  # SFTP server, and so whoever waits on it: a deadlock.
+  @behaviour :ssh_sftpd_file_api
+
+  @impl true
+  def close(dev, st), do: {:file.close(dev), st}
+  @impl true
+  def delete(path, st), do: {:prim_file.delete(path), st}
+  @impl true
+  def del_dir(path, st), do: {:prim_file.del_dir(path), st}
+  @impl true
+  def get_cwd(st), do: {:prim_file.get_cwd(), st}
+  @impl true
+  def is_dir(path, st), do: {match?({:ok, {:file_info, _, :directory, _, _, _, _, _, _, _, _, _, _, _}}, :prim_file.read_file_info(path)), st}
+  @impl true
+  def list_dir(path, st), do: {:prim_file.list_dir(path), st}
+  @impl true
+  def make_dir(path, st), do: {:prim_file.make_dir(path), st}
+  @impl true
+  def make_symlink(target, path, st), do: {:prim_file.make_symlink(target, path), st}
+  @impl true
+  def open(path, flags, st), do: {:file.open(path, [:raw | flags]), st}
+  @impl true
+  def position(dev, offs, st), do: {:file.position(dev, offs), st}
+  @impl true
+  def read(dev, len, st), do: {:file.read(dev, len), st}
+  @impl true
+  def read_link(path, st), do: {:prim_file.read_link(path), st}
+  @impl true
+  def read_link_info(path, st), do: {:prim_file.read_link_info(path), st}
+  @impl true
+  def read_file_info(path, st), do: {:prim_file.read_file_info(path), st}
+  @impl true
+  def rename(from, to, st), do: {:prim_file.rename(from, to), st}
+  @impl true
+  def write(dev, data, st), do: {:file.write(dev, data), st}
+  @impl true
+  def write_file_info(path, info, st), do: {:prim_file.write_file_info(path, info), st}
 end
 
 defmodule Lepton.SSHD.Keys do

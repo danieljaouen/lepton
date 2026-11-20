@@ -29,8 +29,11 @@ summary: What Lepton doesn't do yet.
   `Requires=`), timers, socket activation or resource limits.
 - git: no three-way merge (pulls fast-forward only) and no rebase.
 - SSH: keys only (no password logins, in or out), no passphrase-protected
-  keys, no `ssh-agent`, forwarding or `scp`/`sftp` (rsync works). The
-  SSH server (`sshd`) offers shells and commands only.
+  keys, no `ssh-agent`, port forwarding from Lepton's `ssh`, or `scp`/`sftp`
+  commands on Lepton (rsync and sshfs work; from other computers, sftp,
+  scp and sshfs reach Lepton's `sshd`).
+- sshfs: no hard links or device files on the mount; a slow connection
+  can hold up other file operations while it answers.
 - Proxies carry TCP only: NTP (UDP) goes directly. HTTPS proxies (TLS to
   the proxy itself) and PAC files aren't supported.
 - rsync: protocol 27; no hard links (`-H`), relative paths (`-R`),

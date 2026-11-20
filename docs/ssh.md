@@ -149,6 +149,24 @@ under the server's own name.
 Lepton's own SSH server can be a jump host: `ssh -J alice@lepton
 server` from another computer goes on through it.
 
+## Mounting another machine (sshfs)
+
+`sshfs` mounts a directory of another machine in yours: its files then
+appear there for every program, read and written over SFTP on an SSH
+connection (with your keys, config, jump hosts and proxies).
+
+```sh
+mkdir ~/server
+sshfs me@server.example.com:projects ~/server   # (or me@server: for its whole home)
+ls ~/server && le ~/server/README.md
+fusermount -u ~/server                          # unmount
+```
+
+The other machine needs an SFTP server, which OpenSSH has (on a Mac:
+System Settings, Sharing, Remote Login), and so does Lepton's. The files
+appear as yours. While a program waits on a slow connection, other file
+operations in Lepton can wait with it.
+
 ## Logging in to Lepton
 
 Lepton has an SSH server too, `sshd`, so you can log in to it from
@@ -189,8 +207,10 @@ against the one in `svc logs sshd` before you answer yes.
   `le`, `tmux`, `top` and `sudo` work as on the console. Closing the
   connection ends everything the session started.
 - `svc logs sshd` shows every login and every refused key.
-- To copy files, use [rsync](rsync.html) from the other computer:
-  `rsync -av dir/ alice@192.168.1.23:dir/`.
+- To copy files, use [rsync](rsync.html), `scp` or `sftp` from the
+  other computer: `rsync -av dir/ alice@192.168.1.23:dir/`. Lepton's
+  server speaks SFTP, so a Mac's `sshfs` can mount your Lepton home too.
+  Each account sees only its home over SFTP (root sees everything).
 - The host key is made the first time `sshd` starts, in
   `/var/lib/lepton/ssh`. An installed system keeps it; the live ISO makes
   a new one each boot.
@@ -206,7 +226,8 @@ address `svc logs sshd` shows.
 
 Logging in with a password (in both directions: keys only),
 passphrase-protected keys, `ssh-agent`, agent forwarding, `-L`/`-R`/`-D`
-port forwarding from Lepton's `ssh`, and `scp`/`sftp` (to or from
-Lepton: use [rsync](rsync.html) instead).
+port forwarding from Lepton's `ssh`, and `scp`/`sftp` commands on Lepton
+(from another computer to Lepton they work; on Lepton, use
+[rsync](rsync.html) or `sshfs`).
 
-<!-- commands: ssh ssh-keygen ssh-keyscan sshd nc -->
+<!-- commands: ssh ssh-keygen ssh-keyscan sshd sshfs fusermount nc -->

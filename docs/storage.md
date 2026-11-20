@@ -17,6 +17,9 @@ ls /media/CAMERA          # use the files like any others
 eject /media/CAMERA       # ...then unplug it
 ```
 
+Another machine's files can be mounted too, over SSH: see
+[sshfs](ssh.html#mounting-another-machine-sshfs).
+
 To back up to a drive, [rsync](rsync.html) copies only what changed since
 last time: `rsync -av ~/notes/ /media/BACKUP/notes/`. FAT and exFAT
 drives keep times only to the nearest two seconds, so if unchanged files
