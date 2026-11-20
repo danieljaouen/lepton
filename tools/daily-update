@@ -1,0 +1,23 @@
+#!/bin/zsh
+# The daily update (09:00, by ~/Library/LaunchAgents/app.trylepton.daily-update.plist):
+# when Alpine's kernel, Homebrew's Erlang or Elixir is newer than
+# versions.toml, a headless Claude Code session upgrades, rebuilds, fixes,
+# tests, commits, pushes and publishes, following "Daily updates" in
+# CLAUDE.md. Otherwise it only logs that nothing changed.
+set -u
+export PATH=/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+cd "${0:A:h}/.." || exit 1
+echo "== $(date '+%Y-%m-%d %H:%M') daily update"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "uncommitted changes here: not updating today"; exit 0
+fi
+git pull --rebase -q && git submodule update -q site || { echo "git pull failed"; exit 1; }
+brew update -q >/dev/null 2>&1
+
+if mix lepton.versions --check; then
+  echo "everything is current"; exit 0
+fi
+
+exec claude -p --permission-mode auto --model claude-opus-5-5 \
+  "Run Lepton's daily update, as CLAUDE.md's \"Daily updates\" section says. mix lepton.versions has just reported something newer."

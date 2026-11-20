@@ -108,9 +108,10 @@ publish.
 
 ## Quick start
 
-Requirements on the build machine: Elixir 1.18+ on **OTP 29** (the image ships
-OTP 29.1.2, and compiled `.beam` files must match), `tar`, and network access
-for the first build. QEMU (`brew install qemu`) is optional, for testing.
+Requirements on the build machine: the Elixir and OTP in `versions.toml`
+(the image ships that OTP, and compiled `.beam` files must match; the build
+refuses others), `tar`, and network access for the first build. QEMU
+(`brew install qemu`) is optional, for testing.
 
 ```sh
 mix lepton.iso                 # -> out/lepton.iso (dotfiles from ~/.dotfiles, if any)
@@ -123,6 +124,7 @@ mix lepton.shell               # run the userland in this terminal, no VM
 mix lepton.docs                # build the documentation into the site's docs/
 mix lepton.site.tags           # put the site tags (lib/lepton_build/site_head.html) on every page
 mix lepton.publish             # build + publish the ISO, the docs and the site's checksum
+mix lepton.versions            # versions.toml (kernel, OTP, Elixir) against the newest available
 mix lepton.official add ...    # sign an official app update (docs: packages)
 mix test                       # host-side test run
 ```
@@ -223,9 +225,17 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 253 tests, 0 failures inside the VM (run from the live
-ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-248 passing plus 18 excluded (native/network) on the host.
+Current results: 266 tests, 0 failures inside the VM (run from the live
+ISO; the 14 `:docs` tests, for the docs and site tags, are host-only), and
+262 passing plus 18 excluded (native/network) on the host.
+
+## Daily updates
+
+`versions.toml` records the kernel (Alpine's `linux-lts`), OTP and Elixir
+Lepton is built from. `tools/daily-update`, run at 09:00 by a LaunchAgent
+on the build machine, checks them with `mix lepton.versions --check` and,
+only when one is newer, has Claude Code upgrade, rebuild, fix, test, commit,
+push and publish (the steps are in CLAUDE.md).
 
 ## Roadmap: GUI and web browser
 

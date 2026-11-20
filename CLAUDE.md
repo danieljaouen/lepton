@@ -69,6 +69,28 @@ builds decode images through glycin's sandboxed helpers), update
 docs/apps.md, and test Firefox in a VM before publishing. A scheduled
 routine opens a pull request for v3.25 on 2026-12-15.
 
+## Daily updates
+
+`versions.toml` records the kernel (Alpine `linux-lts`), OTP and Elixir
+Lepton is built from; the build refuses a Mac whose Erlang or Elixir
+differs. Every day at 09:00 `tools/daily-update` (a LaunchAgent,
+`~/Library/LaunchAgents/app.trylepton.daily-update.plist`, log in
+`~/Library/Logs/lepton-daily-update.log`) runs `mix lepton.versions
+--check`, and only when something is newer starts a headless session
+that must, without asking (this is standing permission to commit, push
+and publish for this job):
+
+1. `brew upgrade erlang elixir` when OTP or Elixir is newer;
+   `mix lepton.versions --write`; `mix deps.get`, `mix compile`.
+2. Fix whatever the new versions break (warnings too), in code and tests.
+3. `mix test`, then `mix lepton.iso && mix lepton.qemu --test`; both pass.
+   Update the README's counts and the site's stats if they changed.
+4. Commit ("Update to Linux X, OTP Y, Elixir Z" and what was fixed), push,
+   and `mix lepton.publish`.
+5. If it cannot be made to pass, commit nothing: leave the working tree
+   as it is, and say why at the end of the log (the next day's run skips
+   while the tree is dirty, so it waits for a person).
+
 ## Repositories
 
 - this repo: git@github.com:danieljaouen/lepton.git

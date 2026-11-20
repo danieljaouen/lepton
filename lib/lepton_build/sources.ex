@@ -12,7 +12,6 @@ defmodule LeptonBuild.Sources do
   recorded in `sources.lock` inside the cache directory.
   """
 
-  @otp_version "OTP-29.1.2"
   @otp_url "https://builds.hex.pm/builds/otp/arm64/ubuntu-24.04"
 
   @alpine_mirror "https://dl-cdn.alpinelinux.org/alpine"
@@ -64,6 +63,7 @@ defmodule LeptonBuild.Sources do
 
   @doc "Fetch and extract everything. Returns a map of component => extract dir."
   def fetch_all do
+    check_toolchain!()
     File.mkdir_p!(cache_dir())
     :inets.start()
     :ssl.start()
@@ -77,14 +77,45 @@ defmodule LeptonBuild.Sources do
       )
 
     File.write!(Path.join(cache_dir(), "sources.lock"), inspect(lock, pretty: true, limit: :infinity))
+
+    if lock["linux-lts"].version != versions()["kernel"],
+      do: Mix.shell().info("  note   kernel #{lock["linux-lts"].version}, versions.toml says #{versions()["kernel"]}: mix lepton.versions --write records it")
     lock
   end
 
-  def otp_version, do: @otp_version
+  @doc "The versions Lepton is built from (`versions.toml`): kernel, otp, elixir."
+  def versions, do: Lepton.TOML.parse(File.read!(Path.join(File.cwd!(), "versions.toml")))
+
+  def otp_version, do: versions()["otp"]
+
+  # The beams are compiled here and run on the image's OTP: the two must
+  # be the same release, and Elixir the one recorded.
+  defp check_toolchain! do
+    v = versions()
+    host_otp = "OTP-" <> host_otp_version()
+
+    cond do
+      host_otp != v["otp"] -> Mix.raise("this machine has #{host_otp}, versions.toml says #{v["otp"]}: brew upgrade erlang, or change versions.toml")
+      System.version() != v["elixir"] -> Mix.raise("this machine has Elixir #{System.version()}, versions.toml says #{v["elixir"]}")
+      true -> :ok
+    end
+  end
+
+  def host_otp_version do
+    Path.join([:code.root_dir(), "releases", :erlang.system_info(:otp_release), "OTP_VERSION"]) |> File.read!() |> String.trim()
+  end
+  def otp_url, do: @otp_url
+  def alpine_branch, do: @alpine_branch
+
+  @doc "The newest version of an Alpine package on Lepton's branch."
+  def alpine_latest(repo, name) do
+    Map.get(alpine_index("#{@alpine_mirror}/#{@alpine_branch}/#{repo}/aarch64", repo), name)
+  end
 
   # -- OTP -------------------------------------------------------------------
 
   defp fetch_otp do
+    otp_version = otp_version()
     builds = http_get!("#{@otp_url}/builds.txt")
 
     sha =
@@ -92,15 +123,15 @@ defmodule LeptonBuild.Sources do
       |> String.split("\n")
       |> Enum.find_value(fn line ->
         case String.split(line, " ") do
-          [@otp_version, _ref, _date, sha | _] -> sha
+          [^otp_version, _ref, _date, sha | _] -> sha
           _ -> nil
         end
-      end) || raise "#{@otp_version} not listed in #{@otp_url}/builds.txt"
+      end) || raise "#{otp_version} not listed in #{@otp_url}/builds.txt"
 
-    file = download!("#{@otp_url}/#{@otp_version}.tar.gz", "#{@otp_version}.tar.gz", sha256: sha)
+    file = download!("#{@otp_url}/#{otp_version}.tar.gz", "#{otp_version}.tar.gz", sha256: sha)
     dir = extract_dir("otp")
     extract_once!(file, dir)
-    {"otp", %{version: @otp_version, sha256: sha, dir: Path.join(dir, @otp_version)}}
+    {"otp", %{version: otp_version, sha256: sha, dir: Path.join(dir, otp_version)}}
   end
 
   # -- Alpine ----------------------------------------------------------------
@@ -199,13 +230,19 @@ defmodule LeptonBuild.Sources do
 
   # -- helpers ---------------------------------------------------------------
 
+  # Extracted again when the archive changes (a newer version of the
+  # package): the stamp beside the directory names the archive it holds.
   defp extract_once!(archive, dir) do
-    unless File.dir?(dir) do
+    stamp = dir <> ".from"
+
+    unless File.dir?(dir) and File.read(stamp) == {:ok, Path.basename(archive)} do
       tmp = dir <> ".tmp"
       File.rm_rf!(tmp)
       File.mkdir_p!(tmp)
       system_tar!(archive, tmp)
+      File.rm_rf!(dir)
       File.rename!(tmp, dir)
+      File.write!(stamp, Path.basename(archive))
     end
   end
 
@@ -241,7 +278,7 @@ defmodule LeptonBuild.Sources do
     dest
   end
 
-  defp http_get!(url) do
+  def http_get!(url) do
     ssl = [verify: :verify_peer, cacerts: :public_key.cacerts_get(), customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]]
 
     case :httpc.request(:get, {String.to_charlist(url), []}, [ssl: ssl, timeout: 600_000], body_format: :binary) do

@@ -1,0 +1,8 @@
+# The versions Lepton is built from: the Linux kernel (Alpine's linux-lts,
+# on the branch in lib/lepton_build/sources.ex), the Erlang runtime (from
+# builds.hex.pm) and Elixir (the build machine's, from Homebrew; its OTP
+# must be the same as the image's). `mix lepton.versions` compares them
+# with upstream; the daily update (tools/daily-update) moves them.
+kernel = "6.18.64-r0"
+otp = "OTP-29.1.2"
+elixir = "1.20.5"
