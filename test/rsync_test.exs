@@ -41,10 +41,27 @@ defmodule Lepton.RsyncTest do
   end
 
   describe "the delta algorithm" do
-    test "MD4 in Elixir matches the crypto library" do
-      for n <- [0, 1, 55, 56, 63, 64, 65, 1000] do
-        m = :crypto.strong_rand_bytes(n)
-        assert MD4.hash(m) == :crypto.hash(:md4, m)
+    test "MD4 in Elixir: RFC 1320's test vectors, and the crypto library's where it has MD4" do
+      vectors = [
+        {"", "31d6cfe0d16ae931b73c59d7e0c089c0"},
+        {"a", "bde52cb31de33e46245e05fbdbd6fb24"},
+        {"abc", "a448017aaf21d8525fc10ae87aa6729d"},
+        {"message digest", "d9130a8164549fe818874806e1c7014b"},
+        {"abcdefghijklmnopqrstuvwxyz", "d79e1c308aa5bbcdeea8ed63df412da9"},
+        {String.duplicate("1234567890", 8), "e33b4ddc9c38f2199c3e7b164fcc0536"}
+      ]
+
+      for {m, hex} <- vectors, do: assert(Base.encode16(MD4.hash(m), case: :lower) == hex)
+
+      crypto? = try do
+        :crypto.hash(:md4, "")
+        true
+      rescue
+        _ -> false
+      end
+
+      if crypto? do
+        for n <- [55, 56, 63, 64, 65, 1000], m = :crypto.strong_rand_bytes(n), do: assert(MD4.hash(m) == :crypto.hash(:md4, m))
       end
     end
 
