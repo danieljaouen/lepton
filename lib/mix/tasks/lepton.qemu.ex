@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
       mix lepton.qemu --test       # headless: boot, run `lepton-test`, report
       mix lepton.qemu --run "cmd"  # headless: boot, run shell commands, print output
       mix lepton.qemu --no-cd --disk DISK --login USER:PASS --run "cmd"  # an installed system
+      mix lepton.qemu --ssh-port 2222  # forward the Mac's port 2222 to the VM's sshd (port 22)
 
   The machine matches UTM's defaults for ARM64 Linux guests: `virt`,
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
@@ -25,7 +26,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
   def run(args) do
     {opts, _} =
       OptionParser.parse!(args,
-        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string, displays: :integer]
+        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string, displays: :integer, ssh_port: :integer]
       )
 
     iso = opts[:iso] || @iso
@@ -101,7 +102,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
         "-device",
         "virtio-net-pci,netdev=net0",
         "-netdev",
-        "user,id=net0",
+        "user,id=net0" <> if(opts[:ssh_port], do: ",hostfwd=tcp:127.0.0.1:#{opts[:ssh_port]}-:22", else: ""),
         "-device",
         "virtio-rng-pci",
         "-device",

@@ -55,7 +55,7 @@ Without sudo, these are refused with "permission denied":
 
 - **Commands that change the system:** `poweroff`, `reboot`, `lepton-install`,
   `mount` (to mount), `umount`, `modprobe`, `rmmod`, `dhclient`,
-  `hostname NAME`, `chown`, `useradd` and `userdel`.
+  `hostname NAME`, `chown`, `useradd`, `userdel` and `sshd`.
 - **Changing services, packages and Wi-Fi:** `svc start|stop|restart|enable|disable|new|edit`,
   `lpm install|remove|update|upgrade|revert`, and `wifi connect|forget|setup`.
   Looking (`svc`, `svc logs`, `lpm list`, `wifi`, `wifi scan`) is for everyone.

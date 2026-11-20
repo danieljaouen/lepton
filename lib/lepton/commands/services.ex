@@ -40,6 +40,11 @@ defmodule Lepton.Commands.Services do
     httpd(ctx, port, dir)
   end
 
+  defcmd "sshd", "SSH server: log in to Lepton from other machines, with keys only", usage: "sshd [-p PORT]", root: true do
+    {opts, _} = Lepton.Args.getopt(args, "p:")
+    sshd(ctx, Lepton.Args.int(opts, "p", Lepton.SSHD.default_port()))
+  end
+
   # -- svc ------------------------------------------------------------------------------------
 
   # Changing services is for root; looking at them is for everyone.
@@ -350,6 +355,38 @@ defmodule Lepton.Commands.Services do
       {:EXIT, _from, reason} -> :inets.stop(:stand_alone, server); exit(reason)
       {:signal, sig} when sig in [:term, :int] -> :inets.stop(:stand_alone, server); 0
       _ -> serve(server)
+    end
+  end
+
+  # -- sshd -----------------------------------------------------------------------------------
+
+  defp sshd(ctx, port) do
+    # Trap exits so `svc stop` / C-c shut the daemon down cleanly.
+    Process.flag(:trap_exit, true)
+
+    case Lepton.SSHD.start(port, log: self()) do
+      {:ok, daemon} ->
+        {:ok, key} = Lepton.SSHD.host_key()
+        IO.puts(ctx, "sshd: listening on port #{port}, keys only (no passwords)")
+        IO.puts(ctx, "sshd: host key #{Lepton.SSH.fingerprint(Lepton.SSH.public(key))} (ED25519)")
+
+        for {_iface, l} <- Lepton.Net.leases(),
+            do: IO.puts(ctx, "sshd: log in with: ssh USER@#{Lepton.Net.format_ip(l.ip)}#{if port != 22, do: " -p #{port}", else: ""}")
+
+        serve_sshd(ctx, daemon)
+
+      {:error, reason} ->
+        IO.err(ctx, "sshd: cannot listen on port #{port}: #{inspect(reason)}")
+        1
+    end
+  end
+
+  defp serve_sshd(ctx, daemon) do
+    receive do
+      {:sshd_log, line} -> IO.puts(ctx, "sshd: " <> line); serve_sshd(ctx, daemon)
+      {:EXIT, _from, reason} -> Lepton.SSHD.stop(daemon); exit(reason)
+      {:signal, sig} when sig in [:term, :int] -> Lepton.SSHD.stop(daemon); 0
+      _ -> serve_sshd(ctx, daemon)
     end
   end
 end

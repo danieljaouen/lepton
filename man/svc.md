@@ -52,4 +52,4 @@ A service is a file `NAME.service` in systemd syntax, in
 
 ## SEE ALSO
 
-journalctl(1), httpd(1), ps(1), https://trylepton.app/docs/services.html
+journalctl(1), httpd(1), sshd(1), ps(1), https://trylepton.app/docs/services.html

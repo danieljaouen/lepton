@@ -118,6 +118,7 @@ mix lepton.iso --dotfiles PATH # or set LEPTON_DOTFILES
 mix lepton.qemu                # boot in a QEMU window (UTM-equivalent machine)
 mix lepton.qemu --test         # headless boot, run lepton-test, report
 mix lepton.qemu --run "uname -a" --run "ip addr"
+mix lepton.qemu --ssh-port 2222 # forward localhost:2222 to the VM's sshd (start it inside)
 mix lepton.shell               # run the userland in this terminal, no VM
 mix lepton.docs                # build the documentation into the site's docs/
 mix lepton.site.tags           # put the site tags (lib/lepton_build/site_head.html) on every page
@@ -166,6 +167,10 @@ mix test                       # host-side test run
   uses `:ssl` with the bundled CA roots. `Lepton.SSH` is an SSH client on
   OTP's `:ssh`, with its own key callback for keys, known hosts (GitHub's
   built in) and `~/.ssh/config`. `ssh` and git's SSH transport use it.
+  `Lepton.SSHD` is the server, on OTP's SSH daemon: public keys only,
+  checked against each account's `~/.ssh/authorized_keys`; a session with
+  a terminal gets a `Lepton.TTY` whose backend is the channel. It ships
+  as the disabled `sshd` service.
 - **Desktop** (`Lepton.Photon`): a Wayland compositor. Clients connect to a
   Unix socket and speak the wire protocol (`Lepton.Wayland`: the core
   interfaces and `xdg-shell`). Shared-memory buffers arrive as file
@@ -218,9 +223,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 204 tests, 0 failures inside the VM (run from the live
+Current results: 210 tests, 0 failures inside the VM (run from the live
 ISO; the 13 `:docs` tests, for the docs and site tags, are host-only), and
-200 passing plus 17 excluded (native/network) on the host.
+206 passing plus 17 excluded (native/network) on the host.
 
 ## Roadmap: GUI and web browser
 
@@ -268,6 +273,7 @@ lib/lepton/            the operating system
   mux.ex mux/                     tmux: server, client, layout, copy mode, config
   git.ex git/ gh.ex               git + GitHub (HTTPS and SSH remotes)
   ssh.ex ssh/                     SSH client: keys, known hosts, ssh/ssh-keygen
+  sshd.ex                         SSH server (keys only): sessions on a TTY or pipes
   net.ex browser.ex screen.ex     networking, text browser, VT emulator
   dotfiles.ex elisp.ex toml.ex    config readers
   install.ex install/             lepton-install: GPT, FAT16, ext2, persistence, upgrades

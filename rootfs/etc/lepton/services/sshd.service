@@ -1,0 +1,11 @@
+# Log in to Lepton over SSH, with keys only (never passwords). Off until
+# you enable it:
+#   cat id_ed25519.pub >> ~/.ssh/authorized_keys   (the key of your other computer)
+#   sudo svc enable --now sshd                     (now and at every boot)
+[Unit]
+Description=SSH server, keys only (port 22)
+
+[Service]
+ExecStart=sshd
+Restart=on-failure
+RestartSec=2

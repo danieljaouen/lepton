@@ -46,4 +46,4 @@ The exit status of the remote command, or 255 if the connection failed.
 
 ## SEE ALSO
 
-ssh-keygen(1), ssh-keyscan(1), git(1), gh(1)
+ssh-keygen(1), ssh-keyscan(1), sshd(1), git(1), gh(1)

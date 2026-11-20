@@ -80,6 +80,11 @@ Other keys are ignored, and `svc status` lists them.
 
 - **hello**: says hello every two seconds. The tutorial uses it.
 - **httpd**: serves `~/public` on port 8080 with `httpd`.
+- **sshd**: the [SSH server](ssh.html#logging-in-to-lepton), keys only.
+  Off until you run `sudo svc enable --now sshd`.
+
+No service is enabled when Lepton is installed: each starts only when
+you start or enable it.
 
 ## httpd
 

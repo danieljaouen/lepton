@@ -28,8 +28,9 @@ summary: What Lepton doesn't do yet.
 - Services are simple ones only: no dependencies (`After=`,
   `Requires=`), timers, socket activation or resource limits.
 - git: no three-way merge (pulls fast-forward only) and no rebase.
-- SSH: keys only (no password logins), no passphrase-protected keys, no
-  `ssh-agent`, forwarding, `scp`/`sftp` or SSH server.
+- SSH: keys only (no password logins, in or out), no passphrase-protected
+  keys, no `ssh-agent`, forwarding or `scp`/`sftp`. The SSH server
+  (`sshd`) offers shells and commands only.
 - `le` is a Spacemacs work-alike, not Emacs: it doesn't *evaluate* Elisp,
   so layers and packages aren't loaded. Unsupported bindings are
   reported.

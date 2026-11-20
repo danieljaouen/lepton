@@ -1,7 +1,7 @@
 ---
 title: SSH
 order: 6
-summary: SSH keys, an ssh client, known hosts and ~/.ssh/config, for GitHub and your own servers.
+summary: SSH keys, an ssh client, known hosts and ~/.ssh/config, and an SSH server (keys only) to log in to Lepton.
 ---
 
 # SSH
@@ -111,10 +111,61 @@ Host gh
 Aliases work everywhere, including in git remotes: `git clone
 gh:you/repo.git`.
 
+## Logging in to Lepton
+
+Lepton has an SSH server too, `sshd`, so you can log in to it from
+another computer on your network. It is **off** until you turn it on,
+and it only takes **keys**: there is no password login, so nobody can
+guess their way in.
+
+On Lepton, put the other computer's public key (its
+`~/.ssh/id_ed25519.pub`; copy it over on a USB drive, or paste it) in
+the `authorized_keys` of the account you'll log in as, then start the
+server:
+
+```sh
+mkdir -p ~/.ssh
+cat id_ed25519.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+sudo svc enable --now sshd     # now and at every boot
+svc logs sshd                  # the host key's fingerprint, and the address to use
+```
+
+Then, from the other computer:
+
+```sh
+ssh alice@192.168.1.23         # a shell on Lepton
+ssh alice@192.168.1.23 uptime  # one command; its exit status is ssh's
+```
+
+The first time, `ssh` shows Lepton's host key fingerprint. Check it
+against the one in `svc logs sshd` before you answer yes.
+
+- You log in as one of Lepton's [accounts](users.html), with a key in
+  that account's `~/.ssh/authorized_keys` (one OpenSSH public key per
+  line; options before the key are allowed and ignored). Root can log
+  in the same way, with `/root/.ssh/authorized_keys`, which is how to
+  reach the live ISO. An `authorized_keys` that group or others may
+  write to is ignored.
+- A login gets its own terminal, which follows your window's size:
+  `le`, `tmux`, `top` and `sudo` work as on the console. Closing the
+  connection ends everything the session started.
+- `svc logs sshd` shows every login and every refused key.
+- The host key is made the first time `sshd` starts, in
+  `/var/lib/lepton/ssh`. An installed system keeps it; the live ISO makes
+  a new one each boot.
+- Another port: `sudo svc edit sshd` and change `ExecStart=sshd` to
+  `ExecStart=sshd -p 2222`.
+- To turn it off again: `sudo svc disable --now sshd`.
+
+In UTM, the VM must be reachable from your network: use **Bridged**
+networking, or the Mac itself can reach a **Shared Network** VM at the
+address `svc logs sshd` shows.
+
 ## Not supported
 
-Logging in with a password (keys only), passphrase-protected keys,
-`ssh-agent`, agent and port forwarding, `scp`/`sftp`, and running an SSH
-server on Lepton.
+Logging in with a password (in both directions: keys only),
+passphrase-protected keys, `ssh-agent`, agent and port forwarding, and
+`scp`/`sftp` (to or from Lepton).
 
-<!-- commands: ssh ssh-keygen ssh-keyscan -->
+<!-- commands: ssh ssh-keygen ssh-keyscan sshd -->

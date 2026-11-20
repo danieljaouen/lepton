@@ -182,6 +182,14 @@ defmodule Lepton.TTY do
     {:noreply, %{state | key_waiters: Enum.reject(state.key_waiters, fn {_, r} -> r == ref end)}}
   end
 
+  # A new size from the backend's side (a window, an SSH client): a
+  # full-screen program gets the {:resize, rows, cols} key.
+  def handle_cast({:set_size, size}, %{size: size} = state), do: {:noreply, state}
+
+  def handle_cast({:set_size, {rows, cols} = size}, %{mode: :raw} = state) do
+    {:noreply, serve(%{state | size: size, keys: :queue.in({:resize, rows, cols}, state.keys)})}
+  end
+
   def handle_cast({:set_size, size}, state), do: {:noreply, %{state | size: size}}
 
   @impl true
