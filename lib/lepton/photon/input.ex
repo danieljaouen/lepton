@@ -13,6 +13,8 @@ defmodule Lepton.Photon.Input do
       fraction of its display: with several displays, tablet `n` points
       at display `n` (QEMU binds one tablet to each display; UTM's one
       tablet is the primary display's)
+    * `{:abs_px, x, y, n}` - the pointer at pixel (x, y) of display `n`
+      (UTM's mouse while its SPICE agent is connected: `Lepton.VDAgent`)
     * `{:wheel, steps}` - the wheel turned (positive: down);
       `{:hwheel, steps}` - tilted, or a horizontal wheel (positive: right)
 

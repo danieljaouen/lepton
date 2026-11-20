@@ -18,6 +18,11 @@ defmodule Lepton.VDAgent do
     * text copied in Lepton: the agent says `CLIPBOARD_GRAB`, and answers
       the client's `CLIPBOARD_REQUEST` with it when the Mac pastes.
 
+  While an agent is connected, the SPICE server also sends it the mouse
+  (`MOUSE_STATE`: the position on a display, and the buttons) instead of
+  moving the VM's tablet, so the agent passes it on to the desktop
+  (Photon, which registers with `watch_pointer/1`).
+
   Without the port (another VM, real hardware, the host) it does nothing.
   """
 
@@ -29,6 +34,7 @@ defmodule Lepton.VDAgent do
   @max_chunk 2048
   @protocol 1
 
+  @mouse_state 1
   @clipboard 4
   @announce 6
   @grab 7
@@ -36,6 +42,11 @@ defmodule Lepton.VDAgent do
   @release 9
 
   @utf8_text 1
+
+  # VDAgentMouseState buttons: SPICE's masks, and the evdev codes Photon takes
+  @buttons [{1 <<< 1, 0x110}, {1 <<< 2, 0x112}, {1 <<< 3, 0x111}]
+  @wheel_up 1 <<< 4
+  @wheel_down 1 <<< 5
 
   @cap_clipboard_by_demand 5
   @cap_guest_lineend_lf 8
@@ -52,6 +63,12 @@ defmodule Lepton.VDAgent do
     end
   catch
     :exit, _ -> false
+  end
+
+  @doc "Send `pid` the SPICE client's mouse, as Photon input events (`{:input, event}`)."
+  def watch_pointer(pid) do
+    if Process.whereis(__MODULE__), do: GenServer.cast(__MODULE__, {:watch_pointer, pid})
+    :ok
   end
 
   # -- the protocol -------------------------------------------------------------------------------
@@ -104,7 +121,7 @@ defmodule Lepton.VDAgent do
   # looked for in /sys/class/virtio-ports.
   @impl true
   def init(opts) do
-    state = %{port: nil, send: opts[:send], buf: %{chunks: "", msgs: %{}}, from_host: nil, tries: 0}
+    state = %{port: nil, send: opts[:send], buf: %{chunks: "", msgs: %{}}, from_host: nil, tries: 0, pointers: [], mouse: 0}
 
     if state.send do
       {:ok, start(state)}
@@ -122,6 +139,9 @@ defmodule Lepton.VDAgent do
 
   @impl true
   def handle_call(:connected?, _from, state), do: {:reply, state.port != nil or state.send != nil, state}
+
+  @impl true
+  def handle_cast({:watch_pointer, pid}, state), do: {:noreply, %{state | pointers: Enum.uniq([pid | Enum.filter(state.pointers, &Process.alive?/1)])}}
 
   @impl true
   def handle_info(:find, state) do
@@ -183,6 +203,21 @@ defmodule Lepton.VDAgent do
   defp message({@request, _}, state) do
     write(state, encode(@clipboard, <<0::little-32>>))
     state
+  end
+
+  # The mouse: where it is on display `id` (pixels), and what changed of its buttons.
+  defp message({@mouse_state, <<x::little-32, y::little-32, buttons::little-32, id, _::binary>>}, state) do
+    pressed = fn mask, b -> (b &&& mask) != 0 end
+    was = state.mouse
+
+    events =
+      [{:abs_px, x, y, id}] ++
+        for({mask, code} <- @buttons, pressed.(mask, buttons) != pressed.(mask, was), do: {:button, code, pressed.(mask, buttons)}) ++
+        if(pressed.(@wheel_up, buttons) and not pressed.(@wheel_up, was), do: [{:wheel, -1}], else: []) ++
+        if(pressed.(@wheel_down, buttons) and not pressed.(@wheel_down, was), do: [{:wheel, 1}], else: [])
+
+    for pid <- state.pointers, e <- events, do: send(pid, {:input, e})
+    %{state | mouse: buttons}
   end
 
   defp message({@release, _}, state), do: state

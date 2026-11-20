@@ -567,8 +567,9 @@ defmodule Lepton.PhotonTest do
     alias Lepton.Photon.WM.Classic
     me = self()
     {ph, out, env} = start_photon(wm: "classic", spawn: fn opts -> send(me, {:spawned, opts}) end)
+    # Clicked as UTM's mouse arrives through the SPICE agent: pixels on display 0.
     click = fn x, y ->
-      Photon.input(ph, {:abs, x / 639, y / 399})
+      Photon.input(ph, {:abs_px, x, y, 0})
       Photon.input(ph, {:button, 0x110, true})
       Photon.input(ph, {:button, 0x110, false})
       Photon.sync(ph)

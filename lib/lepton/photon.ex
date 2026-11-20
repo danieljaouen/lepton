@@ -198,7 +198,7 @@ defmodule Lepton.Photon do
       {:ok, listener} ->
         me = self()
         spawn_link(fn -> Conn.accept_loop(listener, fn sock -> send(me, {:accepted, sock}) end) end)
-        if opts[:input] == :evdev, do: Lepton.Photon.Input.start(me)
+        if opts[:input] == :evdev, do: (Lepton.Photon.Input.start(me); Lepton.VDAgent.watch_pointer(me))
         if opts[:session], do: Process.monitor(opts[:session])
 
         if opts[:displays] == :auto, do: Process.send_after(self(), :displays, @display_check)
@@ -1524,6 +1524,13 @@ defmodule Lepton.Photon do
     {rx, ry, rw, rh} = Enum.at(rects, n) || hd(rects)
     {x, y} = st.pointer
     move_pointer(st, if(fx, do: rx + fx * (rw - 1), else: x), if(fy, do: ry + fy * (rh - 1), else: y))
+  end
+
+  # The SPICE agent's mouse: pixels on display n (Lepton.VDAgent).
+  defp handle_input({:abs_px, px, py, n}, st) do
+    rects = Screen.rects(st.output)
+    {rx, ry, rw, rh} = Enum.at(rects, n) || hd(rects)
+    move_pointer(st, rx + min(px, rw - 1), ry + min(py, rh - 1))
   end
 
   defp handle_input({:wheel, steps}, st), do: scroll(st, 0, steps)

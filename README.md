@@ -225,9 +225,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 269 tests, 0 failures inside the VM (run from the live
+Current results: 270 tests, 0 failures inside the VM (run from the live
 ISO; the 14 `:docs` tests, for the docs and site tags, are host-only), and
-265 passing plus 18 excluded (native/network) on the host.
+266 passing plus 18 excluded (native/network) on the host.
 
 ## Daily updates
 
@@ -301,7 +301,7 @@ lib/lepton/            the operating system
   cron.ex                         cron: crontab syntax, crond (the cron service)
   ntp.ex time.ex tz.ex            ntpd (SNTP, GeoIP time zone), local time, TZif zone files
   proxy.ex                        proxies and chains (HTTP CONNECT, SOCKS4/5), the web forwarder
-  vdagent.ex                      the SPICE guest agent's clipboard: UTM shares the Mac's clipboard
+  vdagent.ex                      the SPICE guest agent: UTM's shared clipboard, and its mouse (to Photon)
   httpd.ex certs.ex                the web server (files, reverse proxy, WebSockets, TLS by SNI) and certificates (local CA, ACME)
   ipp.ex print.ex print/          printing: IPP, mDNS discovery, text to PDF, cupsd (IPP server on :631)
   photon.ex photon/ wayland/      Photon: Wayland compositor, displays, window managers, terminal windows, protocol

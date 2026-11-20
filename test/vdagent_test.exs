@@ -67,6 +67,26 @@ defmodule Lepton.VDAgentTest do
     refute_receive {:wrote, _}, 300
   end
 
+  test "the mouse UTM sends the agent reaches the desktop: position, buttons, wheel" do
+    pid = agent()
+    GenServer.cast(pid, {:watch_pointer, self()})
+    mouse = fn x, y, buttons, display -> from_client(pid, 1, <<x::little-32, y::little-32, buttons::little-32, display>>) end
+
+    mouse.(100, 50, 0, 0)
+    assert_receive {:input, {:abs_px, 100, 50, 0}}
+    mouse.(101, 51, 0b10, 0)
+    assert_receive {:input, {:abs_px, 101, 51, 0}}
+    assert_receive {:input, {:button, 0x110, true}}
+    mouse.(101, 51, 0b1000, 1)
+    assert_receive {:input, {:abs_px, 101, 51, 1}}
+    assert_receive {:input, {:button, 0x110, false}}
+    assert_receive {:input, {:button, 0x111, true}}
+    mouse.(101, 51, 0b10_0000, 1)
+    assert_receive {:input, {:button, 0x111, false}}
+    assert_receive {:input, {:wheel, 1}}
+    refute_receive {:input, {:button, _, _}}, 100
+  end
+
   test "copied in Lepton: offered to the Mac, and sent when it pastes" do
     pid = agent()
     Lepton.Clipboard.put("from lepton")
