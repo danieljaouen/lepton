@@ -1,6 +1,7 @@
 ---
 title: Users and sudo
 order: 10
+section: system
 summary: Your account, logging in, sudo for administration, and managing accounts.
 ---
 

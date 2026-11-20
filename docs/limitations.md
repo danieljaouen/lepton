@@ -1,6 +1,7 @@
 ---
 title: Limitations
 order: 19
+section: start
 summary: What Lepton doesn't do yet.
 ---
 

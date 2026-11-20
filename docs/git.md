@@ -1,6 +1,7 @@
 ---
 title: git and GitHub
 order: 5
+section: shell
 summary: A format-compatible git, your gitconfig aliases, and a gh CLI.
 ---
 

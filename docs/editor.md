@@ -1,6 +1,7 @@
 ---
 title: The editor (le)
 order: 3
+section: shell
 summary: A Spacemacs-style editor configured from your ~/.spacemacs.
 ---
 

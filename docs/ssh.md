@@ -1,6 +1,7 @@
 ---
 title: SSH
 order: 6
+section: network
 summary: SSH keys, an ssh client, known hosts and ~/.ssh/config, and an SSH server (keys only) to log in to Lepton.
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: Syncing files (rsync)
 order: 7
+section: network
 summary: rsync to copy and mirror directories locally, to USB drives and between machines over SSH, sending only what changed.
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: Getting started
 order: 1
+section: start
 summary: Download the ISO, boot it in UTM or QEMU, install it to a disk and shut it down cleanly.
 ---
 

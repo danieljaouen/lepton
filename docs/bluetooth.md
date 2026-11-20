@@ -1,6 +1,7 @@
 ---
 title: Bluetooth
 order: 16
+section: hardware
 summary: Bluetooth keyboards, mice and headphones: pair and connect them from the command line or the classic desktop.
 ---
 

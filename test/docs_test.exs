@@ -6,6 +6,7 @@ defmodule Lepton.DocsTest do
   # name commands that exist. (Host only: docs/ isn't in the image.)
   @moduletag :docs
 
+  import Lepton.TestHelpers
   alias LeptonBuild.{Docs, Markdown}
 
   setup_all do
@@ -43,9 +44,27 @@ defmodule Lepton.DocsTest do
     assert keys.html =~ "evil-ex"
   end
 
+  test "every guide is in a section, and the contents show each as a drop-down" do
+    pages = Docs.build(rev: "test")
+    known = Enum.map(Docs.sections(), &elem(&1, 0))
+    for p <- pages, p.kind == :guide, do: assert(p.section in known, "#{p.slug}: section #{inspect(p.section)}")
+
+    dir = tmp_dir("docsout")
+    Docs.write(pages, dir, "test")
+    web = File.read!(Path.join(dir, "web.html"))
+    assert web =~ ~s(<details class="docs-sec" open>\n          <summary>Networking and the web</summary>)
+    assert web =~ ~s(<details class="docs-sec">\n          <summary>Hardware</summary>)
+    index = File.read!(Path.join(dir, "index.html"))
+    for {_, title} <- Docs.sections(), do: assert(index =~ Markdown.escape(title))
+
+    bad = tmp_dir("docsbad")
+    File.write!(Path.join(bad, "y.md"), "---\ntitle: Y\nsection: nowhere\n---\n# Y\n")
+    assert_raise RuntimeError, ~r/unknown section nowhere/, fn -> Docs.build(docs: bad, rev: "test") end
+  end
+
   test "a guide naming an unknown command fails the build" do
     dir = Lepton.TestHelpers.tmp_dir("docs")
-    File.write!(Path.join(dir, "x.md"), "---\ntitle: X\n---\n# X\n\n<!-- commands: ls frobnicate -->\n")
+    File.write!(Path.join(dir, "x.md"), "---\ntitle: X\nsection: shell\n---\n# X\n\n<!-- commands: ls frobnicate -->\n")
     assert_raise RuntimeError, ~r/frobnicate, which is not a command/, fn -> Docs.build(docs: dir, rev: "test") end
   end
 

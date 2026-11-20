@@ -37,8 +37,21 @@ defmodule LeptonBuild.Docs do
 
   defmodule Page do
     @moduledoc false
-    defstruct [:slug, :title, :summary, :order, :markdown, :source, :html, headings: [], kind: :guide]
+    defstruct [:slug, :title, :summary, :order, :section, :markdown, :source, :html, headings: [], kind: :guide]
   end
+
+  # The guides' sections, in order: each guide's front matter names one
+  # (`section: network`). The contents show each as a drop-down.
+  @sections [
+    {"start", "Getting started"},
+    {"shell", "Working in the shell"},
+    {"system", "System and services"},
+    {"network", "Networking and the web"},
+    {"desktop", "Desktop and apps"},
+    {"hardware", "Hardware"}
+  ]
+
+  def sections, do: @sections
 
   @doc "All pages, rendered. `opts`: `:docs` (guide dir), `:home` (dotfiles home), `:rev`."
   def build(opts \\ []) do
@@ -54,6 +67,7 @@ defmodule LeptonBuild.Docs do
           title: meta["title"] || raise("#{path}: front matter needs a title"),
           summary: meta["summary"],
           order: String.to_integer(meta["order"] || "100"),
+          section: section!(meta["section"], path),
           markdown: expand_directives(body, path),
           source: "docs/" <> Path.basename(path)
         }
@@ -115,6 +129,13 @@ defmodule LeptonBuild.Docs do
   end
 
   # -- guides --------------------------------------------------------------------------------
+
+  defp section!(nil, "docs/tutorial.md"), do: "start"
+  defp section!(nil, path), do: raise("#{path}: front matter needs a section (#{Enum.map_join(@sections, ", ", &elem(&1, 0))})")
+
+  defp section!(name, path) do
+    if List.keymember?(@sections, name, 0), do: name, else: raise("#{path}: unknown section #{name}")
+  end
 
   defp front_matter("---\n" <> rest, path) do
     case String.split(rest, "\n---\n", parts: 2) do
@@ -360,10 +381,7 @@ defmodule LeptonBuild.Docs do
       [Tutorial](tutorial.html), a tour of everything from the first boot
       on, or start with [getting started](getting-started.html).
 
-      ## Guides
-
-      #{list.(Enum.reject(guides, &(&1.slug == "tutorial")))}
-
+      #{for {key, title} <- @sections, pages = Enum.filter(guides, &(&1.section == key and &1.slug != "tutorial")), pages != [], into: "", do: "## #{title}\n\n#{list.(pages)}\n\n"}
       ## Reference
 
       #{list.(reference)}
@@ -395,6 +413,19 @@ defmodule LeptonBuild.Docs do
         ~s(          <li><a href="#{p.slug}.html"#{current}>#{e.(p.title)}</a></li>)
       end)
     end
+
+    group = fn title, pages ->
+      open = if Enum.any?(pages, &(&1.slug == page.slug)), do: " open", else: ""
+      ~s(        <details class="docs-sec"#{open}>\n          <summary>#{e.(title)}</summary>\n          <ul>\n#{links.(pages)}\n          </ul>\n        </details>)
+    end
+
+    groups =
+      Enum.map_join(@sections, "\n", fn {key, t} ->
+        case Enum.filter(guides, &(&1.section == key)) do
+          [] -> ""
+          pages -> group.(t, pages)
+        end
+      end) <> "\n" <> group.("Reference", reference)
 
     toc =
       case for({2, id, text} <- page.headings, do: {id, text}) do
@@ -447,20 +478,13 @@ defmodule LeptonBuild.Docs do
       </header>
       <div class="wrap docs-grid">
         <nav class="docs-nav" aria-label="Documentation">
-          <details open>
+          <details class="docs-nav-all" open>
             <summary>Contents</summary>
             <p class="docs-nav-title"><a href="index.html">Documentation</a></p>
             <ul>
               <li><a href="tutorial.html"#{if page.slug == "tutorial", do: ~s( aria-current="page"), else: ""}>Tutorial</a></li>
             </ul>
-            <p class="docs-nav-group">Guides</p>
-            <ul>
-    #{links.(guides)}
-            </ul>
-            <p class="docs-nav-group">Reference</p>
-            <ul>
-    #{links.(reference)}
-            </ul>
+    #{groups}
           </details>
         </nav>
         <main id="main" class="docs-main">
@@ -472,7 +496,7 @@ defmodule LeptonBuild.Docs do
       </div>
       <script>
         // The contents list starts collapsed on phones.
-        if (matchMedia("(max-width: 820px)").matches) document.querySelector(".docs-nav details").open = false;
+        if (matchMedia("(max-width: 820px)").matches) document.querySelector(".docs-nav-all").open = false;
         document.getElementById("theme-toggle").addEventListener("click", function () {
           var root = document.documentElement;
           var cur = root.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");

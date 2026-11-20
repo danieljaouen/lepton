@@ -1,6 +1,7 @@
 ---
 title: Web server and HTTPS (httpd)
 order: 9
+section: network
 summary: Serve files, put HTTPS in front of a Phoenix app (LiveView's WebSockets too), and get its certificates, local or from Let's Encrypt.
 ---
 

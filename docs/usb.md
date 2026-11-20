@@ -1,6 +1,7 @@
 ---
 title: USB, hubs and displays
 order: 13
+section: hardware
 summary: USB hubs and docks, devices plugged in while Lepton runs, and second displays for the desktop (extended or mirrored).
 ---
 

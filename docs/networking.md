@@ -1,6 +1,7 @@
 ---
 title: Networking
 order: 9
+section: network
 summary: DHCP, interfaces, DNS, HTTP clients, a text browser and a web server.
 ---
 

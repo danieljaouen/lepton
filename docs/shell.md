@@ -1,6 +1,7 @@
 ---
 title: The shell (lsh)
 order: 2
+section: shell
 summary: Line editing, your zsh aliases, the starship prompt, jobs and scripting.
 ---
 

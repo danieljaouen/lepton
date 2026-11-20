@@ -1,6 +1,7 @@
 ---
 title: Printing
 order: 17
+section: desktop
 summary: Print to network printers (AirPrint, IPP Everywhere) from the shell and from Firefox, with CUPS's commands.
 ---
 

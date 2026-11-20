@@ -1,6 +1,7 @@
 ---
 title: Proxies
 order: 10
+section: network
 summary: Reach the internet through a proxy, or a chain of them (HTTP and SOCKS), for the web, git, packages, Firefox and SSH.
 ---
 

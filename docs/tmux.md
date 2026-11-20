@@ -1,6 +1,7 @@
 ---
 title: The multiplexer (tmux)
 order: 4
+section: shell
 summary: tmux sessions, windows and panes, driven by your ~/.tmux.conf.
 ---
 

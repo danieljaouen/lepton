@@ -1,6 +1,7 @@
 ---
 title: Time and time zones
 order: 11
+section: system
 summary: The clock is kept right with NTP, and the time zone is found from your network, or set by hand.
 ---
 

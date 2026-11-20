@@ -1,6 +1,7 @@
 ---
 title: Updating Lepton
 order: 1
+section: start
 summary: Update an installed Lepton to the latest ISO, in UTM or QEMU, keeping your files, apps, accounts and settings.
 ---
 

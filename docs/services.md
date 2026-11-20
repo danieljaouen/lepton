@@ -1,6 +1,7 @@
 ---
 title: Services (svc)
 order: 8
+section: system
 summary: Start, stop and restart long-running apps, like systemd.
 ---
 

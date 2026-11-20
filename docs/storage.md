@@ -1,6 +1,7 @@
 ---
 title: USB drives and SD cards
 order: 14
+section: hardware
 summary: Plug in a USB drive, stick or SD card and it's mounted under /media; eject it before you unplug it.
 ---
 

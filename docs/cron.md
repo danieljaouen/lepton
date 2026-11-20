@@ -1,6 +1,7 @@
 ---
 title: Scheduled jobs (cron)
 order: 9
+section: system
 summary: Run commands at set times with crontab and the cron service.
 ---
 

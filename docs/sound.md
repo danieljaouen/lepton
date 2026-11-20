@@ -1,6 +1,7 @@
 ---
 title: Sound
 order: 15
+section: desktop
 summary: Sound cards, the volume (volume, the volume keys, the classic desktop's speaker), and playing sounds.
 ---
 

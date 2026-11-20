@@ -1,6 +1,7 @@
 ---
 title: The desktop (Photon)
 order: 12
+section: desktop
 summary: Photon, Lepton's Wayland compositor, and the classic desktop: windows on the display, with the mouse and keyboard.
 ---
 

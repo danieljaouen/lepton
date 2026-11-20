@@ -1,6 +1,7 @@
 ---
 title: System
 order: 11
+section: system
 summary: Processes and jobs, storage and persistence, running out of memory, logs, power, the clipboard, Elixir and the self-tests.
 ---
 
