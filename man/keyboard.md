@@ -21,9 +21,9 @@ The sources:
 
 Korean composes in programs that take composed text (Firefox and other
 GTK programs, through Wayland's text-input protocol). In Lepton's own
-windows the keys stay English: the terminal's font has no Hangul. The
-other layouts type in every window, but the terminal shows only the
-scripts its font has.
+windows (terminal windows, `le`) the keys stay English: they don't take
+composed text yet. The other layouts type in every window, and terminal
+windows show their text (Unifont's glyphs, where Terminus has none).
 
 ## COMMANDS
 

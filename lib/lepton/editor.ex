@@ -306,7 +306,7 @@ defmodule Lepton.Editor do
   def display_col(line, col) do
     line |> String.slice(0, col) |> String.graphemes() |> Enum.reduce(0, fn
       "\t", acc -> acc + 8 - rem(acc, 8)
-      _, acc -> acc + 1
+      g, acc -> acc + Lepton.Width.grapheme(g)
     end)
   end
 

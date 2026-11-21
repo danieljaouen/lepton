@@ -79,7 +79,7 @@ defmodule Lepton.Style do
   def width(s) do
     s
     |> strip()
-    |> String.length()
+    |> Lepton.Width.string()
   end
 
   def strip(s), do: Regex.replace(~r/\e\[[0-9;?]*[A-Za-z]|\e\][^\a]*\a/, s, "")

@@ -175,7 +175,8 @@ programs leave theirs out.
 
 - GPU-drawn (EGL) programs, transparency, the primary selection (pasting
   what's selected with the middle button), touch, and HiDPI scaling.
-- Fonts other than the built-in 8x16 Terminus bitmap font.
+- Fonts other than the built-in 8x16 Terminus bitmap font and, for what
+  it lacks (Chinese, Japanese, Korean, ...), GNU Unifont's bitmaps.
 - Japanese and Chinese input ([other languages](keyboard.html) and
   Korean work).
 - Video drivers: programs draw with the CPU.

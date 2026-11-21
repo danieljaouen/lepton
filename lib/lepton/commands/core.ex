@@ -151,7 +151,7 @@ defmodule Lepton.Commands.Core do
 
   defp columns(ctx, names, opts, colors, color?) do
     {_, width} = Lepton.TTY.size(ctx.stdout)
-    w = (names |> Enum.map(fn {n, _} -> String.length(n) end) |> Enum.max()) + 3
+    w = (names |> Enum.map(fn {n, _} -> Lepton.Width.string(n) end) |> Enum.max()) + 3
     per_row = max(div(width, w), 1)
     rows = div(length(names) + per_row - 1, per_row)
     grid = Enum.chunk_every(names, rows)
@@ -160,7 +160,7 @@ defmodule Lepton.Commands.Core do
       line =
         for col <- grid, entry = Enum.at(col, r), entry != nil do
           {n, s} = entry
-          [colorize(n, s, colors, color?), classify(s, opts), String.duplicate(" ", w - String.length(n) - String.length(classify(s, opts)))]
+          [colorize(n, s, colors, color?), classify(s, opts), String.duplicate(" ", max(w - Lepton.Width.string(n) - String.length(classify(s, opts)), 1))]
         end
 
       IO.puts(ctx, String.trim_trailing(Elixir.IO.iodata_to_binary(line)))

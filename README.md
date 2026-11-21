@@ -181,7 +181,9 @@ mix test                       # host-side test run
   decorated windows, pointer) and `pwrite`s them to `/dev/fb0`. Input comes
   from evdev devices read as files. Terminal windows
   (`Lepton.Photon.Term`) are Wayland clients that run `lsh` on a TTY and
-  draw `Lepton.Screen` with the Terminus PSF font. Descriptors received
+  draw `Lepton.Screen` with the Terminus PSF font (GNU Unifont's glyphs
+  for what it lacks: Chinese, Japanese, Korean, ...; wide characters take
+  two cells, `Lepton.Width`). Descriptors received
   from clients are closed by `Lepton.FD`, a 700-byte NIF whose ELF and
   aarch64 code Lepton writes itself (OTP has no way to close a descriptor
   it didn't open). Native apps run as the logged-in user through
@@ -225,9 +227,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 290 tests, 0 failures inside the VM (run from the live
+Current results: 294 tests, 0 failures inside the VM (run from the live
 ISO; the 14 `:docs` tests, for the docs and site tags, are host-only), and
-285 passing plus 19 excluded (native/network) on the host.
+289 passing plus 19 excluded (native/network) on the host.
 
 ## Daily updates
 
@@ -316,7 +318,7 @@ lib/mix/tasks/         mix lepton.iso | qemu | shell | publish | official | docs
 docs/                  the user guides (Markdown; published to trylepton.app/docs)
 man/                   a manual page per command (Markdown; compiled into man, published with the docs)
 rootfs/etc/            /etc files (lshrc, motd, hostname, lepton/services, ssh/ssh_known_hosts, ...)
-rootfs/usr/share/      the Terminus console fonts Photon draws text with
+rootfs/usr/share/      the Terminus console fonts Photon draws text with, and Unifont's glyphs (tools/unifont.exs)
 test/                  ExUnit suite (host + in-OS)
 site/                  the website and generated docs (submodule: danieljaouen.github.io, read-only HTTPS)
 ```

@@ -322,7 +322,7 @@ defmodule Lepton.Photon.Term do
   # 16 pixel rows for a row of cells.
   defp render_row(cells, cache) do
     {glyphs, cache} =
-      Enum.map_reduce(cells, cache, fn cell, cache ->
+      Enum.map_reduce(pair(cells, []), cache, fn cell, cache ->
         case cache do
           %{^cell => rows} ->
             {rows, cache}
@@ -337,7 +337,29 @@ defmodule Lepton.Photon.Term do
     {IO.iodata_to_binary(pixels), cache}
   end
 
-  defp glyph(cell) do
+  # A wide character (Lepton.Width) and the continuation cell after it
+  # draw as one 16-pixel glyph; a half on its own is a space (or ?).
+  defp pair([], acc), do: Enum.reverse(acc)
+
+  defp pair([a, b | rest], acc) when elem(b, 0) == "" do
+    if Lepton.Width.grapheme(elem(a, 0)) == 2, do: pair(rest, [{:wide, a} | acc]), else: pair([b | rest], [a | acc])
+  end
+
+  defp pair([a | rest], acc) do
+    cell =
+      cond do
+        elem(a, 0) == "" -> put_elem(a, 0, " ")
+        Lepton.Width.grapheme(elem(a, 0)) == 2 -> put_elem(a, 0, "?")
+        true -> a
+      end
+
+    pair(rest, [cell | acc])
+  end
+
+  defp glyph({:wide, cell}), do: glyph(cell, 16)
+  defp glyph(cell), do: glyph(cell, 8)
+
+  defp glyph(cell, width) do
     {g, sgr, cursor?} =
       case cell do
         {g, sgr, :cursor} -> {g, sgr, true}
@@ -347,8 +369,18 @@ defmodule Lepton.Photon.Term do
     {fg, bg, bold?} = colors(sgr)
     {fg, bg} = if cursor?, do: {bg, fg}, else: {fg, bg}
     cp = g |> String.to_charlist() |> List.first() || ?\s
-    cp = if Font.has?(cp), do: cp, else: Map.get(@fallback, cp, ??)
-    List.to_tuple(Font.rows(cp, fg, bg, bold?))
+    # The glyph must fill the cells: a character drawn wider than its cells is replaced.
+    fits? = Font.has?(cp) and Font.char_width(cp) == width
+
+    rows =
+      cond do
+        # A character and its combining marks (Thai vowels, accents), drawn over each other.
+        fits? and String.length(g) == 1 and length(String.to_charlist(g)) > 1 -> Font.grapheme_rows(g, fg, bg, bold?)
+        fits? -> Font.rows(cp, fg, bg, bold?)
+        true -> Font.rows(Map.get(@fallback, cp, if(width == 16, do: 0xFF1F, else: ??)), fg, bg, bold?)
+      end
+
+    List.to_tuple(rows)
   end
 
   # -- colours (Monokai) -------------------------------------------------------------------------

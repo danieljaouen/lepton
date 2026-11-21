@@ -125,13 +125,50 @@ defmodule Lepton.Screen do
   defp escape(<<c, rest::binary>>), do: {:esc, <<c>>, rest}
   defp escape(<<>>), do: {:incomplete}
 
+  # A wide character (Lepton.Width: Chinese, Japanese, Korean) takes two
+  # cells: itself, and a continuation cell {"", sgr} after it.
   defp put_char(s, g) do
-    s = if s.wrap_next, do: linefeed(%{s | x: 0, wrap_next: false}), else: s
-    s = %{s | grid: put_cell(s.grid, s.x, s.y, {g, s.sgr})}
+    case Lepton.Width.grapheme(g) do
+      0 -> combine(s, g)
+      w -> put_char(s, g, w)
+    end
+  end
 
-    if s.x >= s.cols - 1,
-      do: %{s | wrap_next: true},
-      else: %{s | x: s.x + 1}
+  defp put_char(s, g, w) do
+    s = if s.wrap_next, do: linefeed(%{s | x: 0, wrap_next: false}), else: s
+    # One that doesn't fit in the last column goes to the next line.
+    s = if w == 2 and s.x >= s.cols - 1 and s.cols > 1, do: linefeed(%{s | grid: put_cell(s.grid, s.x, s.y, {" ", s.sgr}), x: 0}), else: s
+    grid = s.grid |> unpair(s.x, s.y) |> put_cell(s.x, s.y, {g, s.sgr})
+    grid = if w == 2, do: grid |> unpair(s.x + 1, s.y) |> put_cell(s.x + 1, s.y, {"", s.sgr}), else: grid
+    s = %{s | grid: grid}
+
+    if s.x + w > s.cols - 1,
+      do: %{s | x: s.cols - 1, wrap_next: true},
+      else: %{s | x: s.x + w}
+  end
+
+  # Writing over half of a wide character blanks the other half.
+  defp unpair(grid, x, y) do
+    row = Map.get(grid, y, %{})
+
+    case Map.get(row, x) do
+      {"", sgr} when x > 0 -> put_cell(grid, x - 1, y, {" ", sgr})
+      {g, sgr} when g != "" -> if match?({"", _}, Map.get(row, x + 1)), do: put_cell(grid, x + 1, y, {" ", sgr}), else: grid
+      _ -> grid
+    end
+  end
+
+  # A combining mark on its own joins the character before it.
+  defp combine(s, g) do
+    x = if s.wrap_next, do: s.x, else: s.x - 1
+    x = if x > 0 and match?({"", _}, cell(s, x, s.y)), do: x - 1, else: x
+
+    if x >= 0 do
+      {prev, sgr} = cell(s, x, s.y)
+      %{s | grid: put_cell(s.grid, x, s.y, {prev <> g, sgr})}
+    else
+      s
+    end
   end
 
   defp linefeed(s) do

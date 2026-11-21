@@ -342,12 +342,12 @@ defmodule Lepton.Shell.LineEditor do
 
   defp list_candidates(s, many) do
     tty = s.shell.ctx.tty
-    width = (many |> Enum.map(&String.length(Path.basename(&1))) |> Enum.max()) + 2
+    width = (many |> Enum.map(&Lepton.Width.string(Path.basename(&1))) |> Enum.max()) + 2
     per_row = max(div(s.cols, width), 1)
 
     text =
       many
-      |> Enum.map(&(&1 |> display_name() |> String.pad_trailing(width)))
+      |> Enum.map(&(&1 |> display_name() |> Lepton.Width.pad(width)))
       |> Enum.chunk_every(per_row)
       |> Enum.map_join("\r\n", &Enum.join/1)
 
@@ -439,17 +439,18 @@ defmodule Lepton.Shell.LineEditor do
     color? = Style.color?(s.shell.ctx)
     sugg = suggestion(s) || ""
     line = s.prompt <> highlight(s.buf, s.shell, color?) <> if(color? and sugg != "", do: "\e[38;5;242m" <> sugg <> "\e[0m", else: "")
-    draw(s, line, Style.width(s.prompt) + String.length(s.buf) + if(color?, do: String.length(sugg), else: 0))
+    draw(s, line, Style.width(s.prompt) + Lepton.Width.string(s.buf) + if(color?, do: Lepton.Width.string(sugg), else: 0))
   end
 
-  defp draw_raw(s, text), do: draw(s, text, String.length(text))
+  defp draw_raw(s, text), do: draw(s, text, Style.width(text))
 
   # Redraw the (possibly wrapped) input area and place the cursor.
   defp draw(s, line, visible_len) do
     tty = s.shell.ctx.tty
     up = if s.drawn_cursor_row > 0, do: "\e[#{s.drawn_cursor_row}A", else: ""
     rows = div(max(visible_len - 1, 0), s.cols)
-    cursor_abs = Style.width(s.prompt) + s.pos
+    # (columns, not characters: Chinese, Japanese and Korean take two)
+    cursor_abs = Style.width(s.prompt) + Lepton.Width.string(String.slice(s.buf, 0, s.pos))
     crow = div(cursor_abs, s.cols)
     ccol = rem(cursor_abs, s.cols)
     # Terminals defer wrapping at the last column; force it when needed.
@@ -461,7 +462,7 @@ defmodule Lepton.Shell.LineEditor do
   end
 
   defp move_to_end(s) do
-    total = Style.width(s.prompt) + String.length(s.buf)
+    total = Style.width(s.prompt) + Lepton.Width.string(s.buf)
     rows = div(max(total - 1, 0), s.cols)
     down = rows - s.drawn_cursor_row
     if down > 0, do: out(s.shell.ctx.tty, "\e[#{down}B")

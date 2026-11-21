@@ -75,17 +75,24 @@ indicator shows `A`. Press it again for Hangul.
 
 Hangul is composed in programs that take composed text: Firefox and other
 GTK programs, through Wayland's text-input protocol. In Lepton's own
-windows (the terminal, `le`) the keys type English, as the terminal's
-font has no Hangul. To show Korean pages, Firefox comes with the fonts
+windows (terminal windows, `le`) the keys type English: they don't take
+composed text yet, though they show Korean text. To show Korean pages, Firefox comes with the fonts
 (see [Apps](apps.html)).
 
 ## In Lepton's own windows
 
 The layouts type in terminal windows too: the shell and `le` get the
-characters. The terminal draws with its built-in Terminus font, though,
-which has Latin, Greek and Cyrillic but not Thai, Devanagari or Arabic,
-so those show as boxes there (the text itself is right: copy it to
-Firefox and it reads correctly).
+characters. Terminal windows, title bars and the taskbar draw with the
+built-in Terminus font, and with GNU Unifont's glyphs for what Terminus
+lacks: Chinese, Japanese and Korean, Thai, Devanagari, Arabic and the
+rest of Unicode's first 65,536 characters. They are bitmaps, one glyph
+per character: scripts whose letters join or reorder (Devanagari,
+Arabic) show their characters one by one, not shaped as Firefox shows
+them.
+
+Chinese, Japanese and Korean characters take two columns, as in other
+terminals: the shell's line editor, `le`, `ls` and terminal windows
+count them so, and so do terminals you reach Lepton from over SSH.
 
 ## Not yet
 

@@ -91,9 +91,9 @@ defmodule Lepton.Editor.Render do
             end
 
           line = Buffer.line(b, n) |> expand_tabs()
-          vis = String.slice(line, win.left, text_w)
+          # (by columns: Chinese, Japanese and Korean characters take two)
+          {vis, len} = visible(line, win.left, text_w)
           body = Syntax.highlight(vis, b.mode, Map.get(hl, n), win.left, st.vars["show-whitespace"])
-          len = String.length(vis)
           pad_len = text_w - len
           pad = fill(pad_len, len + win.left, fci, win.left)
           bg = if n == cl and active and b.kind not in [:help], do: "\e[48;5;236m", else: "\e[48;5;235m"
@@ -116,6 +116,15 @@ defmodule Lepton.Editor.Render do
       max(digits, 3) + 1
     else
       0
+    end
+  end
+
+  defp visible(line, left, width) do
+    if Lepton.Width.string(line) == String.length(line) do
+      vis = String.slice(line, left, width)
+      {vis, String.length(vis)}
+    else
+      Lepton.Width.slice(line, left, width)
     end
   end
 

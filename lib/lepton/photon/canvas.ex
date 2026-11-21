@@ -81,17 +81,15 @@ defmodule Lepton.Photon.Canvas do
   def text(c, x, y, text, fg, bg, opts \\ []) do
     max_w = opts[:max_w] || c.w - x
     bold? = opts[:bold] == true
-    chars = text |> String.to_charlist() |> Enum.take(max(div(max_w, Font.width()), 0))
-
-    chars
-    |> Enum.with_index()
-    |> Enum.reduce(c, fn {cp, i}, c ->
-      cp = if Font.has?(cp), do: cp, else: ??
-      blit(c, x + i * Font.width(), y, Font.rows(cp, fg, bg, bold?))
+    text
+    |> Font.fit(max(max_w, 0))
+    |> Enum.reduce({c, x}, fn cp, {c, x} ->
+      {blit(c, x, y, Font.rows(cp, fg, bg, bold?)), x + Font.char_width(cp)}
     end)
+    |> elem(0)
   end
 
-  def text_width(text), do: String.length(text) * Font.width()
+  def text_width(text), do: Font.text_width(text)
 
   @doc """
   Pixel art: rows of characters, each looked up in `palette` (a colour
@@ -120,7 +118,7 @@ defmodule Lepton.Photon.Canvas do
 
   @doc "Text turned a quarter turn anticlockwise (reads bottom to top), as rows."
   def vertical_text(text, fg, bg) do
-    w = Font.width() * String.length(text)
+    w = Font.text_width(text)
     rows = Font.text_rows(text, fg, bg, w) |> Enum.map(&for(<<p::binary-size(4) <- &1>>, do: p)) |> Enum.map(&List.to_tuple/1)
     h = length(rows)
 
