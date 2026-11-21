@@ -231,13 +231,13 @@ Current results: 308 tests, 0 failures inside the VM (run from the live
 ISO; the 14 `:docs` tests, for the docs and site tags, are host-only), and
 302 passing plus 20 excluded (native/network) on the host.
 
-## Daily updates
+## Version updates
 
 `versions.toml` records the kernel (Alpine's `linux-lts`), OTP and Elixir
-Lepton is built from. `tools/daily-update`, run at 09:00 by a LaunchAgent
-on the build machine, checks them with `mix lepton.versions --check` and,
-only when one is newer, has Claude Code upgrade, rebuild, fix, test, commit,
-push and publish (the steps are in CLAUDE.md).
+Lepton is built from. `mix lepton.versions --check` says whether one is
+newer; updates are done on request (upgrade, rebuild, fix, test, commit,
+push and publish: the steps are in CLAUDE.md). `tools/daily-update` runs
+the check and the update unattended, for a scheduler; none is set up.
 
 ## Roadmap: GUI and web browser
 

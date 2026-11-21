@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Lepton.Versions do
 
   Options:
 
-    * `--check`: exit with status 1 when one is newer (for the daily update);
+    * `--check`: exit with status 1 when one is newer (for scripts such as tools/daily-update);
     * `--write`: record the newest in `versions.toml`.
 
   Upgrading the build machine itself (`brew upgrade erlang elixir`) is
