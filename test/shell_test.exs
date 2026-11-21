@@ -152,4 +152,20 @@ defmodule Lepton.ShellTest do
       assert {"still\n", 0} = sh("break; echo still")
     end
   end
+
+  describe "highlighting" do
+    test "every command word is checked, also after pipes and lists" do
+      shell = Lepton.Shell.new(%Lepton.Ctx{cwd: "/", env: %{"PATH" => "/nonexistent"}})
+      hl = &Lepton.Shell.LineEditor.highlight(&1, shell, true)
+      green = &("\e[32m" <> &1 <> "\e[0m")
+      red = &("\e[31m" <> &1 <> "\e[0m")
+
+      assert hl.("echo hi | nosuchcmd") =~ red.("nosuchcmd")
+      assert hl.("echo hi | grep h") =~ green.("grep")
+      assert hl.("echo hi|nosuchcmd") =~ red.("nosuchcmd")
+      assert hl.("true && nosuch1 || echo; nosuch2") |> then(&(&1 =~ red.("nosuch1") and &1 =~ green.("echo") and &1 =~ red.("nosuch2")))
+      assert hl.("nosuchcmd | echo") =~ red.("nosuchcmd")
+      assert hl.("echo 'a | b'") =~ "\e[33m'a | b'\e[0m"
+    end
+  end
 end

@@ -16,8 +16,8 @@ The line editor follows oh-my-zsh's emacs bindings (`bindkey -e`):
 
 - zsh-autosuggestions: a dim suggestion from history, accepted with `→`,
   `C-f` or `C-e`;
-- zsh-syntax-highlighting: the command turns green when it exists and red
-  when it doesn't;
+- zsh-syntax-highlighting: each command (the first, and each after `|`,
+  `&&`, `||` or `;`) turns green when it exists and red when it doesn't;
 - `C-r` searches history, `Tab` completes commands and paths, and
   `C-x C-e` edits the line in `$EDITOR`.
 

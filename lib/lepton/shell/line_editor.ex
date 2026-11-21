@@ -7,7 +7,7 @@ defmodule Lepton.Shell.LineEditor do
     * **zsh-autosuggestions** - the newest history entry starting with the
       current input is shown dimmed; `<right>`, `C-f` and `C-e` at end of
       line accept it, `M-f` accepts one word
-    * **zsh-syntax-highlighting** - the command word is green when it
+    * **zsh-syntax-highlighting** - each command word (also after `|`, `&&`, `||`, `;`) is green when it
       resolves (alias, builtin, program) and red otherwise; quoted strings
       are yellow
     * `C-r` incremental history search, `TAB` completion (commands, then
@@ -476,27 +476,27 @@ defmodule Lepton.Shell.LineEditor do
     out(s.shell.ctx.tty, "\r\n")
   end
 
-  # zsh-syntax-highlighting, simplified.
-  defp highlight(buf, _shell, false), do: buf
+  # zsh-syntax-highlighting, simplified: every command word (the first, and
+  # each after |, ||, && or ;) is green when it exists and red when not.
+  @doc false
+  def highlight(buf, _shell, false), do: buf
 
-  defp highlight(buf, shell, true) do
+  def highlight(buf, shell, true) do
     case Regex.run(~r/^(\s*)(\S+)(.*)$/s, buf) do
-      [_, lead, cmd, rest] ->
-        color = if known?(cmd, shell), do: "32", else: "31"
-        lead <> "\e[#{color}m" <> cmd <> "\e[0m" <> highlight_rest(rest)
-
-      _ ->
-        buf
+      [_, lead, cmd, rest] -> lead <> command_word(cmd, shell) <> highlight_rest(rest, shell)
+      _ -> buf
     end
   end
 
-  defp highlight_rest(rest) do
-    Regex.replace(~r/("[^"]*"?|'[^']*'?)|(\s(?:\||&&|\|\||;)\s*)(\S+)?/, rest, fn
+  defp highlight_rest(rest, shell) do
+    Regex.replace(~r/("[^"]*"?|'[^']*'?)|(\s*(?:\|\||&&|\||;)\s*)([^\s|&;]+)?/, rest, fn
       _, q, "", "" when q != "" -> "\e[33m" <> q <> "\e[0m"
-      _, "", op, cmd -> "\e[1m" <> op <> "\e[0m" <> (if cmd != "", do: "\e[32m" <> cmd <> "\e[0m", else: "")
+      _, "", op, cmd -> "\e[1m" <> op <> "\e[0m" <> if(cmd != "", do: command_word(cmd, shell), else: "")
       whole, _, _, _ -> whole
     end)
   end
+
+  defp command_word(cmd, shell), do: "\e[#{if known?(cmd, shell), do: "32", else: "31"}m" <> cmd <> "\e[0m"
 
   defp known?(cmd, shell) do
     Map.has_key?(shell.aliases, cmd) or Lepton.Shell.Builtins.builtin?(cmd) or

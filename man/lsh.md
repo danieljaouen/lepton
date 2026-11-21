@@ -18,7 +18,8 @@ Emacs-style keys, as in oh-my-zsh: `C-a`/`C-e` start and end of line,
 word, `C-y` yanks, `C-r` searches history, `Tab` completes commands and
 paths, `C-x C-e` edits the line in `$EDITOR`, `C-l` clears the screen.
 A dim suggestion from history is accepted with Right, `C-f` or `C-e`.
-The command name turns green when it exists and red when it does not.
+Each command name (the first, and each after `|`, `&&`, `||` or `;`)
+turns green when it exists and red when it does not.
 `bindkey` lists every binding.
 
 ## SYNTAX
