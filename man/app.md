@@ -12,6 +12,9 @@ an installed system. Listing is for everyone; the other commands take
 - `install NAME`: download and install an app.
 - `update [NAME]`: update an app (all installed apps with no NAME) to
   the latest packages.
+- `reinstall NAME`: download and set up all of an app's packages again,
+  for an app that is broken or won't start. Close the app first. Your
+  settings (Firefox's profile, in your home) are kept.
 - `remove NAME`: remove an app.
 
 ## EXAMPLES
@@ -19,6 +22,7 @@ an installed system. Listing is for everyone; the other commands take
     app
     sudo app install firefox
     sudo app update
+    sudo app reinstall firefox
 
 ## SEE ALSO
 

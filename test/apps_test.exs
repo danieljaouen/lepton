@@ -229,6 +229,12 @@ defmodule Lepton.AppsTest do
     {:ok, err} = StringIO.open("")
     assert {"", 1} = sh("app update", user: "alice", stderr: err)
     assert StringIO.flush(err) =~ "permission denied"
+    {:ok, err} = StringIO.open("")
+    assert {"", 1} = sh("app reinstall firefox", user: "alice", stderr: err)
+    assert StringIO.flush(err) =~ "permission denied"
+    {:ok, err} = StringIO.open("")
+    assert {"", 1} = sh("app reinstall nothing", stderr: err)
+    assert StringIO.flush(err) =~ "no app called nothing"
     assert {"", 2} = sh("app frobnicate")
   end
 end

@@ -93,6 +93,11 @@ for H.264 video), Firefox doesn't wait for the 10 days: its next start
 downloads them in the background, and the start after that uses them.
 `sudo app update firefox`, with Firefox closed, does it at once.
 
+If Firefox is broken or won't start, `sudo app reinstall firefox`, with
+Firefox closed, downloads and sets up all of its packages again. Your
+profile (bookmarks, history, logins) is in your home and stays as it
+is.
+
 ## What's different from Firefox elsewhere
 
 - **Print** lists Lepton's [printers](printing.html), and prints to them.

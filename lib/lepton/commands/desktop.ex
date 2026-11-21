@@ -23,7 +23,7 @@ defmodule Lepton.Commands.Desktop do
   end
 
   defcmd "app", "native Linux apps (from Alpine's packages): list, install, update, remove",
-    usage: "app [list] | install NAME | update [NAME] | remove NAME" do
+    usage: "app [list] | install NAME | reinstall NAME | update [NAME] | remove NAME" do
     app(args, ctx)
   end
 
@@ -368,7 +368,7 @@ defmodule Lepton.Commands.Desktop do
     0
   end
 
-  defp app([cmd | _], ctx) when cmd in ~w(install update remove) and ctx.user != "root", do: Users.denied(ctx, "app #{cmd}")
+  defp app([cmd | _], ctx) when cmd in ~w(install reinstall update remove) and ctx.user != "root", do: Users.denied(ctx, "app #{cmd}")
 
   defp app(["update"], ctx) do
     Apps.names() |> Enum.filter(&Apps.installed?/1) |> Enum.map(&app(["update", &1], ctx)) |> Enum.max(fn -> 0 end)
@@ -430,6 +430,33 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
+  # Download and set up every package again (the profile in your home is kept).
+  defp app(["reinstall", name], ctx) do
+    cond do
+      Apps.get(name) == nil ->
+        IO.err(ctx, "app: no app called #{name} (apps: #{Enum.join(Apps.names(), ", ")})")
+        1
+
+      Apps.running?(name) ->
+        IO.err(ctx, "app: #{name} is running: close it first")
+        1
+
+      true ->
+        for u <- Users.list(), Apps.processes(name, u.uid) != [], do: Apps.clear_leftovers(name, u, u.home)
+        File.rm_rf(Apps.staged_dir(name))
+
+        case Apps.install(name, &IO.puts(ctx, &1)) do
+          :ok ->
+            IO.puts(ctx, "Reinstalled #{name} (#{Apps.version(name)}).")
+            0
+
+          {:error, reason} ->
+            IO.err(ctx, "app: #{reason} (#{name} was left as it was)")
+            1
+        end
+    end
+  end
+
   defp app(["remove", name], ctx) do
     case Apps.remove(name) do
       :ok ->
@@ -443,7 +470,7 @@ defmodule Lepton.Commands.Desktop do
   end
 
   defp app(_args, ctx) do
-    IO.err(ctx, "usage: app [list] | install NAME | update [NAME] | remove NAME")
+    IO.err(ctx, "usage: app [list] | install NAME | reinstall NAME | update [NAME] | remove NAME")
     2
   end
 
