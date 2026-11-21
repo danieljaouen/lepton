@@ -108,8 +108,9 @@ defmodule Mix.Tasks.Lepton.Publish do
     else
       token = token!()
       sums = "#{sha}  lepton.iso\n"
-      body = "Lepton OS built from danieljaouen/lepton@#{rev}.\n\nSHA-256: `#{sha}`\n\nSee the README for how to run it."
-      release = ensure_release(token, owner, name, tag, "Lepton OS (lepton@#{rev})", body)
+      version = Mix.Project.config()[:version]
+      body = "Lepton OS #{version}, built from danieljaouen/lepton@#{rev}.\n\nSHA-256: `#{sha}`\n\nSee the README for how to run it."
+      release = ensure_release(token, owner, name, tag, "Lepton OS #{version} (lepton@#{rev})", body)
       upload_asset(token, release, "lepton.iso", File.read!(@iso))
       upload_asset(token, release, "SHA256SUMS", sums)
       info("released #{release["html_url"]}")

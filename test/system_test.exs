@@ -73,6 +73,18 @@ defmodule Lepton.SystemTest do
     assert "simpledrm" in loaded or "virtio_gpu" in loaded
   end
 
+  test "/etc/os-release has Lepton's version" do
+    file = Enum.find(["rootfs/etc/os-release", "/etc/os-release"], &File.exists?/1)
+    assert File.read!(file) =~ ~s(VERSION_ID="#{Lepton.Init.version()}"\n)
+  end
+
+  # The build tasks live in the repository only, like the docs (:docs).
+  @tag :docs
+  test "a publish bumps the minor version" do
+    assert Mix.Tasks.Lepton.Version.bump("1.0.0") == "1.1.0"
+    assert Mix.Tasks.Lepton.Version.bump("1.9.3") == "1.10.0"
+  end
+
   @tag :native
   test "uname, hostname and memory come from the kernel" do
     {out, 0} = sh("uname -a")

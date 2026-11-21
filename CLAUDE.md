@@ -25,7 +25,9 @@ anything a user would notice. For each one:
    guide linked, every command documented; `test/man_test.exs`: every
    command has a manual page). `mix lepton.docs` writes
    `docs/` in the site checkout (below) for a local preview.
-5. **Publish**: `mix lepton.publish` builds and releases the ISO and
+5. **Publish**: every publish gets a minor version bump (1.0.0 ->
+   1.1.0): `mix lepton.version --bump` (mix.exs and
+   `rootfs/etc/os-release`), commit, then `mix lepton.publish` builds and releases the ISO and
    regenerates and pushes the docs (even when the ISO is unchanged).
    `mix lepton.docs --publish` publishes documentation-only fixes.
 
