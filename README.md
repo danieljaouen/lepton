@@ -225,9 +225,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 282 tests, 0 failures inside the VM (run from the live
+Current results: 284 tests, 0 failures inside the VM (run from the live
 ISO; the 14 `:docs` tests, for the docs and site tags, are host-only), and
-278 passing plus 18 excluded (native/network) on the host.
+279 passing plus 19 excluded (native/network) on the host.
 
 ## Daily updates
 

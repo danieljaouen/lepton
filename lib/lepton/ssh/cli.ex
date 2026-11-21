@@ -277,11 +277,13 @@ defmodule Lepton.SSH.CLI do
     else
       key = SSH.generate()
       pub = SSH.public(key)
-      File.mkdir_p!(Path.dirname(file))
+      Lepton.Users.own_new(ctx, Path.dirname(file), fn -> File.mkdir_p!(Path.dirname(file)) end)
       File.chmod(Path.dirname(file), 0o700)
       File.write!(file, SSH.encode_private(key, comment))
       File.chmod!(file, 0o600)
       File.write!(file <> ".pub", SSH.public_line(pub, comment) <> "\n")
+      Lepton.Users.own(ctx, file)
+      Lepton.Users.own(ctx, file <> ".pub")
 
       unless quiet do
         IO.puts(ctx, """

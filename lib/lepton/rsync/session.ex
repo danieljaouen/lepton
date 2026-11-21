@@ -173,7 +173,7 @@ defmodule Lepton.Rsync.Session do
 
       unless single? or opts.dry_run do
         allowed!(s, dest)
-        File.mkdir_p(dest)
+        Lepton.Users.own_new(s.ctx, dest, fn -> File.mkdir_p(dest) end)
       end
 
       if opts.delete and opts.recursive, do: delete_extraneous(s, entries, target)
@@ -261,7 +261,7 @@ defmodule Lepton.Rsync.Session do
             true ->
               if File.exists?(path), do: File.rm(path)
 
-              case File.mkdir_p(path) do
+              case Lepton.Users.own_new(s.ctx, path, fn -> File.mkdir_p(path) end) do
                 :ok ->
                   if e.name != ".", do: note(s, e.name <> "/")
                   set_mode(s, e, path)
@@ -430,6 +430,8 @@ defmodule Lepton.Rsync.Session do
          :ok <- (if s.opts.times, do: File.touch(tmp, e.mtime), else: :ok),
          _ <- (if File.dir?(path), do: File.rm_rf(path)),
          :ok <- File.rename(tmp, path) do
+      # Written as root (to a temporary file, renamed): the receiving user's.
+      Lepton.Users.own(s.ctx, path)
       :ok
     else
       {:error, reason} ->

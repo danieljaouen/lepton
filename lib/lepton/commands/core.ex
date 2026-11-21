@@ -290,7 +290,7 @@ defmodule Lepton.Commands.Core do
     {opts, files} = getopt(args, "a")
     mode = if opts["a"], do: :append, else: :write
     devs =
-      for f <- files, path = Ctx.path(ctx, f), {:ok, d} <- [with(:ok <- Lepton.Users.check_write(ctx, path), do: File.open(path, [mode, :binary]))], do: d
+      for f <- files, path = Ctx.path(ctx, f), {:ok, d} <- [with(:ok <- Lepton.Users.check_write(ctx, path), do: Lepton.Users.own_new(ctx, path, fn -> File.open(path, [mode, :binary]) end))], do: d
 
     for line <- IO.lines(ctx) do
       IO.write(ctx, line)
@@ -332,7 +332,7 @@ defmodule Lepton.Commands.Core do
     Enum.reduce(args, 0, fn f, status ->
       path = Ctx.path(ctx, f)
 
-      case with(:ok <- Lepton.Users.check_write(ctx, path), do: File.touch(path)) do
+      case with(:ok <- Lepton.Users.check_write(ctx, path), do: Lepton.Users.own_new(ctx, path, fn -> File.touch(path) end)) do
         :ok -> status
         {:error, r} ->
           IO.err(ctx, "touch: cannot touch '#{f}': #{:file.format_error(r)}")
@@ -346,7 +346,7 @@ defmodule Lepton.Commands.Core do
 
     Enum.reduce(dirs, 0, fn d, status ->
       path = Ctx.path(ctx, d)
-      result = with :ok <- Lepton.Users.check_write(ctx, path), do: if(opts["p"], do: File.mkdir_p(path), else: File.mkdir(path))
+      result = with :ok <- Lepton.Users.check_write(ctx, path), do: Lepton.Users.own_new(ctx, path, fn -> if(opts["p"], do: File.mkdir_p(path), else: File.mkdir(path)) end)
 
       case result do
         :ok ->
@@ -452,7 +452,7 @@ defmodule Lepton.Commands.Core do
         checks = if name == "mv", do: [src_path, target], else: [target]
 
         result =
-          if Enum.all?(checks, &(Lepton.Users.check_write(ctx, &1) == :ok)), do: fun.(src_path, target), else: {:error, :eacces}
+          if Enum.all?(checks, &(Lepton.Users.check_write(ctx, &1) == :ok)), do: Lepton.Users.own_new(ctx, target, fn -> fun.(src_path, target) end), else: {:error, :eacces}
 
         case result do
           :ok ->
@@ -482,7 +482,8 @@ defmodule Lepton.Commands.Core do
         result =
           with :ok <- Lepton.Users.check_write(ctx, link_path) do
             if opts["f"], do: File.rm(link_path)
-            if opts["s"], do: File.ln_s(target, link_path), else: File.ln(Ctx.path(ctx, target), link_path)
+            # A symbolic link is the user's; a hard link is the file it links (whose owner stays).
+            if opts["s"], do: Lepton.Users.own_new(ctx, link_path, fn -> File.ln_s(target, link_path) end), else: File.ln(Ctx.path(ctx, target), link_path)
           end
 
         case result do

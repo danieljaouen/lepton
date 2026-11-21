@@ -1044,7 +1044,7 @@ defmodule Lepton.Editor do
     b = if st.vars["delete-trailing-whitespace-on-save"], do: Buffer.delete_trailing_whitespace(b), else: b
 
     allowed = if b.path, do: Lepton.Users.check_write(st.ctx, Path.expand(b.path)), else: :ok
-    result = if allowed == :ok, do: Buffer.save(b), else: {:error, "permission denied (to edit system files, run sudo le FILE)"}
+    result = if allowed == :ok, do: Lepton.Users.own_new(st.ctx, Path.expand(b.path || "."), fn -> Buffer.save(b) end), else: {:error, "permission denied (to edit system files, run sudo le FILE)"}
 
     case result do
       {:ok, b} ->

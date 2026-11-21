@@ -114,7 +114,10 @@ defmodule Lepton.Commands.Dev do
             git(split_alias(expansion) ++ rest, ctx)
 
           :error ->
-            git_cmd(cmd, rest, ctx)
+            since = System.os_time(:second)
+            status = git_cmd(cmd, rest, ctx)
+            adopt_git(cmd, ctx, since)
+            status
         end
     end
   rescue
@@ -156,13 +159,24 @@ defmodule Lepton.Commands.Dev do
 
   defp color(ctx, code, text), do: if(Lepton.Style.color?(ctx) and Lepton.TTY.tty?(ctx.stdout), do: "\e[#{code}m#{text}\e[0m", else: text)
 
+  # Git writes as root: what a command wrote in the repository (objects,
+  # the index, checked-out files) is the user's. Commands that only read
+  # are skipped (the walk costs a look at every file).
+  @git_readers ~w(status log diff show blame help version ls-files rev-parse clone)
+
+  defp adopt_git(cmd, ctx, since) do
+    if cmd not in @git_readers and ctx.user not in [nil, "root"] do
+      if root = Lepton.Git.root(ctx.cwd), do: Lepton.Users.adopt(ctx, root, since)
+    end
+  end
+
   defp git_cmd("init", rest, ctx) do
     {opts, dirs} = getopt(rest, "b:q")
     dir = Ctx.path(ctx, List.first(dirs) || ".")
-    File.mkdir_p!(dir)
+    Lepton.Users.own_new(ctx, dir, fn -> File.mkdir_p!(dir) end)
     existed = File.dir?(Path.join(dir, ".git"))
     branch = opts["b"] || opts["initial-branch"] || "main"
-    unless existed, do: Repo.init(dir, branch)
+    unless existed, do: Lepton.Users.own_new(ctx, Path.join(dir, ".git"), fn -> Repo.init(dir, branch) end)
     unless opts["q"], do: IO.puts(ctx, "#{if existed, do: "Reinitialized existing", else: "Initialized empty"} Git repository in #{Path.join(dir, ".git")}/")
     0
   end
@@ -546,7 +560,7 @@ defmodule Lepton.Commands.Dev do
         IO.puts(ctx, "Cloning into '#{Path.basename(dest)}'...")
 
         case Remote.clone(url, dest, home: Ctx.home(ctx)) do
-          {:ok, msg} -> IO.puts(ctx, msg); 0
+          {:ok, msg} -> Lepton.Users.own(ctx, dest); IO.puts(ctx, msg); 0
           {:error, e} -> IO.err(ctx, "fatal: #{e}"); 128
         end
 

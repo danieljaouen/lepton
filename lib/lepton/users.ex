@@ -255,6 +255,86 @@ defmodule Lepton.Users do
     end
   end
 
+  # -- ownership ------------------------------------------------------------------------------------
+  #
+  # Lepton runs as root, so what it creates for a user would be root's:
+  # programs running as the user (Firefox, through Lepton.RunAs) couldn't
+  # change it, and `ls -l`, rsync and sshfs would show root. What a user's
+  # command creates is made theirs.
+
+  @doc """
+  Run `fun`, which creates `path` (a file, a directory, `mkdir -p`'s
+  parents): if it didn't exist before, it and everything new under or
+  above it is made `ctx`'s user's. Returns what `fun` returns.
+  """
+  def own_new(ctx, path, fun) do
+    first_new = first_missing(Path.expand(path))
+    result = fun.()
+    if first_new && match?({:ok, _}, File.lstat(first_new)), do: give(ctx, first_new, :all)
+    result
+  end
+
+  # The highest of `path` and its parents that doesn't exist yet (nil: it all does).
+  defp first_missing(path) do
+    parent = Path.dirname(path)
+
+    cond do
+      match?({:ok, _}, File.lstat(path)) -> nil
+      parent == path -> path
+      first_missing(parent) == nil -> path
+      true -> first_missing(parent)
+    end
+  end
+
+  @doc """
+  Make root's files under `path` (and `path` itself) that changed at or
+  after `since` (Unix seconds) `ctx`'s user's: for commands that write
+  trees (git, `cp -r`, rsync). Older files, such as ones made with sudo,
+  are left as they are.
+  """
+  def adopt(ctx, path, since), do: give(ctx, Path.expand(path), {:since, since})
+
+  @doc "Make `path` (a file Lepton wrote for `ctx`'s user, new or replaced) theirs."
+  def own(ctx, path), do: give(ctx, Path.expand(path), :all)
+
+  defp give(%Ctx{user: name}, path, which) when is_binary(name) and name != "root" do
+    case get(name) do
+      %__MODULE__{uid: uid, gid: gid} when uid != 0 -> walk(path, uid, gid, which)
+      _ -> :ok
+    end
+  end
+
+  defp give(_ctx, _path, _which), do: :ok
+
+  defp walk(path, uid, gid, which) do
+    case File.lstat(path, time: :posix) do
+      {:ok, %{uid: 0} = st} ->
+        if which == :all or st.mtime >= elem(which, 1) or st.ctime >= elem(which, 1), do: lchown(path, uid, gid)
+        if st.type == :directory, do: walk_dir(path, uid, gid, which)
+
+      {:ok, %{type: :directory}} ->
+        walk_dir(path, uid, gid, which)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp walk_dir(path, uid, gid, which) do
+    case File.ls(path) do
+      {:ok, names} -> Enum.each(names, &walk(Path.join(path, &1), uid, gid, which))
+      _ -> :ok
+    end
+  end
+
+  # The link itself, not what it points at.
+  defp lchown(path, uid, gid) do
+    case File.lstat(path) do
+      {:ok, %{type: :symlink}} -> Lepton.Sys.shim("chown", ["-h", "#{uid}:#{gid}", path])
+      _ -> File.chown(path, uid) == :ok and File.chgrp(path, gid)
+    end
+  end
+
   defp owner(path) do
     case File.lstat(path) do
       {:ok, %{uid: uid}} -> uid

@@ -487,7 +487,9 @@ defmodule Lepton.Shell.Exec do
       full = Ctx.path(ctx, path)
       allowed = if kind == :in, do: Lepton.Users.check_read(ctx, full), else: Lepton.Users.check_write(ctx, full)
 
-      case with(:ok <- allowed, do: File.open(full, modes)) do
+      # A file made by `>` is the user's (Lepton writes it as root).
+      open = fn -> File.open(full, modes) end
+      case with(:ok <- allowed, do: if(kind == :in, do: open.(), else: Lepton.Users.own_new(ctx, full, open))) do
         {:ok, dev} ->
           ctx = put_fd(ctx, fd, dev)
           ctx = if kind in [:out_both, :append_both], do: put_fd(ctx, 2, dev), else: ctx

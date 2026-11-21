@@ -281,7 +281,8 @@ defmodule Lepton.Shell do
     if String.starts_with?(src, " ") or match?([^src | _], shell.history) do
       shell
     else
-      File.write(history_path(shell), src <> "\n", [:append])
+      path = history_path(shell)
+      Lepton.Users.own_new(shell.ctx, path, fn -> File.write(path, src <> "\n", [:append]) end)
       %{shell | history: Enum.take([src | shell.history], @history_limit)}
     end
   end

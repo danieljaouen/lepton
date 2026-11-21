@@ -182,7 +182,7 @@ defmodule Lepton.Commands.Network do
 
               case dest do
                 nil -> IO.write(ctx, body)
-                path -> File.write!(Ctx.path(ctx, path), body); unless opts["s"], do: IO.err(ctx, "saved #{byte_size(body)} bytes to #{path}")
+                path -> Lepton.Users.own_new(ctx, Ctx.path(ctx, path), fn -> File.write!(Ctx.path(ctx, path), body) end); unless opts["s"], do: IO.err(ctx, "saved #{byte_size(body)} bytes to #{path}")
               end
             end
 
