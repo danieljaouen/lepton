@@ -54,6 +54,11 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
+  defcmd "open", "open files, folders and web addresses in the right app: text in le; images, PDFs, folders and pages in Firefox",
+    usage: "open FILE|DIR|URL...", aliases: ["xdg-open"] do
+    open(args, ctx)
+  end
+
   defcmd "volume", "the sound volume: show it, set it (0-100, +N, -N), mute or unmute",
     usage: "volume [N | +N | -N | up | down | mute | unmute | toggle]" do
     result =
@@ -231,6 +236,96 @@ defmodule Lepton.Commands.Desktop do
 
       {:DOWN, ^ref, _, _, reason} ->
         {:error, inspect(reason)}
+    end
+  end
+
+  # -- open (xdg-open) ---------------------------------------------------------------------------
+
+  @images ~w(.png .jpg .jpeg .gif .webp .svg .bmp .ico .avif)
+  @text ~w(.txt .md .ex .exs .erl .hrl .sh .zsh .bash .toml .json .yml .yaml .xml .css .js .ts .py .rb .c .h .rs .go .conf .cfg .ini .log .csv .el .lisp .heex .eex)
+
+  defp open([], ctx) do
+    IO.err(ctx, "usage: open FILE|DIR|URL...")
+    2
+  end
+
+  defp open(args, ctx) do
+    case open_plan(args, ctx) do
+      {:ok, %{browser: urls, editor: files}} ->
+        status = if urls == [], do: 0, else: Lepton.Commands.invoke(elem(Lepton.Commands.lookup("firefox"), 1), urls, ctx)
+        if files == [] or status != 0, do: status, else: edit(files, ctx)
+
+      {:error, msg} ->
+        IO.err(ctx, "open: " <> msg)
+        1
+    end
+  end
+
+  @doc false
+  # What opens where: `{:ok, %{browser: [url], editor: [path]}}` or `{:error, message}`.
+  def open_plan(args, ctx) do
+    Enum.reduce_while(args, {:ok, %{browser: [], editor: []}}, fn arg, {:ok, plan} ->
+      case open_kind(arg, Lepton.Ctx.path(ctx, arg)) do
+        {:browser, url} -> {:cont, {:ok, %{plan | browser: plan.browser ++ [url]}}}
+        {:editor, path} -> {:cont, {:ok, %{plan | editor: plan.editor ++ [path]}}}
+        {:error, msg} -> {:halt, {:error, msg}}
+      end
+    end)
+  end
+
+  @doc false
+  def open_kind(arg, path) do
+    cond do
+      Regex.match?(~r/^(https?|file|ftp):/i, arg) -> {:browser, arg}
+      File.dir?(path) -> {:browser, file_url(path <> "/")}
+      not File.exists?(path) -> {:error, "#{arg}: no such file or directory"}
+      true -> by_contents(arg, path)
+    end
+  end
+
+  defp file_url(path), do: "file://" <> URI.encode(String.replace(path, ~r{/+}, "/"))
+
+  defp by_contents(arg, path) do
+    head = case File.open(path, [:read, :binary], &:file.read(&1, 8192)) do
+      {:ok, {:ok, data}} -> data
+      _ -> ""
+    end
+
+    ext = String.downcase(Path.extname(path))
+
+    cond do
+      match?("%PDF" <> _, head) or ext == ".pdf" -> {:browser, file_url(path)}
+      image?(head) or ext in @images -> {:browser, file_url(path)}
+      ext in @text or text?(head) -> {:editor, path}
+      true -> {:error, "#{arg}: don't know what opens this kind of file"}
+    end
+  end
+
+  defp image?(<<0x89, "PNG", _::binary>>), do: true
+  defp image?(<<0xFF, 0xD8, 0xFF, _::binary>>), do: true
+  defp image?("GIF8" <> _), do: true
+  defp image?(<<"RIFF", _::binary-4, "WEBP", _::binary>>), do: true
+  defp image?("BM" <> _), do: true
+  defp image?(_), do: false
+
+  # UTF-8 with no NUL bytes (an empty file is text too). The 8 KiB read may cut a character short.
+  defp text?(head), do: not String.contains?(head, <<0>>) and Enum.any?(0..3, &String.valid?(binary_part(head, 0, max(byte_size(head) - &1, 0))))
+
+  # In the terminal: le, here. Without one (on the desktop): le in a terminal window.
+  defp edit(files, ctx) do
+    cond do
+      ctx.tty ->
+        Lepton.Commands.invoke(elem(Lepton.Commands.lookup("le"), 1), files, ctx)
+
+      match?({:ok, _}, session_env(ctx)) ->
+        {:ok, env} = session_env(ctx)
+        command = Enum.map_join(["le" | files], " ", &("'" <> String.replace(&1, "'", "'\\''") <> "'"))
+        {:ok, _} = Term.start(env: env, user: ctx.user, cwd: ctx.cwd, command: command, title: "Text Editor")
+        0
+
+      true ->
+        IO.err(ctx, "open: le needs a terminal (or the desktop)")
+        1
     end
   end
 

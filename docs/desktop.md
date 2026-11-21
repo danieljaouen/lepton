@@ -49,6 +49,32 @@ shell and everything running in it, as closing a terminal does on Unix:
 close the System Monitor and its `top` stops too. Apps such as Firefox
 keep running. **Ctrl+Shift+V** pastes the clipboard.
 
+## Opening files
+
+`open` (also `xdg-open`, as your dotfiles call it on Linux) opens files,
+folders and web addresses in the app for them:
+
+| What | Opens in |
+|---|---|
+| text: notes, code, configuration, any file that is UTF-8 text | `le`, in the terminal you ran `open` in |
+| images (PNG, JPEG, GIF, WebP, SVG, ...) and PDFs | [Firefox](apps.html) |
+| a folder, such as `open .` | Firefox, as a list of its files |
+| a web address (`https://...`) | Firefox |
+
+```sh
+open notes.txt          # edit it in le
+open photo.jpg paper.pdf
+open .                  # the current folder, in Firefox
+xdg-open https://trylepton.app
+```
+
+Firefox needs the desktop (`photon` or `classic`). Several files can be
+given at once: the text files open together in one `le`, and everything
+else opens in Firefox. `open` recognises a file by its contents as well
+as its name, so an image without an extension still opens in Firefox.
+Files that are neither text nor anything Firefox shows (programs,
+archives) aren't opened.
+
 ## The clipboard
 
 Photon's windows share Lepton's clipboard, the one `pbcopy` and
@@ -152,4 +178,4 @@ programs leave theirs out.
 - Arranging displays other than left to right, or changing a display's
   resolution. Wayland programs see one output, the whole desktop.
 
-<!-- commands: photon classic -->
+<!-- commands: photon classic open -->
