@@ -118,8 +118,10 @@ Photon with a different window manager, styled after Windows 95:
   **maximize** and **close** buttons (double-click a title bar to
   maximize or restore)
 - a teal desktop with icons for [Firefox](apps.html), the Terminal, the
-  Text Editor (`le`), the System Monitor (`top`) and
-  [Passwords](passwords.html), and one for each
+  Text Editor (`le`), the System Monitor (`top`),
+  [Passwords](passwords.html) and **Install PostgreSQL** (which sets up
+  the [database](postgresql.html) and becomes **PostgreSQL**, opening
+  `psql`), and one for each
   [USB drive or SD card](storage.html) that is mounted: double-click one
   to open it
 - a **taskbar** with a button for each window (click to bring it to the

@@ -207,6 +207,7 @@ defmodule Lepton.Sys do
 
   def poweroff do
     Lepton.Services.stop_all()
+    Lepton.Postgres.await_stopped()
     Lepton.Persist.shutdown()
     sync()
     sysrq("o")
@@ -214,6 +215,7 @@ defmodule Lepton.Sys do
 
   def reboot do
     Lepton.Services.stop_all()
+    Lepton.Postgres.await_stopped()
     Lepton.Persist.shutdown()
     sync()
     sysrq("b")

@@ -24,8 +24,8 @@ summary: What Lepton doesn't do yet.
   hardware (pass a USB adapter through). WPA2 and WPA2/WPA3 networks
   work; WPA3-only and enterprise (802.1X) networks don't.
 - [Users and sudo](users.html) are enforced by Lepton's commands, not the
-  kernel: everything runs in one Erlang VM as root, so `iex`, `elixir` and
-  `mix` can bypass them. Services all run as root.
+  kernel: everything runs in one Erlang VM as root, so `iex` and
+  `elixir` can bypass them. Services all run as root.
 - Services are simple ones only: no dependencies (`After=`,
   `Requires=`), timers, socket activation or resource limits.
 - git: no three-way merge (pulls fast-forward only) and no rebase.
@@ -48,7 +48,12 @@ summary: What Lepton doesn't do yet.
 - Packages that rely on Mix-specific features (compile-time config,
   application callbacks, NIFs) are not supported.
 - Native ELF programs can run through a port (standard input and output
-  only, no terminal).
+  only, no terminal). For the ones that start others through a shell
+  (Mix's rebar3, PostgreSQL's `initdb`), `/bin/sh` is busybox's; at
+  Lepton's prompt the shell is always `lsh`.
+- `mix` can't build dependencies that compile C code (NIFs with a
+  Makefile, like `bcrypt_elixir`): Lepton has no C compiler. Use
+  pure-Elixir ones (`pbkdf2_elixir`), and `iex -S mix` isn't available.
 - The Linux framebuffer console approximates 256-colour themes; a serial
   console in an xterm-compatible terminal renders them fully.
 

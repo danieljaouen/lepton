@@ -151,7 +151,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def signature(s, info) do
-    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.bluetooth, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Lepton.Bluetooth.summary(), Lepton.Keyboard.state(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
+    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.bluetooth, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Lepton.Bluetooth.summary(), Lepton.Keyboard.state(), Lepton.Postgres.installed?(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
   end
 
   @impl true
@@ -180,7 +180,15 @@ defmodule Lepton.Photon.WM.Classic do
   # card that is mounted (Lepton.Media), which opens a terminal there.
   defp icons do
     drives = for m <- Lepton.Media.mounted(), name = Path.basename(m.dir), do: {name, :drive, [title: name, cwd: m.dir]}
-    @icons ++ drives
+    @icons ++ [postgres_icon()] ++ drives
+  end
+
+  # PostgreSQL: "Install PostgreSQL" until it is (installs it, creates the
+  # database and starts the service), then psql on it.
+  defp postgres_icon do
+    if Lepton.Postgres.installed?(),
+      do: {"PostgreSQL", :database, [command: "psql", title: "PostgreSQL"]},
+      else: {"Install PostgreSQL", :database, [command: "sudo postgresql setup; read -p 'Press Enter to close. ' x", title: "Install PostgreSQL"]}
   end
 
   defp label(c, text, w, y, selected?) do
@@ -873,6 +881,28 @@ defmodule Lepton.Photon.WM.Classic do
     |> Canvas.bevel(x, y + 4 * s, 16 * s, 9 * s, :raised)
     |> Canvas.fill(x + 2 * s, y + 7 * s, 9 * s, max(s, 1), Render.rgb(@dark))
     |> Canvas.fill(x + 12 * s, y + 9 * s, 2 * s, 2 * s, Render.rgb("#00c000"))
+  end
+
+  # A database: a stack of disks (a cylinder).
+  defp icon(c, x, y, :database, size) do
+    s = div(size, 16)
+    body = Render.rgb("#336791")
+    top = Render.rgb("#6f9bc4")
+    rim = Render.rgb(@dark)
+
+    c =
+      c
+      |> Canvas.fill(x + 2 * s, y + 2 * s, 12 * s, 12 * s, body)
+      |> Canvas.fill(x + 3 * s, y + 1 * s, 10 * s, 1 * s, top)
+      |> Canvas.fill(x + 2 * s, y + 2 * s, 12 * s, 2 * s, top)
+      |> Canvas.fill(x + 3 * s, y + 14 * s, 10 * s, 1 * s, body)
+
+    # The disks' edges, and the outline.
+    Enum.reduce([4, 8, 12], c, fn dy, c -> Canvas.fill(c, x + 2 * s, y + dy * s, 12 * s, max(div(s, 2), 1), rim) end)
+    |> Canvas.fill(x + 2 * s - 1, y + 2 * s, 1, 12 * s, rim)
+    |> Canvas.fill(x + 14 * s, y + 2 * s, 1, 12 * s, rim)
+    |> Canvas.fill(x + 3 * s, y + 15 * s, 10 * s, 1, rim)
+    |> Canvas.fill(x + 3 * s, y + 1 * s - 1, 10 * s, 1, rim)
   end
 
   defp icon(c, x, y, :help, size) do

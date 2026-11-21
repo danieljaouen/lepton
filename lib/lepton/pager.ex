@@ -284,33 +284,4 @@ defmodule Lepton.IEx do
       IO.err(ctx, Exception.format(kind, reason, __STACKTRACE__) |> String.trim_trailing())
       {binding, env}
   end
-
-  @doc "Run a mix task in the project at ctx.cwd."
-  def mix(args, ctx) do
-    if not File.exists?(Path.join(ctx.cwd, "mix.exs")) and List.first(args) not in ["new", "help", nil] do
-      IO.err(ctx, "** (Mix) Could not find a Mix.Project, please ensure you are running Mix in a directory containing a mix.exs file")
-      1
-    else
-      parent_cwd = File.cwd!()
-      Process.group_leader(self(), ctx.stdout)
-
-      try do
-        # Mix relies on the node-wide cwd; Lepton serialises mix runs.
-        :global.trans({__MODULE__, :mix}, fn ->
-          File.cd!(ctx.cwd)
-          Application.ensure_all_started(:mix)
-          Mix.start()
-          Mix.Task.run(List.first(args) || "help", Enum.drop(args, 1))
-        end)
-
-        0
-      rescue
-        e ->
-          IO.err(ctx, "** (Mix) " <> Exception.message(e))
-          1
-      after
-        File.cd(parent_cwd)
-      end
-    end
-  end
 end

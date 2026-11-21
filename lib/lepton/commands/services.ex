@@ -53,6 +53,16 @@ defmodule Lepton.Commands.Services do
     Lepton.Cron.daemon(&IO.puts(ctx, &1))
   end
 
+  defcmd "postgresql", "the PostgreSQL database server: set it up (for Phoenix apps), see how it is, run it",
+    usage: "postgresql [status] | setup | server" do
+    postgresql(args, ctx)
+  end
+
+  defcmd "psql", "PostgreSQL's SQL shell, with Lepton's line editor (as the postgres role by default)",
+    usage: "psql [-U ROLE] [-d DATABASE] [-h HOST] [-p PORT] [-c SQL] [-f FILE] [DATABASE [ROLE]]" do
+    Lepton.Postgres.Psql.run(args, ctx)
+  end
+
   defcmd "crontab", "your table of commands to run at set times (cron): list, edit, install or remove it",
     usage: "crontab [-u USER] -l | -e | -r | FILE | -" do
     crontab(args, ctx)
@@ -590,5 +600,92 @@ defmodule Lepton.Commands.Services do
             end
         end
     end
+  end
+
+  # -- postgresql ------------------------------------------------------------------------------------
+
+  defp postgresql([cmd | _], ctx) when cmd in ["setup", "server"] and ctx.user != "root", do: Lepton.Users.denied(ctx, "postgresql #{cmd}")
+
+  defp postgresql(args, ctx) when args in [[], ["status"]] do
+    alias Lepton.Postgres
+
+    if Postgres.installed?() do
+      svc = Services.status("postgresql")
+      state = if is_map(svc), do: svc.state, else: :inactive
+      up? = Postgres.listening?()
+      IO.puts(ctx, "PostgreSQL #{Postgres.version()}: #{if up?, do: "running on localhost:#{Postgres.port()}", else: "not running"}")
+      IO.puts(ctx, "  service:  postgresql, #{state}, #{if Services.enabled?("postgresql"), do: "starts at boot", else: "not started at boot"}")
+      IO.puts(ctx, "  data:     #{Postgres.data_dir()}#{if Postgres.initialized?(), do: "", else: " (not created yet: sudo postgresql setup)"}")
+      IO.puts(ctx, "  socket:   #{Postgres.socket_dir()} (psql connects through it)")
+      IO.puts(ctx, "  Phoenix:  username \"postgres\", password \"#{Postgres.default_password()}\", hostname \"localhost\"")
+      if not up?, do: IO.puts(ctx, "Start it with: sudo svc start postgresql")
+      0
+    else
+      IO.puts(ctx, "PostgreSQL isn't installed. Install it, create its database and start it with: sudo postgresql setup")
+      1
+    end
+  end
+
+  defp postgresql(["setup"], ctx) do
+    alias Lepton.Postgres
+    say = &IO.puts(ctx, String.trim_trailing(&1))
+
+    installed =
+      if Postgres.installed?() do
+        :ok
+      else
+        IO.puts(ctx, "Installing PostgreSQL...")
+        Lepton.Apps.install(Postgres.app(), say)
+      end
+
+    with :ok <- installed,
+         :ok <- Postgres.prepare(),
+         :ok <- Postgres.init_cluster(say) do
+      Services.set_enabled("postgresql", true)
+
+      case Services.start("postgresql") do
+        {:ok, _} ->
+          up? = Enum.find(1..100, fn _ -> Postgres.listening?() || (Process.sleep(200) && false) end)
+
+          if up? do
+            IO.puts(ctx, """
+            PostgreSQL #{Postgres.version()} is running on localhost:#{Postgres.port()}, and starts at boot.
+
+              psql                     the SQL shell, as the postgres superuser
+              createdb NAME            a database (pg_dump, pg_restore and the rest are there too)
+              svc logs postgresql      its log
+
+            A Phoenix app's config/dev.exs works as it is: username "postgres",
+            password "#{Postgres.default_password()}", hostname "localhost". Change the password with
+              psql -c "ALTER USER postgres PASSWORD 'new password'"\
+            """)
+
+            0
+          else
+            IO.err(ctx, "postgresql: the server didn't start; see: svc logs postgresql")
+            1
+          end
+
+        {:error, e} ->
+          IO.err(ctx, "postgresql: #{e}")
+          1
+      end
+    else
+      {:error, e} ->
+        IO.err(ctx, "postgresql: #{e}")
+        1
+    end
+  end
+
+  defp postgresql(["server"], ctx) do
+    case Lepton.Postgres.serve(&IO.write(ctx, &1)) do
+      status when is_integer(status) -> status
+      {:error, e} -> IO.err(ctx, "postgresql: #{e}"); 1
+    end
+  end
+
+  defp postgresql(_, ctx) do
+    IO.err(ctx, "usage: postgresql [status] | setup | server")
+    2
   end
 end

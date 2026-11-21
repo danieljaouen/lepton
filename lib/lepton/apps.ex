@@ -11,7 +11,8 @@ defmodule Lepton.Apps do
   found through environment variables, so nothing outside its directory
   changes.
 
-  The one app so far is Firefox. Its packages leave out what a software-
+  Firefox is the one you open; Bluetooth and PostgreSQL are daemons
+  Lepton runs (`Lepton.Bluetooth`, `Lepton.Postgres`). Firefox's packages leave out what a software-
   rendered browser in a VM doesn't load: Mesa and LLVM (GPU drawing).
   FFmpeg's decoders (libavcodec) are in: Firefox plays WebM and AV1 with
   its own, but H.264 and AAC (MP4 video: TikTok, LinkedIn, Instagram)
@@ -58,6 +59,30 @@ defmodule Lepton.Apps do
       main: "bluez",
       exe: nil,
       gtk: false
+    },
+    # Not a program you open either: the database server Lepton.Postgres
+    # runs as the postgresql service (and its tools: psql, pg_dump, ...).
+    # Programs Mix runs (Lepton.MixVM puts them on its VM's PATH only): git,
+    # for git dependencies (Phoenix's heroicons; Lepton's git is a command
+    # of Lepton's, which another VM can't run), and inotifywait, for
+    # Phoenix's live reload (file_system). In the shell, git is Lepton's.
+    "mix-tools" => %{
+      title: "Mix tools",
+      summary: "git and inotifywait, for Mix",
+      packages: ["git", "inotify-tools"],
+      exclude: ~r/^(busybox.*)$/,
+      main: "git",
+      exe: nil,
+      gtk: false
+    },
+    "postgresql" => %{
+      title: "PostgreSQL",
+      summary: "the PostgreSQL database",
+      packages: ["postgresql18", "postgresql18-client", "postgresql18-contrib"],
+      exclude: ~r/^(busybox.*)$/,
+      main: "postgresql18",
+      exe: nil,
+      gtk: false
     }
   }
 
@@ -84,6 +109,7 @@ defmodule Lepton.Apps do
 
   def remove(name) do
     if installed?(name) do
+      if name == "postgresql", do: Lepton.Postgres.unlink_tools()
       File.rm_rf(dir(name))
       File.rm_rf(staged_dir(name))
       File.rm(checked_file(name))
@@ -315,6 +341,8 @@ defmodule Lepton.Apps do
   defp mb(bytes), do: "#{Float.round(bytes / 1_000_000, 1)} MB"
 
   # -- setup: what the packages' install triggers would do ---------------------------------------------
+
+  defp setup("postgresql", _prefix), do: Lepton.Postgres.prepare()
 
   defp setup(name, prefix) do
     if get(name)[:gtk], do: setup_gtk(prefix), else: :ok

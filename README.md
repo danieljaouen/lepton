@@ -34,7 +34,7 @@ pre-built, unmodified substrate that is downloaded at build time
 | glibc, libstdc++, zlib, libtinfo, libcrypto | Ubuntu 24.04 arm64 | ERTS links against them |
 | GRUB EFI | Debian `grub-efi-arm64-unsigned` | firmware → kernel loader |
 | CA certificates | Alpine | TLS trust roots |
-| busybox (static) | Alpine | **syscall shim only**: `mount(2)`, `finit_module(2)` and termios `ioctl(2)`, which ERTS cannot issue. It is never exposed as a command (`Lepton.Sys`). |
+| busybox (static) | Alpine | **syscall shim**: `mount(2)`, `finit_module(2)` and termios `ioctl(2)`, which ERTS cannot issue (`Lepton.Sys`). It is never a command at Lepton's prompt; `/bin/sh` and `/usr/bin/env` link to it only for native programs that start others through them (Mix's rebar3, PostgreSQL's `initdb`). |
 
 The build tooling is Elixir too: the cpio (initramfs) writer, FAT12 and
 ISO 9660 / Rock Ridge / El Torito writers, ELF dependency resolver and arm64
@@ -227,9 +227,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 295 tests, 0 failures inside the VM (run from the live
+Current results: 308 tests, 0 failures inside the VM (run from the live
 ISO; the 14 `:docs` tests, for the docs and site tags, are host-only), and
-290 passing plus 19 excluded (native/network) on the host.
+302 passing plus 20 excluded (native/network) on the host.
 
 ## Daily updates
 

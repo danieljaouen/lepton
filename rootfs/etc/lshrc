@@ -41,3 +41,8 @@ alias gsw='git switch'
 
 # oh-my-zsh "mix" plugin
 alias mt='mix test'
+
+# PostgreSQL's tools (createdb, pg_dump, ...) connect as its superuser
+# role, postgres: the native programs Lepton runs are root's, and
+# PostgreSQL has no root role (see: postgresql).
+export PGUSER=postgres

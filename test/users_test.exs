@@ -63,8 +63,11 @@ defmodule Lepton.UsersTest do
 
     etc = tmp_dir("etc")
     Users.sync_etc(etc)
-    assert File.read!(Path.join(etc, "passwd")) == "root:x:0:0:root:/root:/bin/lsh\nalice:x:1000:1000:Alice:/home/alice:/bin/lsh\n"
-    assert File.read!(Path.join(etc, "group")) == "root:x:0:\nsudo:x:27:alice\nalice:x:1000:\n"
+    # (and the daemons' accounts: PostgreSQL's)
+    assert File.read!(Path.join(etc, "passwd")) ==
+             "root:x:0:0:root:/root:/bin/lsh\npostgres:x:70:70:PostgreSQL:/var/lib/lepton/postgresql:/bin/false\nalice:x:1000:1000:Alice:/home/alice:/bin/lsh\n"
+
+    assert File.read!(Path.join(etc, "group")) == "root:x:0:\nsudo:x:27:alice\npostgres:x:70:\nalice:x:1000:\n"
   end
 
   test "users write in their home and the temp directories, not elsewhere; root writes anywhere", %{alice: alice} do

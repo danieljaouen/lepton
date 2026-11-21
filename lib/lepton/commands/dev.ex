@@ -70,8 +70,8 @@ defmodule Lepton.Commands.Dev do
       1
   end
 
-  defcmd "mix", "Elixir build tool (runs in the project in the current directory)", usage: "mix TASK [ARGS...]" do
-    Lepton.IEx.mix(args, ctx)
+  defcmd "mix", "Elixir's build tool, in a VM of its own: projects, Hex, Phoenix (mix phx.new, mix phx.server)", usage: "mix [TASK [ARGS...]]" do
+    Lepton.MixVM.run(args, ctx)
   end
 
   defcmd "erl", "Erlang version information", usage: "erl" do

@@ -29,11 +29,15 @@ defmodule Lepton.Users do
 
   defstruct [:name, :uid, :gid, :gecos, :home, :shell]
 
+  # Accounts for daemons (not people): in /etc/passwd, so their programs
+  # can look themselves up, but not in `list/0`. PostgreSQL refuses root.
+  @system_accounts [%{__struct__: __MODULE__, name: "postgres", uid: 70, gid: 70, gecos: "PostgreSQL", home: "/var/lib/lepton/postgresql", shell: "/bin/false"}]
+
   @first_uid 1000
   @sudo_gid 27
   @iterations 100_000
   @sudo_timeout_ms 5 * 60 * 1000
-  @reserved ~w(root daemon bin sys adm nobody sudo wheel admin users lepton)
+  @reserved ~w(root daemon bin sys adm nobody sudo wheel admin users lepton postgres)
 
   # -- storage ------------------------------------------------------------------------------
 
@@ -81,8 +85,8 @@ defmodule Lepton.Users do
   @doc "`%{users: %{uid => name}, groups: %{gid => name}}`, root included (for `ls -l`)."
   def names_by_id do
     %{
-      users: Map.new([{0, "root"} | Enum.map(list(), &{&1.uid, &1.name})]),
-      groups: Map.new([{0, "root"} | for({name, {gid, _}} <- groups(), do: {gid, name})])
+      users: Map.new([{0, "root"} | Enum.map(@system_accounts ++ list(), &{&1.uid, &1.name})]),
+      groups: Map.new([{0, "root"} | Enum.map(@system_accounts, &{&1.gid, &1.name}) ++ for({name, {gid, _}} <- groups(), do: {gid, name})])
     }
   end
 
@@ -213,8 +217,8 @@ defmodule Lepton.Users do
 
   defp write_etc(etc) do
     root = get("root")
-    write_lines(Path.join(etc, "passwd"), [passwd_line(root) | Enum.map(list(), &passwd_line/1)])
-    groups = Map.put(groups(), "root", {0, []})
+    write_lines(Path.join(etc, "passwd"), [passwd_line(root) | Enum.map(@system_accounts ++ list(), &passwd_line/1)])
+    groups = groups() |> Map.put("root", {0, []}) |> Map.merge(Map.new(@system_accounts, &{&1.name, {&1.gid, []}}))
     lines = for {name, {gid, members}} <- Enum.sort_by(groups, fn {_, {gid, _}} -> gid end), do: "#{name}:x:#{gid}:#{Enum.join(members, ",")}"
     write_lines(Path.join(etc, "group"), lines)
   end

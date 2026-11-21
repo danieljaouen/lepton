@@ -67,9 +67,15 @@ ISO it is kept in memory and is gone after a reboot; give the VM at least
 | `sudo app remove NAME` | remove it |
 | `firefox [URL...]` | start Firefox (installing it first, as root) |
 
-The other app is `bluetooth`: [Bluetooth](bluetooth.html)'s programs
-(BlueZ, D-Bus and bluez-alsa: 37 packages, about 8 MB to download), which
-Lepton runs in the background rather than opening in a window.
+The other apps are ones Lepton runs in the background rather than
+opening in a window: `bluetooth`, [Bluetooth](bluetooth.html)'s programs
+(BlueZ, D-Bus and bluez-alsa: 37 packages, about 8 MB to download), and
+`postgresql`, the [PostgreSQL](postgresql.html) database server (26
+packages, about 18 MB to download, 49 MB installed), which
+`sudo postgresql setup` installs and starts; and `mix-tools`, the
+programs `mix` runs: git, for git dependencies, and inotifywait, for
+Phoenix's live reload (about 10 MB). They are on the path of `mix`
+only; at the prompt, `git` is still Lepton's own.
 
 ## Updates
 

@@ -95,6 +95,9 @@ Other keys are ignored, and `svc status` lists them.
   On by default.
 - **cups**: [printing](printing.html): the queue, and IPP on
   127.0.0.1:631. On by default.
+- **postgresql**: the [PostgreSQL](postgresql.html) database server, on
+  localhost:5432. Off until `sudo postgresql setup` installs PostgreSQL
+  and enables it.
 
 Only `cron`, `ntpd` and `cups` start by themselves: a shipped unit with an `[Install]` section
 (`WantedBy=`) is on until you disable it, as systemd's presets do. The

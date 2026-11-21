@@ -1,0 +1,10 @@
+# The PostgreSQL database server (see: postgresql). `sudo postgresql setup`
+# installs it and enables this service; it then starts at boot.
+[Unit]
+Description=PostgreSQL database server (localhost:5432)
+
+[Service]
+ExecStart=postgresql server
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30

@@ -20,6 +20,7 @@ defmodule Lepton.Application do
       Lepton.Bluetooth,
       Lepton.Wifi,
       Lepton.Users,
+      Lepton.Postgres,
       Lepton.Proxy,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},
       {DynamicSupervisor, name: Lepton.SessionSupervisor, strategy: :one_for_one}

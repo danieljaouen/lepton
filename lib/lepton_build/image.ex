@@ -7,14 +7,16 @@ defmodule LeptonBuild.Image do
       Linux kernel + modules           lib/lepton/**  -> lepton app
       ERTS + OTP apps + glibc libs     Elixir stdlib apps (pure .beam)
       GRUB (EFI), CA bundle            rootfs/ overlay, dotfiles -> /root
-      busybox (syscall shim only)      test/ -> /usr/share/lepton/test
+      busybox (syscall shim; sh, env   test/ -> /usr/share/lepton/test
+        for native programs)
   """
 
   alias LeptonBuild.{Cpio, Dotfiles, ELF, FAT, ISO9660, Kernel, Sources}
 
-  @otp_apps ~w(kernel stdlib compiler crypto public_key asn1 ssl ssh inets sasl runtime_tools syntax_tools parsetools tools)
+  @otp_apps ~w(kernel stdlib compiler crypto public_key asn1 ssl ssh inets sasl runtime_tools syntax_tools parsetools tools xmerl os_mon)
   @elixir_apps ~w(elixir eex ex_unit iex logger mix)
-  @erts_bins ~w(beam.smp erlexec erl_child_setup inet_gethost epmd)
+  @glibc_compat ~w(libpthread.so.0 libdl.so.2 librt.so.1 libutil.so.1)
+  @erts_bins ~w(beam.smp erlexec erl_child_setup inet_gethost epmd escript)
 
   # Drivers Lepton's init loads (dependencies are resolved from modules.dep).
   # linux-lts builds the virtio transports, virtio_console (hvc0) and ext2
@@ -255,17 +257,40 @@ defmodule LeptonBuild.Image do
       release ++
       [
         {:symlink, "#{@erlang_root}/bin/erlexec", "../#{erts}/bin/erlexec"},
-        {:file, "#{@erlang_root}/bin/start_clean.boot", 0o644,
-         {:path, Path.join([otp_dir, "releases", otp_release, "start_clean.boot"])}}
-      ]
+        # erl and escript for native programs: Mix runs rebar3, an escript,
+        # for Erlang dependencies (Lepton's own `erl` is a command of its own).
+        {:file, "#{@erlang_root}/bin/erl", 0o755, {:data, erl_script(erts)}},
+        {:symlink, "#{@erlang_root}/bin/escript", "../#{erts}/bin/escript"},
+        {:symlink, "/usr/bin/erl", "../lib/erlang/bin/erl"},
+        {:symlink, "/usr/bin/escript", "../lib/erlang/bin/escript"}
+      ] ++
+      for boot <- ~w(start_clean start no_dot_erlang) do
+        {:file, "#{@erlang_root}/bin/#{boot}.boot", 0o644, {:path, Path.join([otp_dir, "releases", otp_release, boot <> ".boot"])}}
+      end
+  end
+
+  # OTP's erl script, for this layout (OTP's finds its root from where it
+  # was installed).
+  defp erl_script(erts) do
+    """
+    #!/bin/sh
+    ROOTDIR=#{@erlang_root}
+    BINDIR=$ROOTDIR/#{erts}/bin
+    EMU=beam
+    PROGNAME=erl
+    export EMU ROOTDIR BINDIR PROGNAME
+    exec "$BINDIR/erlexec" ${1+"$@"}
+    """
   end
 
   defp find_app(lib, app) do
     lib |> File.ls!() |> Enum.find(&(&1 == app or String.starts_with?(&1, app <> "-"))) |> then(&(&1 && Path.join(lib, &1)))
   end
 
+  # (include: the header files Erlang code includes from OTP, as Mint does
+  # public_key's; a project's dependencies compile on Lepton.)
   defp copy_app(dir, dest) do
-    for sub <- ["ebin", "priv"],
+    for sub <- ["ebin", "priv", "include"],
         root = Path.join(dir, sub),
         File.dir?(root),
         file <- Path.wildcard(Path.join(root, "**/*"), match_dot: true),
@@ -331,6 +356,9 @@ defmodule LeptonBuild.Image do
         Path.wildcard(Path.join(otp_dir, "lib/{#{Enum.join(@otp_apps, ",")}}-*/priv/lib/*.so"))
 
     needed = closure(roots |> Enum.filter(&File.exists?/1), available, MapSet.new())
+    # glibc's compatibility stubs (empty since glibc 2.34), for the glibc
+    # programs Mix downloads: Tailwind's standalone build asks for them.
+    needed = Enum.reduce(@glibc_compat, needed, &if(Map.has_key?(available, &1), do: MapSet.put(&2, &1), else: &2))
 
     libs =
       for soname <- Enum.sort(needed) do
@@ -503,6 +531,11 @@ defmodule LeptonBuild.Image do
       # The kernel runs /sbin/modprobe to load modules on demand (crypto for
       # WPA, for example); busybox's applet reads modules.dep and .alias.
       {:symlink, "/sbin/modprobe", "../bin/busybox"},
+      # A POSIX shell and env for native programs that start others through
+      # them: Mix (rebar3, `cmd`), PostgreSQL's initdb (popen), git. Lepton's
+      # shell is still lsh: sh and env are its own commands at its prompt.
+      {:symlink, "/bin/sh", "busybox"},
+      {:symlink, "/usr/bin/env", "../../bin/busybox"},
       {:file, "/etc/ssl/certs/ca-certificates.crt", 0o644,
        {:path, Path.join(src["ca-certificates-bundle"].dir, "etc/ssl/certs/ca-certificates.crt")}}
     ] ++ zoneinfo(src)

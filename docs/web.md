@@ -128,6 +128,18 @@ This puts a new Phoenix app, `myapp`, behind `httpd` with HTTPS: first
 for development, as `https://myapp.local`, then on the internet, as
 `https://myapp.example.com`.
 
+Before you start: the database, the programs Mix runs, Hex and the
+Phoenix generator, then the app (`mix` runs in a VM of its own, as on
+any other system):
+
+```sh
+sudo postgresql setup             # PostgreSQL (see Databases)
+sudo app install mix-tools        # git and inotifywait, for mix
+mix local.hex --force && mix local.rebar --force
+mix archive.install hex phx_new
+mix phx.new myapp && cd myapp && mix ecto.create
+```
+
 ### 1. The app listens on this machine only
 
 In `config/dev.exs` (and `config/runtime.exs` for production), the

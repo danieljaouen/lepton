@@ -316,6 +316,7 @@ defmodule Lepton.Shell.LineEditor do
 
     candidates =
       cond do
+        s.shell.options[:plain] -> path_candidates(s.shell, word)
         first_word? and not String.contains?(word, "/") -> command_candidates(s.shell, word)
         String.starts_with?(String.trim(prefix_text), "git") and length(String.split(prefix_text)) == 1 -> git_candidates(word)
         true -> path_candidates(s.shell, word)
@@ -438,7 +439,9 @@ defmodule Lepton.Shell.LineEditor do
   defp redraw(s) do
     color? = Style.color?(s.shell.ctx)
     sugg = suggestion(s) || ""
-    line = s.prompt <> highlight(s.buf, s.shell, color?) <> if(color? and sugg != "", do: "\e[38;5;242m" <> sugg <> "\e[0m", else: "")
+    # (plain: not shell commands, psql's SQL for one: no highlighting)
+    shown = if s.shell.options[:plain], do: s.buf, else: highlight(s.buf, s.shell, color?)
+    line = s.prompt <> shown <> if(color? and sugg != "", do: "\e[38;5;242m" <> sugg <> "\e[0m", else: "")
     draw(s, line, Style.width(s.prompt) + Lepton.Width.string(s.buf) + if(color?, do: Lepton.Width.string(sugg), else: 0))
   end
 
