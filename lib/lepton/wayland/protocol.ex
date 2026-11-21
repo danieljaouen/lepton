@@ -2,8 +2,9 @@ defmodule Lepton.Wayland.Protocol do
   @moduledoc """
   The interfaces Photon speaks: the core protocol (`wayland.xml`, with
   subsurfaces and a data device that holds no clipboard yet), the stable
-  `xdg-shell` and KDE's server-side decoration protocol (Photon draws the
-  title bars), as far as the versions below, plus one Lepton extension,
+  `xdg-shell`, KDE's server-side decoration protocol (Photon draws the
+  title bars) and text-input v3 (Korean typing), as far as the versions
+  below, plus one Lepton extension,
   `lepton_shm`.
 
   `lepton_shm` is `wl_shm` for clients inside Lepton's own VM:
@@ -233,6 +234,35 @@ defmodule Lepton.Wayland.Protocol do
       version: 1,
       requests: [destroy: [], grab: [{:object, "wl_seat"}, :uint]],
       events: [configure: rect, popup_done: []]
+    },
+    # text-input-unstable-v3: how GTK programs (Firefox) take composed
+    # text, Korean for one: the syllable being typed (preedit) and the
+    # text that is done (commit_string). See Lepton.Hangul.
+    "zwp_text_input_manager_v3" => %{
+      version: 1,
+      requests: [destroy: [], get_text_input: [{:new_id, "zwp_text_input_v3"}, {:object, "wl_seat"}]],
+      events: []
+    },
+    "zwp_text_input_v3" => %{
+      version: 1,
+      requests: [
+        destroy: [],
+        enable: [],
+        disable: [],
+        set_surrounding_text: [:string, :int, :int],
+        set_text_change_cause: [:uint],
+        set_content_type: [:uint, :uint],
+        set_cursor_rectangle: rect,
+        commit: []
+      ],
+      events: [
+        enter: [{:object, "wl_surface"}],
+        leave: [{:object, "wl_surface"}],
+        preedit_string: [:string, :int, :int],
+        commit_string: [:string],
+        delete_surrounding_text: [:uint, :uint],
+        done: [:uint]
+      ]
     }
   }
 
@@ -257,7 +287,9 @@ defmodule Lepton.Wayland.Protocol do
                  {"xdg_positioner", :destroy},
                  {"xdg_surface", :destroy},
                  {"xdg_toplevel", :destroy},
-                 {"xdg_popup", :destroy}
+                 {"xdg_popup", :destroy},
+                 {"zwp_text_input_manager_v3", :destroy},
+                 {"zwp_text_input_v3", :destroy}
                ])
 
   def interfaces, do: @interfaces

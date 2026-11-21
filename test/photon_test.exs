@@ -181,7 +181,7 @@ defmodule Lepton.PhotonTest do
     {ph, out, env} = start_photon()
     {:ok, c} = Client.connect(Lepton.Wayland.Conn.socket_path(env))
     {c, globals} = Client.registry(c)
-    assert globals |> Map.new(fn {k, {_, v}} -> {k, v} end) == %{"wl_compositor" => 4, "wl_shm" => 1, "wl_seat" => 5, "wl_output" => 2, "xdg_wm_base" => 1, "lepton_shm" => 1, "wl_subcompositor" => 1, "wl_data_device_manager" => 3, "org_kde_kwin_server_decoration_manager" => 1}
+    assert globals |> Map.new(fn {k, {_, v}} -> {k, v} end) == %{"wl_compositor" => 4, "wl_shm" => 1, "wl_seat" => 5, "wl_output" => 2, "xdg_wm_base" => 1, "lepton_shm" => 1, "wl_subcompositor" => 1, "wl_data_device_manager" => 3, "org_kde_kwin_server_decoration_manager" => 1, "zwp_text_input_manager_v3" => 1}
     {c, shm} = Client.bind(c, "wl_shm", 1)
     {c, output} = Client.bind(c, "wl_output", 2)
     {evs, _c} = events(c)
@@ -360,6 +360,80 @@ defmodule Lepton.PhotonTest do
     c = Client.request(c, shm, :create_pool, [pool, outside, 64])
     assert_raise RuntimeError, ~r/not a file in/, fn -> events(c) end
     assert File.exists?(outside)
+  end
+
+  test "input sources: Korean composes over text-input v3, layouts are XKB groups, Super+Space switches" do
+    System.put_env("LEPTON_STATE_DIR", tmp_dir("kbstate"))
+
+    on_exit(fn ->
+      Lepton.Keyboard.set_sources(["us"])
+      System.delete_env("LEPTON_STATE_DIR")
+    end)
+
+    {:ok, _} = Lepton.Keyboard.set_sources(["ko", "th"])
+    {ph, _out, env} = start_photon()
+    win = window(env, 100, 60, Render.px(0, 0, 255))
+    {c, kbd} = Client.create(win.c, win.seat, :get_keyboard, "wl_keyboard")
+    {c, tim} = Client.bind(c, "zwp_text_input_manager_v3", 1)
+    {c, ti} = Client.create(c, tim, :get_text_input, "zwp_text_input_v3", [:new, win.seat])
+    {evs, c} = events(c)
+    assert {ti, "zwp_text_input_v3", :enter, [win.surface]} in evs
+    # Korean types with the US keys: group 0.
+    assert {_, _, :modifiers, [_, 0, 0, 0, 0]} = Enum.find(evs, &match?({^kbd, _, :modifiers, _}, &1))
+
+    tap = fn code -> Photon.input(ph, {:key, code, true}); Photon.input(ph, {:key, code, false}) end
+    ti_events = fn evs -> for {^ti, _, ev, args} <- evs, do: {ev, args} end
+    key_events = fn evs -> for {^kbd, _, :key, [_, _, code, state]} <- evs, do: {code, state} end
+
+    # No text field yet: the keys go to the program as they are.
+    tap.(34)
+    {evs, c} = events(c)
+    assert key_events.(evs) == [{34, 1}, {34, 0}] and ti_events.(evs) == []
+
+    # A text field: g k s (ㅎ ㅏ ㄴ) compose 한, shown as preedit; the program gets no keys.
+    c = c |> Client.request(ti, :enable, []) |> Client.request(ti, :commit, [])
+    {c, _} = Client.roundtrip(c)
+    Enum.each([34, 37, 31], tap)
+    {evs, c} = events(c)
+    assert key_events.(evs) == []
+    assert ti_events.(evs) == [{:preedit_string, ["ㅎ", 3, 3]}, {:done, [1]}, {:preedit_string, ["하", 3, 3]}, {:done, [1]}, {:preedit_string, ["한", 3, 3]}, {:done, [1]}]
+
+    # r k: 한 is done, 가 is composed; Backspace takes back the ㅏ.
+    Enum.each([19, 37, 14], tap)
+    {evs, c} = events(c)
+    assert [{:commit_string, ["한"]}, {:preedit_string, ["ㄱ", 3, 3]}, {:done, [1]} | rest] = ti_events.(evs)
+    assert Enum.take(rest, -2) == [{:preedit_string, ["ㄱ", 3, 3]}, {:done, [1]}]
+    assert key_events.(evs) == []
+
+    # Return: ㄱ is committed, then the key goes on.
+    tap.(28)
+    {evs, c} = events(c)
+    assert ti_events.(evs) == [{:commit_string, ["ㄱ"]}, {:preedit_string, [nil, 0, 0]}, {:done, [1]}]
+    assert key_events.(evs) == [{28, 1}, {28, 0}]
+
+    # Right Alt (한/영): English, the letter keys go to the program.
+    tap.(100)
+    tap.(34)
+    {evs, c} = events(c)
+    assert key_events.(evs) == [{34, 1}, {34, 0}] and ti_events.(evs) == []
+    assert Lepton.Keyboard.state().hangul == false
+
+    # Super+Space: Thai, group 1 (the keymap already has it as group 2).
+    Photon.input(ph, {:key, 125, true})
+    tap.(57)
+    Photon.input(ph, {:key, 125, false})
+    {evs, c} = events(c)
+    assert Lepton.Keyboard.state().current == "th"
+    assert Enum.any?(evs, &match?({^kbd, _, :modifiers, [_, _, 0, 0, 1]}, &1))
+    refute {57, 1} in key_events.(evs)
+
+    # New sources: a new keymap.
+    {:ok, _} = Lepton.Keyboard.set_sources(["us", "ar"])
+    {evs, _c} = events_until(c, fn evs -> Enum.any?(evs, &match?({^kbd, _, :keymap, _}, &1)) end)
+    assert {_, _, :keymap, [1, fd, _]} = Enum.find(evs, &match?({^kbd, _, :keymap, _}, &1))
+    {:ok, f} = Lepton.Wayland.Conn.open_fd(fd)
+    {:ok, text} = :file.pread(f, 0, 200_000)
+    assert text =~ ~s(name[Group2] = "Arabic";)
   end
 
   test "input: pointer focus and coordinates, buttons, keyboard focus, keys and modifiers" do

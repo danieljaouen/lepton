@@ -327,6 +327,7 @@ defmodule Lepton.Apps do
          # The MIME database: how GIO (and so gdk-pixbuf) tells a PNG from a JPEG.
          :ok <- run(prefix, "usr/bin/update-mime-database", [Path.join(prefix, "usr/share/mime")], env),
          :ok <- pixbuf_loaders(prefix, env),
+         :ok <- im_modules(prefix, env),
          :ok <- fonts_conf(prefix) do
       firefox_policies(prefix)
     end
@@ -363,6 +364,32 @@ defmodule Lepton.Apps do
     else
       :ok
     end
+  end
+
+  @doc """
+  GTK's input-method modules, through a cache file like gdk-pixbuf's
+  loaders: only `wayland`, which takes composed text (Korean) from
+  Photon over text-input v3, and falls back to GTK's own compose and
+  dead keys. Made at setup, and at launch for apps installed before.
+  """
+  def im_modules(prefix, env) do
+    {dir, cache} = im_paths(prefix)
+    module = Path.join(dir, "im-wayland.so")
+
+    cond do
+      not File.exists?(module) -> :ok
+      File.exists?(cache) -> :ok
+      true ->
+        case native(Path.join(prefix, "usr/bin/gtk-query-immodules-3.0"), [module], env) do
+          {out, 0} -> File.write(cache, out)
+          {out, status} -> {:error, "gtk-query-immodules-3.0 failed (#{status}): #{String.slice(out, 0, 300)}"}
+        end
+    end
+  end
+
+  defp im_paths(prefix) do
+    base = Path.join(prefix, "usr/lib/gtk-3.0/3.0.0")
+    {Path.join(base, "immodules"), Path.join(base, "immodules.cache")}
   end
 
   # gdk-pixbuf finds its image loaders (PNG, SVG, ...) through a cache file.
@@ -444,6 +471,8 @@ defmodule Lepton.Apps do
       "GSETTINGS_BACKEND" => "memory",
       "GDK_PIXBUF_MODULE_FILE" => Path.wildcard(Path.join(prefix, "usr/lib/gdk-pixbuf-2.0/*/loaders.cache")) |> List.first() |> to_string(),
       "FONTCONFIG_FILE" => Path.join(prefix, "etc/fonts/lepton.conf"),
+      "GTK_IM_MODULE_FILE" => elem(im_paths(prefix), 1),
+      "GTK_IM_MODULE" => "wayland",
       "XKB_CONFIG_ROOT" => Path.join(prefix, "usr/share/X11/xkb"),
       "GDK_BACKEND" => "wayland",
       "MOZ_ENABLE_WAYLAND" => "1",
@@ -472,8 +501,9 @@ defmodule Lepton.Apps do
     # The proxy, if any, through Lepton's forwarder (Firefox reads http_proxy & co.).
     env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name) |> Map.merge(Lepton.Proxy.app_env(ctx.env))
     if Lepton.Sys.native?(), do: musl_path(prefix)
-    # Firefox installed before a policy was added gets it too.
+    # Firefox installed before a policy (or the input-method cache) was added gets it too.
     firefox_policies(prefix)
+    if app[:gtk], do: im_modules(prefix, env)
     bus = if app[:bus], do: session_bus(name, user, ctx.env)
     env = if bus, do: Map.put(env, "DBUS_SESSION_BUS_ADDRESS", "unix:path=" <> bus.path), else: env
     # As the user, not as root (the VM's own user): see Lepton.RunAs.

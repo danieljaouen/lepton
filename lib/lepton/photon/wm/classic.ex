@@ -151,7 +151,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def signature(s, info) do
-    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.bluetooth, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Lepton.Bluetooth.summary(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
+    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.bluetooth, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Lepton.Bluetooth.summary(), Lepton.Keyboard.state(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
   end
 
   @impl true
@@ -223,13 +223,15 @@ defmodule Lepton.Photon.WM.Classic do
         |> Canvas.text(x + 24, 7, win.title || "", Render.rgb(@dark), face, bold: active?, max_w: bw - 28)
       end)
 
-    # The tray: Wi-Fi (with Wi-Fi hardware), the volume's speaker, and the clock.
+    # The tray: the input source (with more than one), Wi-Fi (with Wi-Fi
+    # hardware), Bluetooth, the volume's speaker, and the clock.
     tray = tray(s)
     %{muted: muted} = sound()
     wifi = Lepton.Wifi.summary()
 
     c
     |> Canvas.bevel(tray.x, 4, w - tray.x - 4, 22, :thin_sunken)
+    |> then(&if(tray.keyboard, do: Canvas.text(&1, tray.keyboard, 7, keyboard_label(), Render.rgb(@dark), face), else: &1))
     |> then(&if(tray.wifi, do: wifi_icon(&1, tray.wifi, 8, if(wifi.ssid, do: Lepton.Wifi.bars(wifi.signal) |> max(1), else: 0)), else: &1))
     |> then(&if(tray.bluetooth, do: bt_icon(&1, tray.bluetooth + 2, 7, bt_on?()), else: &1))
     |> speaker(tray.speaker, 7, muted)
@@ -241,10 +243,23 @@ defmodule Lepton.Photon.WM.Classic do
   @doc false
   def tray(s) do
     # (each icon only with its hardware: Wi-Fi, a Bluetooth adapter)
-    icons = Enum.filter([wifi: Lepton.Wifi.summary().iface != nil, bluetooth: Lepton.Bluetooth.summary().controllers != []], &elem(&1, 1))
+    icons =
+      Enum.filter(
+        [keyboard: length(Lepton.Keyboard.state().sources) > 1, wifi: Lepton.Wifi.summary().iface != nil, bluetooth: Lepton.Bluetooth.summary().controllers != []],
+        &elem(&1, 1)
+      )
+
     x = s.bar_w - Canvas.text_width(clock()) - 42 - 20 * length(icons)
     at = icons |> Enum.with_index() |> Map.new(fn {{name, _}, i} -> {name, x + 4 + 20 * i} end)
-    %{x: x, wifi: at[:wifi], bluetooth: at[:bluetooth], speaker: x + 4 + 20 * length(icons)}
+    %{x: x, keyboard: at[:keyboard], wifi: at[:wifi], bluetooth: at[:bluetooth], speaker: x + 4 + 20 * length(icons)}
+  end
+
+  # The input source: EN, KO (Hangul; "A" when Korean types English), TH, ...
+  defp keyboard_label do
+    case Lepton.Keyboard.state() do
+      %{current: "ko", hangul: false} -> "A"
+      %{current: id} -> Lepton.Keyboard.label(id)
+    end
   end
 
   @rune ["  kk  ", "  k k ", "k k  k", " kk k ", "  kk  ", " kk k ", "k k  k", "  k k ", "  kk  "]
@@ -633,8 +648,14 @@ defmodule Lepton.Photon.WM.Classic do
     on_speaker? = on_bar? and px >= tray.speaker - 2 and px < tray.speaker + 18
     on_wifi? = on_bar? and tray.wifi != nil and px >= tray.wifi - 2 and px < tray.wifi + 18
     on_bt? = on_bar? and tray.bluetooth != nil and px >= tray.bluetooth - 2 and px < tray.bluetooth + 18
+    on_keyboard? = on_bar? and tray.keyboard != nil and px >= tray.keyboard - 2 and px < tray.keyboard + 18
 
     cond do
+      # The input source: the next one (Photon hears of it and tells the programs).
+      on_keyboard? ->
+        _ = Lepton.Keyboard.next()
+        {:handled, %{s | volume: false, wifi: false, bluetooth: false, menu: false, hover: nil}, []}
+
       on_speaker? ->
         {:handled, %{s | volume: not s.volume, wifi: false, bluetooth: false, menu: false, hover: nil}, []}
 

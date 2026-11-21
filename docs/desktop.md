@@ -30,6 +30,7 @@ When you quit, the text console comes back as you left it.
 | Alt+Tab | focus the next window |
 | Alt+F4, or the × button | close the window |
 | Alt+Shift+Right / Left | move the window to the next / previous [display](usb.html) |
+| Super+Space | the next input source: keyboard layout or Korean ([Languages and keyboards](keyboard.html)) |
 | the volume keys | mute, quieter, louder ([Sound](sound.html)) |
 | Ctrl+Alt+Backspace | quit Photon |
 | click a window | focus it and bring it to the front |
@@ -175,7 +176,8 @@ programs leave theirs out.
 - GPU-drawn (EGL) programs, transparency, the primary selection (pasting
   what's selected with the middle button), touch, and HiDPI scaling.
 - Fonts other than the built-in 8x16 Terminus bitmap font.
-- Keyboard layouts other than US.
+- Japanese and Chinese input ([other languages](keyboard.html) and
+  Korean work).
 - Video drivers: programs draw with the CPU.
 - Arranging displays other than left to right, or changing a display's
   resolution. Wayland programs see one output, the whole desktop.

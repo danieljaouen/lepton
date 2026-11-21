@@ -225,9 +225,9 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 285 tests, 0 failures inside the VM (run from the live
+Current results: 290 tests, 0 failures inside the VM (run from the live
 ISO; the 14 `:docs` tests, for the docs and site tags, are host-only), and
-280 passing plus 19 excluded (native/network) on the host.
+285 passing plus 19 excluded (native/network) on the host.
 
 ## Daily updates
 
@@ -306,6 +306,7 @@ lib/lepton/            the operating system
   vault.ex vault/                 the password manager: the encrypted vault, its agent, `vault`, the Passwords window
   ipp.ex print.ex print/          printing: IPP, mDNS discovery, text to PDF, cupsd (IPP server on :631)
   photon.ex photon/ wayland/      Photon: Wayland compositor, displays, window managers, terminal windows, protocol
+  keyboard.ex hangul.ex           input sources (keyboard layouts, Korean) and the Hangul composer
   apps.ex alpine.ex fd.ex         native apps (Firefox) from Alpine packages; the NIF: close, ioctl
   run_as.ex                       running native programs as the logged-in user
   man.ex pager.ex                 man (pages from man/), less, top

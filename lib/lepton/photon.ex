@@ -52,7 +52,8 @@ defmodule Lepton.Photon do
     {6, "lepton_shm"},
     {7, "wl_subcompositor"},
     {8, "wl_data_device_manager"},
-    {9, "org_kde_kwin_server_decoration_manager"}
+    {9, "org_kde_kwin_server_decoration_manager"},
+    {10, "zwp_text_input_manager_v3"}
   ]
 
   # wl_shm formats: ARGB8888 and XRGB8888 (alpha is ignored: windows are opaque).
@@ -131,7 +132,12 @@ defmodule Lepton.Photon do
     # read under way ({token, source, mime})
     selection: nil,
     selection_text: nil,
-    selection_fetch: nil
+    selection_fetch: nil,
+    # input sources (Lepton.Keyboard's state), the Hangul being composed
+    # (Lepton.Hangul) and the keys it took (their releases go nowhere)
+    kb: %{sources: ["us"], current: "us", hangul: true},
+    compose: [],
+    consumed: MapSet.new()
   ]
 
   # -- API ---------------------------------------------------------------------------------
@@ -209,12 +215,16 @@ defmodule Lepton.Photon do
           if tty = Lepton.TTY.whereis("/dev/tty1"), do: Lepton.TTY.mute(tty, me)
         end
 
+        kb = Lepton.Keyboard.state()
+        Lepton.Keyboard.watch(me)
+
         st = %__MODULE__{
           output: screen,
           auto_displays: opts[:displays] == :auto,
           socket_path: path,
           listener: listener,
-          keymap: keymap_file(path),
+          keymap: keymap_file(path, Lepton.Keyboard.groups(kb.sources)),
+          kb: kb,
           spawn: opts[:spawn],
           wm: WM.get(opts[:wm]),
           wm_state: WM.get(opts[:wm]).init(screen.width, screen.height, {out.width, out.height}),
@@ -235,9 +245,9 @@ defmodule Lepton.Photon do
   end
 
   # The XKB keymap clients map with wl_keyboard.keymap: a file next to the socket.
-  defp keymap_file(socket) do
+  defp keymap_file(socket, groups) do
     path = socket <> ".xkb"
-    text = Keymap.xkb() <> <<0>>
+    text = Keymap.xkb(groups) <> <<0>>
     File.write!(path, text)
     {:ok, f} = :file.open(String.to_charlist(path), [:raw, :read, :binary])
     File.rm(path)
@@ -361,6 +371,8 @@ defmodule Lepton.Photon do
     end
   end
 
+  def handle_info({:keyboard, kb}, st), do: {:noreply, set_keyboard(st, kb)}
+
   def handle_info({:clipboard, text}, st) do
     if text == st.selection_text,
       do: {:noreply, st},
@@ -456,6 +468,34 @@ defmodule Lepton.Photon do
   end
 
   # wl_compositor
+  # zwp_text_input_v3: the program says when a text field has focus
+  # (enable) and Photon sends it composed text (Korean: Lepton.Hangul).
+  defp request(st, sock, _id, _obj, :get_text_input, [new, _seat]) do
+    st = new_object(st, sock, new, "zwp_text_input_v3", 1, %{enabled: false, pending: nil, commits: 0})
+
+    case st.keyboard_focus do
+      {^sock, sid} -> emit(st, sock, new, "zwp_text_input_v3", :enter, [sid])
+      _ -> st
+    end
+  end
+
+  defp request(st, sock, id, %{iface: "zwp_text_input_v3"}, op, []) when op in [:enable, :disable],
+    do: update_in(st.clients[sock].objects[id].data, &%{&1 | pending: op})
+
+  defp request(st, sock, id, %{iface: "zwp_text_input_v3"} = obj, :commit, []) do
+    # A field enabled anew (or turned off) takes what is being composed first.
+    st = if obj.data.pending && match?({^sock, _}, st.keyboard_focus), do: flush_compose(st), else: st
+
+    update_in(st.clients[sock].objects[id].data, fn d ->
+      enabled = case d.pending do :enable -> true; :disable -> false; nil -> d.enabled end
+      %{d | commits: d.commits + 1, enabled: enabled, pending: nil}
+    end)
+  end
+
+  defp request(st, _sock, _id, %{iface: "zwp_text_input_v3"}, op, _args)
+       when op in [:set_surrounding_text, :set_text_change_cause, :set_content_type, :set_cursor_rectangle],
+       do: st
+
   defp request(st, sock, _id, obj, :create_surface, [new]), do: new_object(st, sock, new, "wl_surface", obj.version, %Surface{})
   defp request(st, sock, _id, obj, :create_region, [new]), do: new_object(st, sock, new, "wl_region", obj.version, [])
 
@@ -531,7 +571,7 @@ defmodule Lepton.Photon do
     case st.keyboard_focus do
       {^sock, sid} ->
         emit(st, sock, new, "wl_keyboard", :enter, [next_serial(st), sid, ""])
-        emit(st, sock, new, "wl_keyboard", :modifiers, [st.serial, st.mods, 0, st.locked, 0])
+        emit(st, sock, new, "wl_keyboard", :modifiers, [st.serial, st.mods, 0, st.locked, group(st)])
         bump(st)
 
       _ ->
@@ -1127,6 +1167,8 @@ defmodule Lepton.Photon do
   defp focus(st, key) when key == st.keyboard_focus, do: st
 
   defp focus(st, key) do
+    # What is being composed goes to the program losing focus.
+    st = flush_compose(st)
     old = st.keyboard_focus
     st = %{st | keyboard_focus: key}
 
@@ -1135,6 +1177,7 @@ defmodule Lepton.Photon do
         %Surface{} ->
           {sock, sid} = old
           for k <- keyboards(st, sock), do: emit(st, sock, k, "wl_keyboard", :leave, [next_serial(st), sid])
+          for t <- text_inputs(st, sock), do: emit(st, sock, t, "zwp_text_input_v3", :leave, [sid])
           # The border changes colour too.
           st |> bump() |> reconfigure(old) |> redecorate(old) |> damage_window(old)
 
@@ -1148,8 +1191,10 @@ defmodule Lepton.Photon do
 
         for k <- keyboards(st, sock) do
           emit(st, sock, k, "wl_keyboard", :enter, [next_serial(st), sid, ""])
-          emit(st, sock, k, "wl_keyboard", :modifiers, [next_serial(st), st.mods, 0, st.locked, 0])
+          emit(st, sock, k, "wl_keyboard", :modifiers, [next_serial(st), st.mods, 0, st.locked, group(st)])
         end
+
+        for t <- text_inputs(st, sock), do: emit(st, sock, t, "zwp_text_input_v3", :enter, [sid])
 
         st = raise_window(st, key) |> raise_popups(key) |> send_selection(key)
         st |> bump() |> reconfigure(key) |> redecorate(key) |> damage_window(key)
@@ -1538,7 +1583,8 @@ defmodule Lepton.Photon do
 
   defp handle_input({:button, code, pressed?}, st) do
     st = %{st | buttons: if(pressed?, do: MapSet.put(st.buttons, code), else: MapSet.delete(st.buttons, code))}
-    if pressed?, do: press(st, code), else: release(st, code)
+    # A click (moving the cursor, say) finishes what is being composed.
+    if pressed?, do: st |> flush_compose() |> press(code), else: release(st, code)
   end
 
   defp handle_input({:key, code, pressed?}, st), do: key(st, code, pressed?)
@@ -2036,7 +2082,29 @@ defmodule Lepton.Photon do
   @key_volumeup 115
   @key_right 106
 
+  @key_space 57
+  @key_alt_r 100
+  @key_hangeul 122
+
   defp key(st, code, pressed?) do
+    korean? = st.kb.current == "ko"
+
+    cond do
+      # In Korean, the Hangul key and Right Alt (where a Korean keyboard has
+      # its 한/영 key) switch between Hangul and English.
+      code == @key_hangeul or (code == @key_alt_r and korean?) ->
+        if pressed? and korean?, do: run_binding(st, :toggle_hangul), else: st
+
+      # The keys composition took: their releases go nowhere too.
+      not pressed? and MapSet.member?(st.consumed, code) ->
+        %{st | consumed: MapSet.delete(st.consumed, code)}
+
+      true ->
+        key_event(st, code, pressed?)
+    end
+  end
+
+  defp key_event(st, code, pressed?) do
     st =
       case Keymap.modifier(code) do
         nil when code == 58 and pressed? -> %{st | locked: bxor(st.locked, Keymap.caps())}
@@ -2061,6 +2129,8 @@ defmodule Lepton.Photon do
         alt? and shift? and code == @key_right -> {:display, 1}
         alt? and shift? and code == @key_left -> {:display, -1}
         ctrl? and code == @key_esc -> :menu
+        band(st.mods, Keymap.super()) != 0 and code == @key_space -> :next_source
+        shift? and not ctrl? and not alt? and code == @key_space and st.kb.current == "ko" -> :toggle_hangul
         true -> nil
       end
 
@@ -2072,8 +2142,114 @@ defmodule Lepton.Photon do
         %{st | bound_keys: MapSet.delete(st.bound_keys, code)}
 
       true ->
-        send_key(st, code, pressed?)
+        case pressed? && composing?(st) && compose(st, code) do
+          %__MODULE__{} = st -> st
+          _ -> send_key(st, code, pressed?)
+        end
     end
+  end
+
+  # -- input sources and Korean ------------------------------------------------------------
+
+  defp group(st), do: Lepton.Keyboard.group(st.kb)
+
+  # Input sources changed (Super+Space, the taskbar, `keyboard`): a new
+  # keymap when the layouts did, and the group for the focused program.
+  defp set_keyboard(st, kb) do
+    old = st.kb
+    st = if kb != old, do: flush_compose(st), else: st
+    st = %{st | kb: kb}
+    groups = Lepton.Keyboard.groups(kb.sources)
+
+    st =
+      if groups != Lepton.Keyboard.groups(old.sources) do
+        {f, _, _} = st.keymap
+        st = %{st | keymap: keymap_file(st.socket_path, groups)}
+        {_, fd, size} = st.keymap
+
+        for {sock, c} <- st.clients, not c.lepton, k <- keyboards(st, sock),
+            do: emit(st, sock, k, "wl_keyboard", :keymap, [1, fd, size])
+
+        :file.close(f)
+        st
+      else
+        st
+      end
+
+    st =
+      case st.keyboard_focus do
+        {sock, _} ->
+          for k <- keyboards(st, sock), do: emit(st, sock, k, "wl_keyboard", :modifiers, [next_serial(st), st.mods, 0, st.locked, group(st)])
+          bump(st)
+
+        nil ->
+          st
+      end
+
+    # (the classic taskbar's indicator)
+    schedule(st)
+  end
+
+  defp text_inputs(st, sock), do: objects_of(st, sock, "zwp_text_input_v3")
+  defp enabled_inputs(st, sock), do: Enum.filter(text_inputs(st, sock), &st.clients[sock].objects[&1].data.enabled)
+
+  # Korean composes Hangul when the focused program has a text field on;
+  # elsewhere (shortcuts, Lepton's own windows) the keys are the US ones.
+  defp composing?(st) do
+    case st.keyboard_focus do
+      {sock, _} -> st.kb.current == "ko" and st.kb.hangul and enabled_inputs(st, sock) != []
+      nil -> false
+    end
+  end
+
+  # A key while composing: a letter is a jamo, Backspace takes one back;
+  # anything else finishes the syllable and goes to the program (nil: as it is).
+  defp compose(st, code) do
+    {sock, _} = st.keyboard_focus
+    plain? = band(st.mods, Keymap.ctrl() ||| Keymap.alt() ||| Keymap.super()) == 0
+    letter = if plain?, do: Keymap.text(code, band(st.mods, Keymap.shift()))
+
+    cond do
+      Keymap.modifier(code) != nil or code == Keymap.capslock() ->
+        nil
+
+      jamo = letter && Lepton.Hangul.jamo(letter) ->
+        {keys, done, preedit} = Lepton.Hangul.type(st.compose, jamo)
+        %{st | compose: keys, consumed: MapSet.put(st.consumed, code)} |> text_input_send(sock, done, preedit)
+
+      code == @key_backspace and plain? and st.compose != [] ->
+        {keys, preedit} = Lepton.Hangul.backspace(st.compose)
+        %{st | compose: keys, consumed: MapSet.put(st.consumed, code)} |> text_input_send(sock, "", preedit)
+
+      true ->
+        st |> flush_compose() |> send_key(code, true)
+    end
+  end
+
+  defp flush_compose(%{compose: []} = st), do: st
+
+  defp flush_compose(st) do
+    text = Lepton.Hangul.text(st.compose)
+    st = %{st | compose: []}
+
+    case st.keyboard_focus do
+      {sock, _} -> text_input_send(st, sock, text, "")
+      nil -> st
+    end
+  end
+
+  defp text_input_send(st, sock, done, preedit) do
+    for id <- enabled_inputs(st, sock) do
+      if done != "", do: emit(st, sock, id, "zwp_text_input_v3", :commit_string, [done])
+
+      if preedit == "",
+        do: emit(st, sock, id, "zwp_text_input_v3", :preedit_string, [nil, 0, 0]),
+        else: emit(st, sock, id, "zwp_text_input_v3", :preedit_string, [preedit, byte_size(preedit), byte_size(preedit)])
+
+      emit(st, sock, id, "zwp_text_input_v3", :done, [st.clients[sock].objects[id].data.commits])
+    end
+
+    st
   end
 
   defp run_binding(st, :quit) do
@@ -2083,6 +2259,16 @@ defmodule Lepton.Photon do
   end
 
   defp run_binding(st, :terminal), do: launch(st, [])
+
+  defp run_binding(st, :next_source) do
+    {:ok, kb} = Lepton.Keyboard.next()
+    set_keyboard(st, kb)
+  end
+
+  defp run_binding(st, :toggle_hangul) do
+    {:ok, kb} = Lepton.Keyboard.toggle_hangul()
+    set_keyboard(st, kb)
+  end
   defp run_binding(st, :menu), do: %{st | wm_state: st.wm.menu(st.wm_state, wm_info(st))} |> schedule()
 
   defp run_binding(st, :next) do
@@ -2138,7 +2324,7 @@ defmodule Lepton.Photon do
       {sock, _} ->
         for k <- keyboards(st, sock) do
           emit(st, sock, k, "wl_keyboard", :key, [next_serial(st), now(st), code, if(pressed?, do: 1, else: 0)])
-          if Keymap.modifier(code) || code == 58, do: emit(st, sock, k, "wl_keyboard", :modifiers, [next_serial(st), st.mods, 0, st.locked, 0])
+          if Keymap.modifier(code) || code == 58, do: emit(st, sock, k, "wl_keyboard", :modifiers, [next_serial(st), st.mods, 0, st.locked, group(st)])
         end
 
         bump(st)
@@ -2206,7 +2392,7 @@ defmodule Lepton.Photon do
             _ -> st
           end
 
-        if match?({^sock, _}, st.keyboard_focus), do: %{st | keyboard_focus: nil}, else: st
+        if match?({^sock, _}, st.keyboard_focus), do: %{st | keyboard_focus: nil, compose: []}, else: st
     end
   end
 end

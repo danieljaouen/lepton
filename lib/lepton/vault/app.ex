@@ -65,6 +65,7 @@ defmodule Lepton.Vault.App do
       busy: false,
       dirty: true,
       mods: 0,
+      group: 0,
       repeat: nil,
       pointer: {0, 0},
       dir: env["XDG_RUNTIME_DIR"] || System.tmp_dir!()
@@ -130,7 +131,7 @@ defmodule Lepton.Vault.App do
     if band(caps, 1) != 0 and st.ids.pointer == nil, do: create_input(st, :get_pointer, "wl_pointer", :pointer), else: st
   end
 
-  defp event({_, "wl_keyboard", :modifiers, [_serial, depressed, latched, locked, _group]}, st), do: %{st | mods: depressed ||| latched ||| locked}
+  defp event({_, "wl_keyboard", :modifiers, [_serial, depressed, latched, locked, group]}, st), do: %{st | mods: depressed ||| latched ||| locked, group: group}
 
   defp event({_, "wl_keyboard", :key, [_serial, _time, code, 1]}, st) do
     st = cancel_repeat(st)
@@ -171,7 +172,7 @@ defmodule Lepton.Vault.App do
   defp cancel_repeat(st), do: st
 
   defp key(st, code) do
-    case Keymap.key_name(code, st.mods) do
+    case Keymap.key_name(code, st.mods, st.group) do
       nil -> st
       name -> ui(st, {:key, name, st.mods})
     end

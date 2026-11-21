@@ -27,6 +27,11 @@ defmodule Lepton.Commands.Desktop do
     app(args, ctx)
   end
 
+  defcmd "keyboard", "input sources on the desktop: keyboard layouts (Thai, Hindi, Arabic, ...) and Korean",
+    usage: "keyboard [list] | use ID | next | add ID... | remove ID... | set ID..." do
+    keyboard(args, ctx)
+  end
+
   defcmd "firefox", "the Firefox web browser (installs it the first time; needs Photon)",
     usage: "firefox [URL...]" do
     cond do
@@ -746,5 +751,53 @@ defmodule Lepton.Commands.Desktop do
       _ ->
         :ok
     end
+  end
+
+  # -- keyboard ------------------------------------------------------------------------------
+
+  defp keyboard([], ctx) do
+    kb = Lepton.Keyboard.state()
+
+    for id <- kb.sources do
+      mark = if id == kb.current, do: "*", else: " "
+      extra = if id == "ko" and id == kb.current, do: if(kb.hangul, do: " (typing Hangul)", else: " (typing English)"), else: ""
+      IO.puts(ctx, "#{mark} #{String.pad_trailing(id, 4)}#{Lepton.Keyboard.name(id)}#{extra}")
+    end
+
+    if length(kb.sources) > 1, do: IO.puts(ctx, "Super+Space: the next one.")
+    if "ko" in kb.sources, do: IO.puts(ctx, "Korean: the Hangul key, Right Alt or Shift+Space switch between Hangul and English.")
+    0
+  end
+
+  defp keyboard(["list"], ctx) do
+    kb = Lepton.Keyboard.state()
+    for {id, name} <- Lepton.Keyboard.known(), do: IO.puts(ctx, "#{if id in kb.sources, do: "+", else: " "} #{String.pad_trailing(id, 4)}#{name}")
+    0
+  end
+
+  defp keyboard(["use", id], ctx), do: keyboard_result(Lepton.Keyboard.use(id), ctx)
+  defp keyboard(["next"], ctx), do: keyboard_result(Lepton.Keyboard.next(), ctx)
+  defp keyboard(["set" | ids], ctx) when ids != [], do: keyboard_result(Lepton.Keyboard.set_sources(ids), ctx)
+
+  defp keyboard(["add" | ids], ctx) when ids != [],
+    do: keyboard_result(Lepton.Keyboard.set_sources(Lepton.Keyboard.state().sources ++ ids), ctx)
+
+  defp keyboard(["remove" | ids], ctx) when ids != [] do
+    case Lepton.Keyboard.state().sources -- ids do
+      [] -> keyboard_result({:error, "that would leave no input source"}, ctx)
+      rest -> keyboard_result(Lepton.Keyboard.set_sources(rest), ctx)
+    end
+  end
+
+  defp keyboard(_, ctx) do
+    IO.err(ctx, "usage: keyboard [list] | use ID | next | add ID... | remove ID... | set ID...")
+    2
+  end
+
+  defp keyboard_result({:ok, _}, ctx), do: keyboard([], ctx)
+
+  defp keyboard_result({:error, msg}, ctx) do
+    IO.err(ctx, "keyboard: " <> msg)
+    1
   end
 end

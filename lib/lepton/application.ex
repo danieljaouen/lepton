@@ -8,6 +8,7 @@ defmodule Lepton.Application do
       Lepton.Proc,
       Lepton.Services,
       Lepton.Clipboard,
+      Lepton.Keyboard,
       Lepton.VDAgent,
       Lepton.Vault.Agent,
       Lepton.Net,
