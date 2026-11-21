@@ -9,10 +9,18 @@ are installed before it starts.
 Firefox is not tied to the terminal it was started from: it keeps
 running when that window is closed.
 
+When Firefox is already running, `firefox URL` opens URL in a new tab
+of it (and so does `open`). The running Firefox receives it over a
+D-Bus session bus that Lepton starts with Firefox and stops when it
+closes. If a Firefox started without that bus (installed before it came
+with Firefox) is still open, `firefox` says to close it and start it
+again.
+
 ## FILES
 
 - `~/.cache/lepton/firefox.log`: Firefox's output.
 - `~/.mozilla`: your Firefox profile.
+- `$XDG_RUNTIME_DIR/bus`: Firefox's session bus, while it runs.
 
 ## EXAMPLES
 

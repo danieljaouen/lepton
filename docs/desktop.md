@@ -68,7 +68,9 @@ open .                  # the current folder, in Firefox
 xdg-open https://trylepton.app
 ```
 
-Firefox needs the desktop (`photon` or `classic`). Several files can be
+Firefox needs the desktop (`photon` or `classic`). If Firefox is
+already open, each page, image, PDF or folder opens in a new tab of it,
+`open .` too. Several files can be
 given at once: the text files open together in one `le`, and everything
 else opens in Firefox. `open` recognises a file by its contents as well
 as its name, so an image without an extension still opens in Firefox.

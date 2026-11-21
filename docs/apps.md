@@ -31,6 +31,14 @@ Firefox runs on Photon, Lepton's Wayland compositor, so it needs the
 desktop (`photon` or `classic`). It shows Photon's window frame instead of
 drawing its own. Its output goes to `~/.cache/lepton/firefox.log`.
 
+Once Firefox is running, `firefox URL`, and [`open`](desktop.html#opening-files)
+for a page, image, PDF or folder, opens a new tab in it instead of
+starting another Firefox. Firefox passes these on over a D-Bus session
+bus, which Lepton starts with Firefox (at `$XDG_RUNTIME_DIR/bus`) and
+stops when it closes. A Firefox installed before the bus came with it
+gets `dbus` with its next update. If a Firefox started without the bus
+is still open, `firefox URL` says so: close it and start it again.
+
 Firefox runs as you: as your account's user ID, with its profile in your
 home (`~/.config/mozilla`). You don't need `sudo`, and Firefox refuses to
 run as root in your home anyway. `sudo firefox` runs it as root, with

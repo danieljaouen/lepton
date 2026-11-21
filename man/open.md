@@ -13,7 +13,8 @@ A file is recognised by its contents as well as its name, so an image
 without an extension still opens in Firefox. With several arguments, the
 text files open together in one `le`, and everything else opens in
 Firefox. Firefox needs the desktop (`photon` or `classic`), and is
-installed the first time, as with `firefox`.
+installed the first time, as with `firefox`. If Firefox is already
+running, everything opens in new tabs of it, `open .` included.
 
 `xdg-open` is the same command, as Linux and the dotfiles call it.
 

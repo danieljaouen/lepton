@@ -43,9 +43,25 @@ defmodule Lepton.Commands.Desktop do
             with {:updated, version} <- Apps.maintain("firefox"), do: IO.puts(ctx, "Updated Firefox to #{version}.")
             stopped = clear_hung("firefox", ctx, env)
             if stopped > 0, do: IO.puts(ctx, "Stopped #{stopped} Firefox process#{if stopped == 1, do: "", else: "es"} left running without a window.")
-            {:ok, pid} = Apps.launch("firefox", args, %{ctx | env: env})
-            IO.puts(ctx, "Firefox is starting (process #{pid}; log: ~/.cache/lepton/firefox.log).")
-            0
+            user = Users.get(ctx.user)
+
+            cond do
+              # Already running: a new tab, through the session bus.
+              user && Apps.processes("firefox", user.uid) != [] and Apps.session_bus("firefox", user, env)[:start] == false ->
+                {:ok, _} = Apps.launch("firefox", args, %{ctx | env: env})
+                if args != [], do: IO.puts(ctx, "Opening in Firefox (a new tab).")
+                0
+
+              # Started before it had a bus: a second one would only say it is running already.
+              user && Apps.processes("firefox", user.uid) != [] ->
+                IO.err(ctx, "firefox: Firefox is already running, and was started before it could open new tabs for other programs. Close Firefox and run this again: from then on, each opens in a new tab.")
+                1
+
+              true ->
+                {:ok, pid} = Apps.launch("firefox", args, %{ctx | env: env})
+                IO.puts(ctx, "Firefox is starting (process #{pid}; log: ~/.cache/lepton/firefox.log).")
+                0
+            end
 
           {:error, reason} ->
             IO.err(ctx, "firefox: #{reason}; Firefox runs on the desktop")

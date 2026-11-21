@@ -93,6 +93,36 @@ defmodule Lepton.AppsTest do
     assert env["FONTCONFIG_FILE"] == "/apps/firefox/etc/fonts/lepton.conf"
   end
 
+  test "Firefox's session bus: started with it, shared by later starts (new tabs), none without dbus-daemon" do
+    System.put_env("LEPTON_STATE_DIR", tmp_dir("busstate"))
+    on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
+    # Unix socket paths are short: the runtime directory in /tmp.
+    run = "/tmp/lpb-#{System.unique_integer([:positive])}"
+    File.mkdir_p!(run)
+    on_exit(fn -> File.rm_rf(run) end)
+    user = %Lepton.Users{name: "alice", uid: 1000, gid: 1000}
+    env = %{"XDG_RUNTIME_DIR" => run}
+
+    assert Apps.get("firefox")[:bus] and "dbus" in Apps.get("firefox").packages
+    # Installed before dbus came with it (and no Bluetooth): no bus.
+    assert Apps.session_bus("firefox", user, env) == nil
+
+    exe = Path.join(Apps.dir("firefox"), "usr/bin/dbus-daemon")
+    File.mkdir_p!(Path.dirname(exe))
+    File.write!(exe, "")
+    assert %{path: path, start: true, exe: ^exe, env: %{"LD_LIBRARY_PATH" => _}} = Apps.session_bus("firefox", user, env)
+    assert path == Path.join(run, "bus")
+
+    # One listening: later starts use it.
+    {:ok, sock} = :socket.open(:local, :stream, :default)
+    :ok = :socket.bind(sock, %{family: :local, path: path})
+    :ok = :socket.listen(sock)
+    assert Apps.bus_listening?(path)
+    assert %{path: ^path, start: false} = Apps.session_bus("firefox", user, env)
+    :socket.close(sock)
+    refute Apps.bus_listening?(path)
+  end
+
   defp app_index(firefox_version) do
     text = """
     P:firefox
@@ -107,6 +137,11 @@ defmodule Lepton.AppsTest do
 
     P:icu-data-en
     V:78.1-r0
+    S:10
+    I:20
+
+    P:dbus
+    V:1.16.2-r0
     S:10
     I:20
     """
@@ -144,12 +179,12 @@ defmodule Lepton.AppsTest do
   test "updates: checks every 10 days, stages a newer build, applies it (or rolls back)" do
     System.put_env("LEPTON_STATE_DIR", tmp_dir("updstate"))
     on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
-    installed = [{"firefox", "160.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}]
+    installed = [{"firefox", "160.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}]
     record(Apps.dir("firefox"), installed)
     File.write!(Path.join(Apps.dir("firefox"), "old"), "")
 
     assert Apps.changes(installed, [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"nss", "3.1"}]) ==
-             [{"firefox", "160.0-r0", "161.0-r0"}, {"icu-data-en", "78.1-r0", nil}, {"nss", nil, "3.1"}]
+             [{"dbus", "1.16.2-r0", nil}, {"firefox", "160.0-r0", "161.0-r0"}, {"icu-data-en", "78.1-r0", nil}, {"nss", nil, "3.1"}]
 
     # Never checked: due. Checking with the same versions: up to date, and not due for 10 days.
     # Installed from another definition of the app (packages Lepton has added since): checked now;
@@ -162,7 +197,7 @@ defmodule Lepton.AppsTest do
     assert Apps.check_due?("firefox", now + 10 * 86_400 + 60)
 
     # A newer build, already downloaded (staged): stage reports it without downloading again.
-    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}])
+    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}])
     File.write!(Path.join(Apps.staged_dir("firefox"), "new"), "")
     assert {:ok, {:staged, [{"firefox", "160.0-r0", "161.0-r0"}]}} = Apps.stage("firefox", fn _ -> :ok end, index: app_index("161.0-r0"))
     assert Apps.staged?("firefox")
@@ -170,7 +205,7 @@ defmodule Lepton.AppsTest do
     # Setup failing puts the old version back; succeeding swaps the new one in.
     assert {:error, "boom"} = Apps.apply_staged("firefox", fn _, _ -> {:error, "boom"} end)
     assert Apps.version("firefox") == "160.0-r0" and File.exists?(Path.join(Apps.dir("firefox"), "old"))
-    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}])
+    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}])
     assert :ok = Apps.apply_staged("firefox", fn _, prefix -> if File.exists?(Path.join(prefix, ".lepton-app")), do: :ok end)
     assert Apps.version("firefox") == "161.0-r0"
     refute Apps.staged?("firefox") or File.exists?(Path.join(Apps.dir("firefox"), "old"))

@@ -25,7 +25,8 @@ defmodule Lepton.Apps do
     "firefox" => %{
       title: "Firefox",
       summary: "the Firefox web browser",
-      packages: ["firefox", "font-dejavu", "icu-data-en"],
+      # dbus: the session bus a second start hands its addresses over (see session_bus/3).
+      packages: ["firefox", "font-dejavu", "icu-data-en", "dbus"],
       # 3.24's gdk-pixbuf decodes images through glycin, whose loaders run
       # in a bubblewrap sandbox at fixed paths; 3.23's (2.44 too) has its own.
       pins: %{"gdk-pixbuf" => "v3.23"},
@@ -33,6 +34,7 @@ defmodule Lepton.Apps do
       exclude: ~r/^(mesa.*|llvm.*|spirv-.*|busybox.*|bubblewrap|pkgconf|libxshmfence|libxxf86vm|mkfontscale)$/,
       exe: "usr/lib/firefox/firefox",
       gtk: true,
+      bus: true,
       # Where it keeps its files in the home (made the user's if root's).
       home: [".mozilla", ".config/mozilla", ".cache/mozilla", ".cache/fontconfig"]
     },
@@ -452,6 +454,8 @@ defmodule Lepton.Apps do
     if Lepton.Sys.native?(), do: musl_path(prefix)
     # Firefox installed before a policy was added gets it too.
     firefox_policies(prefix)
+    bus = if app[:bus], do: session_bus(name, user, ctx.env)
+    env = if bus, do: Map.put(env, "DBUS_SESSION_BUS_ADDRESS", "unix:path=" <> bus.path), else: env
     # As the user, not as root (the VM's own user): see Lepton.RunAs.
     {exe, argv} = Lepton.RunAs.command(user, Path.join(prefix, app.exe), args)
 
@@ -459,8 +463,11 @@ defmodule Lepton.Apps do
       Lepton.Proc.spawn(name, [], fn _pid ->
         {:ok, out} = File.open(log, [:write, :binary])
         own(log, user)
+        daemon = if bus && bus.start, do: start_bus(bus, user, home)
         port = Port.open({:spawn_executable, exe}, [:binary, :exit_status, :use_stdio, :stderr_to_stdout, args: argv, cd: home, env: charlists(env)])
-        relay(port, out)
+        status = relay(port, out)
+        if daemon, do: stop_bus(daemon, bus)
+        status
       end)
 
     {:ok, lpid}
@@ -531,6 +538,101 @@ defmodule Lepton.Apps do
   defp own(path, %Lepton.Users{uid: uid, gid: gid}) do
     File.chown(path, uid)
     File.chgrp(path, gid)
+  end
+
+  # -- the session bus ---------------------------------------------------------------------------
+
+  @doc """
+  The D-Bus session bus for app `name` run by `user`, at
+  `$XDG_RUNTIME_DIR/bus`. Firefox on Wayland passes a second start's
+  addresses to the one already running over it (its only way to: without a
+  bus, the second start finds the profile in use and says Firefox is
+  already running), so each `firefox URL` (and `open`) is a new tab.
+
+  `%{path: socket, start: false}` when one is listening already, `%{path:
+  socket, start: true, exe: dbus-daemon, env: env}` when the app's start
+  must run it, and nil without a `dbus-daemon` (an app installed before it
+  came with Firefox: the next update brings it).
+  """
+  def session_bus(name, %Lepton.Users{} = user, env) do
+    dir = env["XDG_RUNTIME_DIR"] || "/run/user/#{user.uid}"
+    path = Path.join(dir, "bus")
+
+    daemon =
+      Enum.find_value([name, "bluetooth"], fn app ->
+        exe = Path.join(dir(app), "usr/bin/dbus-daemon")
+        if File.exists?(exe), do: {exe, dir(app)}
+      end)
+
+    cond do
+      bus_listening?(path) -> %{path: path, start: false}
+      daemon -> %{path: path, start: true, exe: elem(daemon, 0), env: %{"LD_LIBRARY_PATH" => Enum.map_join(["usr/lib", "lib"], ":", &Path.join(elem(daemon, 1), &1))}}
+      true -> nil
+    end
+  end
+
+  def session_bus(_name, _user, _env), do: nil
+
+  @doc "Is a bus answering on the socket at `path`?"
+  def bus_listening?(path) do
+    with {:ok, sock} <- :socket.open(:local, :stream, :default) do
+      result = :socket.connect(sock, %{family: :local, path: path}) == :ok
+      :socket.close(sock)
+      result
+    else
+      _ -> false
+    end
+  end
+
+  # dbus-daemon as the user, with a session bus's configuration of its own
+  # (the package's points at /usr/share/dbus-1); until the socket answers.
+  defp start_bus(bus, user, home) do
+    _ = File.rm(bus.path)
+    conf = Path.join(Path.dirname(bus.path), "dbus-session.conf")
+
+    File.write!(conf, """
+    <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+     "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+    <busconfig>
+      <type>session</type>
+      <listen>unix:path=#{bus.path}</listen>
+      <auth>EXTERNAL</auth>
+      <policy context="default">
+        <allow user="*"/>
+        <allow own="*"/>
+        <allow send_type="method_call"/>
+        <allow send_type="signal"/>
+        <allow send_type="method_return"/>
+        <allow send_type="error"/>
+        <allow receive_type="method_call"/>
+        <allow receive_type="signal"/>
+        <allow receive_type="method_return"/>
+        <allow receive_type="error"/>
+      </policy>
+    </busconfig>
+    """)
+
+    own(conf, user)
+    {exe, argv} = Lepton.RunAs.command(user, bus.exe, ["--config-file=" <> conf, "--nofork", "--nopidfile", "--nosyslog"])
+    port = Port.open({:spawn_executable, exe}, [:binary, :exit_status, :use_stdio, :stderr_to_stdout, args: argv, cd: home, env: charlists(bus.env)])
+    Enum.find(1..40, fn _ -> bus_listening?(bus.path) || (Process.sleep(50) && false) end)
+    port
+  end
+
+  defp stop_bus(port, bus) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, pid} -> Lepton.Sys.shim("kill", [to_string(pid)])
+      _ -> :ok
+    end
+
+    catch_close(port)
+    File.rm(bus.path)
+  end
+
+  defp catch_close(port) do
+    Port.close(port)
+  catch
+    _, _ -> :ok
   end
 
   defp relay(port, out) do
