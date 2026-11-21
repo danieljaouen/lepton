@@ -35,4 +35,4 @@ Lepton's own VM.
 
 ## SEE ALSO
 
-elixir(1), iex(1), postgresql(1)
+elixir(1), iex(1), postgresql(1), svc(1)

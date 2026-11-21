@@ -123,7 +123,7 @@ land in the Mac clipboard over a serial console or SSH too.
   the path run as Elixir scripts.
 - `mix` runs in the project in the current directory, in an Erlang VM
   of its own (not Lepton's), as you: Hex, archives and
-  [Phoenix](web.html#a-new-phoenix-app-step-by-step) work as elsewhere. `iex -S mix` doesn't, as
+  [Phoenix](phoenix.html) work as elsewhere. `iex -S mix` doesn't, as
   `iex` is Lepton's.
 - Commands can be added at runtime with `Lepton.Commands.register/2`, or
   by [packages](packages.html#packages-that-add-commands).

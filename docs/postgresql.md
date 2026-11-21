@@ -7,7 +7,7 @@ summary: PostgreSQL, the database Phoenix apps use: set up with one command (or 
 
 # Databases: PostgreSQL
 
-Lepton runs **PostgreSQL**, the database [Phoenix](web.html#a-new-phoenix-app-step-by-step) apps
+Lepton runs **PostgreSQL**, the database [Phoenix](phoenix.html) apps
 (Ecto) use by default: Alpine Linux's build of PostgreSQL 18, installed
 on demand like [Firefox](apps.html), and run as a
 [service](services.html).
