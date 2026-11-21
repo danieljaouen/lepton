@@ -67,7 +67,9 @@ Other keys are ignored, and `svc status` lists them.
 
 ## How services behave
 
-- Each run is a Lepton process tree under PID 1, so it shows in `ps`.
+- Each run is a Lepton process tree under PID 1, so it shows in `ps`:
+  `svc NAME`, and the service's command under it (`svc cron`, then
+  `crond`).
   Stopping a service ends the whole tree (a terminate signal, then a kill
   after `TimeoutStopSec`).
 - A clean exit leaves the service `inactive`; a non-zero exit or a kill

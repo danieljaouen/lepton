@@ -9,9 +9,14 @@ Lepton's processes are Erlang processes inside one virtual machine, so
 they are not the Linux kernel's processes. Those, such as Firefox and
 kernel threads, are listed too with `-e`, with PIDs prefixed by `k`.
 
+A service shows as two processes: `svc NAME`, the service itself (which
+`svc` watches and restarts), and its command running under it, such as
+`svc cron` and `crond`.
+
 ## OPTIONS
 
-- `-e`, `-A`, `aux`: also list the Linux processes.
+- `-e`, `-A`, or BSD style with `x` (`aux`, `auxw`, `ax`): also list
+  the Linux processes.
 - `-f`: accepted for compatibility.
 
 ## EXAMPLES

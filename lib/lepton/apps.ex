@@ -254,6 +254,8 @@ defmodule Lepton.Apps do
   def clear_leftovers(name, %Lepton.Users{uid: uid}, home) do
     pids = processes(name, uid)
     for pid <- pids, do: Lepton.Sys.shim("kill", ["-9", to_string(pid)])
+    # Gone before anything starts again (a dying Firefox still holds its profile and bus name).
+    Enum.find(1..30, fn _ -> processes(name, uid) == [] || (Process.sleep(100) && false) end)
 
     # Firefox's profile locks: a symlink and a lock file.
     for lock <- Path.wildcard(Path.join(home, ".mozilla/firefox/*/{lock,.parentlock}"), match_dot: true), do: File.rm(lock)
@@ -572,6 +574,29 @@ defmodule Lepton.Apps do
   end
 
   def session_bus(_name, _user, _env), do: nil
+
+  @doc """
+  Stop `user`'s session bus (a `dbus-daemon` with Lepton's session
+  configuration in the runtime directory, whichever app's it is) and
+  remove its socket. For a bus left behind by a Firefox that is gone.
+  """
+  def stop_session_bus(%Lepton.Users{uid: uid} = user, env) do
+    dir = env["XDG_RUNTIME_DIR"] || "/run/user/#{uid}"
+    conf = Path.join(dir, "dbus-session.conf")
+
+    pids =
+      for entry <- Path.wildcard("/proc/[0-9]*"),
+          {:ok, cmdline} <- [File.read(Path.join(entry, "cmdline"))],
+          String.contains?(cmdline, "--config-file=" <> conf),
+          {:ok, status} <- [File.read(Path.join(entry, "status"))],
+          [_, owner] <- [Regex.run(~r/^Uid:\s+(\d+)/m, status)],
+          String.to_integer(owner) == user.uid,
+          do: Path.basename(entry)
+
+    for pid <- pids, do: Lepton.Sys.shim("kill", ["-9", pid])
+    File.rm(Path.join(dir, "bus"))
+    length(pids)
+  end
 
   @doc "Is a bus answering on the socket at `path`?"
   def bus_listening?(path) do

@@ -6,7 +6,8 @@ defmodule Lepton.Commands.System do
 
   defcmd "ps", "report a snapshot of the current processes", usage: "ps [-e] [aux]" do
     {opts, rest} = getopt(args, "efA")
-    all = opts["e"] || opts["A"] || "aux" in rest
+    # BSD style too: aux, auxw, ax.
+    all = opts["e"] || opts["A"] || Enum.any?(rest, &Regex.match?(~r/^[auwxf]*x[auwxf]*$/, &1))
     IO.puts(ctx, "  PID  PPID TTY          STAT   TIME CMD")
     now = System.monotonic_time(:millisecond)
 

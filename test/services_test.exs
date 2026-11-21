@@ -70,6 +70,10 @@ defmodule Lepton.ServicesTest do
     assert {"active\n", 0} = sh("svc is-active ticker")
     assert {"ticker is already running\n", 0} = sh("svc start ticker")
     assert running?("sleep 0.05") or running?("cat")
+    # In ps, the service's own process is `svc NAME`, its command a child of it: not two alike.
+    assert Lepton.Proc.lookup(pid).cmd == "svc ticker"
+    {ps, 0} = sh("ps auxw")
+    assert ps =~ ~r/^\s*#{pid}\s+1\s.*svc ticker$/m
 
     assert {"stopped ticker\n", 0} = sh("svc stop ticker")
     assert %{state: :inactive, result: :stopped} = Services.status("ticker")

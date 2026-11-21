@@ -41,19 +41,21 @@ defmodule Lepton.Commands.Desktop do
         case session_env(ctx) do
           {:ok, env} ->
             with {:updated, version} <- Apps.maintain("firefox"), do: IO.puts(ctx, "Updated Firefox to #{version}.")
+            # One started moments ago has no window yet: wait for it, rather than stop it as a leftover.
+            await_starting_firefox()
             stopped = clear_hung("firefox", ctx, env)
             if stopped > 0, do: IO.puts(ctx, "Stopped #{stopped} Firefox process#{if stopped == 1, do: "", else: "es"} left running without a window.")
             user = Users.get(ctx.user)
 
             cond do
-              # Already running: a new tab, through the session bus.
-              user && Apps.processes("firefox", user.uid) != [] and Apps.session_bus("firefox", user, env)[:start] == false ->
+              # Running, on the desktop: a new tab, through its session bus.
+              user && firefox_window?() && Apps.session_bus("firefox", user, env)[:start] == false ->
                 {:ok, _} = Apps.launch("firefox", args, %{ctx | env: env})
                 if args != [], do: IO.puts(ctx, "Opening in Firefox (a new tab).")
                 0
 
               # Started before it had a bus: a second one would only say it is running already.
-              user && Apps.processes("firefox", user.uid) != [] ->
+              user && firefox_window?() ->
                 IO.err(ctx, "firefox: Firefox is already running, and was started before it could open new tabs for other programs. Close Firefox and run this again: from then on, each opens in a new tab.")
                 1
 
@@ -636,13 +638,31 @@ defmodule Lepton.Commands.Desktop do
   # hung, or was closed and didn't finish exiting (Firefox then refuses to
   # start: "already running"): stop what's left. One with a window is left
   # alone (Firefox opens another window in it).
+  # An app's programs left without a window (the desktop went away under
+  # them, or they hung), and for Firefox its session bus: stopped, so it
+  # can start afresh. (Its bus would otherwise take the addresses `open`
+  # passes on, to a Firefox nobody can see.)
   defp clear_hung(app, ctx, env) do
     user = Users.get(ctx.user)
-    windows? = with pid when is_pid(pid) <- Process.whereis(Photon), do: Enum.any?(Photon.info(pid).windows, &(&1.app_id == app)), else: (_ -> false)
 
-    if user && not windows? and Apps.processes(app, user.uid) != [],
-      do: Apps.clear_leftovers(app, user, env["HOME"] || "/root"),
-      else: 0
+    cond do
+      user == nil or app_window?(app) ->
+        0
+
+      true ->
+        stopped = if Apps.processes(app, user.uid) != [], do: Apps.clear_leftovers(app, user, env["HOME"] || "/root"), else: 0
+        if Apps.get(app)[:bus], do: Apps.stop_session_bus(user, env)
+        stopped
+    end
+  end
+
+  defp app_window?(app), do: with(pid when is_pid(pid) <- Process.whereis(Photon), do: Enum.any?(Photon.info(pid).windows, &(&1.app_id == app)), else: (_ -> false))
+  defp firefox_window?, do: app_window?("firefox")
+
+  defp await_starting_firefox do
+    now = System.monotonic_time(:millisecond)
+    starting? = Enum.any?(Lepton.Proc.list(), &(&1.cmd == "firefox" and now - &1.started < 30_000))
+    if starting? and not firefox_window?(), do: Enum.find(1..80, fn _ -> firefox_window?() || (Process.sleep(250) && false) end)
   end
 
   defp wait(ref, pid, ctx) do

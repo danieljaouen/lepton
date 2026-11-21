@@ -315,8 +315,9 @@ defmodule Lepton.Services do
 
     cmd = unit.exec_start
 
+    # The service's own process (its supervisor, shown as `svc NAME`) runs the command as its child.
     {pid, _beam, ref} =
-      Lepton.Proc.spawn(cmd, [ppid: 1, monitor: true], fn pid ->
+      Lepton.Proc.spawn("svc " <> name, [ppid: 1, monitor: true], fn pid ->
         send(dev, {:owner, pid})
         status = Lepton.Shell.run_string(cmd, cwd: cwd, env: env, stdin: nil, stdout: dev, stderr: dev, rc: false)
         exit({:shutdown, {:status, status}})
