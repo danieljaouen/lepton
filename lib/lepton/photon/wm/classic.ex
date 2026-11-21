@@ -40,6 +40,7 @@ defmodule Lepton.Photon.WM.Classic do
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
     {"Printers", :printer, [command: "printers; read -p 'Press Enter to close. ' x", title: "Printers"]},
+    {"Passwords", :vault, [vault: true, title: "Passwords"]},
     {"Help", :help, [command: "help | less", title: "Help"]},
     :separator,
     {"Exit Desktop...", :exit, :quit}
@@ -49,7 +50,8 @@ defmodule Lepton.Photon.WM.Classic do
     {"Firefox", :web, [app: "firefox", title: "Firefox"]},
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
-    {"System Monitor", :monitor, [command: "top", title: "System Monitor"]}
+    {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
+    {"Passwords", :vault, [vault: true, title: "Passwords"]}
   ]
 
   @impl true
@@ -790,6 +792,20 @@ defmodule Lepton.Photon.WM.Classic do
     |> Canvas.fill(x + 12 * s, y + 7 * s, 2 * s, 1 * s, Render.rgb("#008000"))
     |> Canvas.fill(x + 3 * s, y + 11 * s, 10 * s, 4 * s, Render.rgb(@white))
     |> Canvas.fill(x + 5 * s, y + 12 * s, 6 * s, 1 * s, Render.rgb(@shadow))
+  end
+
+  # A padlock (the password manager).
+  defp icon(c, x, y, :vault, size) do
+    s = div(size, 16)
+    dark = Render.rgb(@dark)
+
+    c
+    |> Canvas.fill(x + 4 * s, y, 8 * s, 2 * s, dark)
+    |> Canvas.fill(x + 3 * s, y + 1 * s, 2 * s, 6 * s, dark)
+    |> Canvas.fill(x + 11 * s, y + 1 * s, 2 * s, 6 * s, dark)
+    |> Canvas.fill(x + 1 * s, y + 6 * s, 14 * s, 10 * s, dark)
+    |> Canvas.fill(x + 2 * s, y + 7 * s, 12 * s, 8 * s, Render.rgb("#d4a017"))
+    |> Canvas.fill(x + 7 * s, y + 9 * s, 2 * s, 4 * s, dark)
   end
 
   defp icon(c, x, y, :monitor, size) do

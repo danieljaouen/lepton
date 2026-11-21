@@ -611,7 +611,7 @@ defmodule Lepton.PhotonTest do
              match?([%{maximized: true, x: 0, y: 0} | _], Photon.info(ph).windows)
 
     # The Start menu: Firefox first, then Terminal; Ctrl+Esc opens it too.
-    menu_top = 400 - 28 - 182 + 2
+    menu_top = 400 - 28 - 206 + 2
     click.(20, 390)
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
@@ -624,6 +624,10 @@ defmodule Lepton.PhotonTest do
     click.(20, 390)
     click.(80, menu_top + 3 + 4 * 24 + 10)
     assert_receive {:spawned, [command: "printers" <> _, title: "Printers"]}, 1000
+    # Passwords, the sixth: the password manager's window
+    click.(20, 390)
+    click.(80, menu_top + 3 + 5 * 24 + 10)
+    assert_receive {:spawned, [vault: true, title: "Passwords"]}, 1000
     for {k, down} <- [{29, true}, {1, true}, {1, false}, {29, false}], do: Photon.input(ph, {:key, k, down})
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
@@ -633,6 +637,10 @@ defmodule Lepton.PhotonTest do
     click.(60, 12 + 2 * 76 + 20)
     click.(60, 12 + 2 * 76 + 20)
     assert_receive {:spawned, [command: "le", title: "Text Editor"]}, 1000
+    # ... and the Passwords icon (the fifth), the password manager.
+    click.(60, 12 + 4 * 76 + 20)
+    click.(60, 12 + 4 * 76 + 20)
+    assert_receive {:spawned, [vault: true, title: "Passwords"]}, 1000
 
     # Exit Desktop... quits.
     ref = Process.monitor(ph)

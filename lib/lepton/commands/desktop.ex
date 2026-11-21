@@ -480,6 +480,9 @@ defmodule Lepton.Commands.Desktop do
       ssid = opts[:wifi] ->
         Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: wifi_command(ssid, opts[:open], Users.root?(ctx)), title: "Wi-Fi: #{ssid}")
 
+      opts[:vault] ->
+        Lepton.Vault.App.start(env: env, user: ctx.user)
+
       args = opts[:bluetooth] ->
         Term.start(env: env, user: ctx.user, cwd: env["HOME"], command: bluetooth_command(args, Users.root?(ctx)), title: opts[:title] || "Bluetooth")
 

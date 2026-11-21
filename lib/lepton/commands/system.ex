@@ -735,6 +735,12 @@ defmodule Lepton.Commands.System do
     0
   end
 
+  # -- passwords ------------------------------------------------------------------------------
+
+  defcmd "vault", "the password manager: logins, notes and cards in an encrypted vault", usage: Lepton.Vault.CLI.usage() do
+    Lepton.Vault.CLI.run(args, ctx)
+  end
+
   # -- help ------------------------------------------------------------------------------------
 
   defcmd "help", "list available commands", usage: "help [COMMAND]" do

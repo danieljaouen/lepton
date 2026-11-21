@@ -89,7 +89,8 @@ Photon with a different window manager, styled after Windows 95:
   **maximize** and **close** buttons (double-click a title bar to
   maximize or restore)
 - a teal desktop with icons for [Firefox](apps.html), the Terminal, the
-  Text Editor (`le`) and the System Monitor (`top`), and one for each
+  Text Editor (`le`), the System Monitor (`top`) and
+  [Passwords](passwords.html), and one for each
   [USB drive or SD card](storage.html) that is mounted: double-click one
   to open it
 - a **taskbar** with a button for each window (click to bring it to the
@@ -100,7 +101,8 @@ Photon with a different window manager, styled after Windows 95:
   and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
   Terminal, Text Editor, System Monitor, [Printers](printing.html) (choose
-  your default printer), Help and Exit Desktop
+  your default printer), [Passwords](passwords.html) (the password
+  manager), Help and Exit Desktop
 
 The keys from the table above work here too. Exit Desktop (or
 Ctrl+Alt+Backspace) returns you to the console. Lepton never starts a
