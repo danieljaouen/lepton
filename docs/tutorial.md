@@ -218,7 +218,7 @@ More: [The desktop](desktop.html).
 ## 12. Firefox
 
 Firefox runs on the desktop. The first time, it is downloaded and
-installed (about 161 MB):
+installed (about 266 MB):
 
 - double-click **Firefox** on the classic desktop, or
 - run `firefox https://trylepton.app` in a terminal window.

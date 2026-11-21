@@ -48,9 +48,9 @@ root's own profile in `/root`.
 
 `app install firefox` reads the package index of
 [Alpine Linux](https://alpinelinux.org/) 3.24, follows Firefox's
-dependencies (GTK, fonts, FFmpeg's video decoders, and so on: about 113
-packages), downloads them over HTTPS (about 161 MB) and unpacks them into
-`/var/lib/lepton/apps/firefox` (about 415 MB). Then it does the setup the
+dependencies (GTK, fonts, FFmpeg's video decoders, and so on: about 121
+packages), downloads them over HTTPS (about 266 MB) and unpacks them into
+`/var/lib/lepton/apps/firefox` (about 572 MB). Then it does the setup the
 packages' install scripts would: GSettings schemas, the MIME database and
 image loaders. Nothing outside that directory changes, and
 `sudo app remove firefox` removes it all.
@@ -89,7 +89,7 @@ a new stable release (about twice a year), a new Lepton release moves to
 it.
 
 When a Lepton release adds packages to Firefox (as when FFmpeg was added
-for H.264 video), Firefox doesn't wait for the 10 days: its next start
+for H.264 video, or the fonts for Asian languages), Firefox doesn't wait for the 10 days: its next start
 downloads them in the background, and the start after that uses them.
 `sudo app update firefox`, with Firefox closed, does it at once.
 
@@ -115,7 +115,14 @@ is.
   VM. OpenH264, the H.264 plugin Firefox downloads by itself, is turned off:
   Mozilla's build of it needs glibc, so on Lepton it crashed ("gmpopenh264
   crashed") whenever a page used it. Video calls use VP8 or VP9 instead.
-- Fonts are DejaVu, which has no Chinese, Japanese or Korean characters.
+- Fonts cover the world's common scripts: DejaVu for Latin, Greek and
+  Cyrillic; Noto Sans and Serif CJK for Chinese (Simplified and
+  Traditional), Japanese and Korean; Droid's non-Latin fonts for Thai,
+  Hindi and other Devanagari languages, Tamil, Arabic, Hebrew, Georgian,
+  Armenian and Ethiopic; and Noto for Bengali, Khmer, Lao and Myanmar.
+  These are most of the download's size (about 105 MB). A page in a script
+  none of them has (Sinhala, Telugu or Tibetan, for example) shows boxes
+  for its letters.
 - Its clipboard is Lepton's: copy in Firefox and `pbpaste` (or
   Ctrl+Shift+V in a terminal window), or `pbcopy` and paste in Firefox.
   See [The desktop](desktop.html#the-clipboard).

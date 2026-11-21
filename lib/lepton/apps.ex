@@ -21,12 +21,21 @@ defmodule Lepton.Apps do
 
   alias Lepton.Alpine
 
+  @asian_fonts ~w(font-noto-cjk font-droid-nonlatin font-noto-bengali font-noto-khmer font-noto-lao font-noto-myanmar)
+
+  @doc "The font packages Firefox gets for Asian scripts."
+  def asian_fonts, do: @asian_fonts
+
   @apps %{
     "firefox" => %{
       title: "Firefox",
       summary: "the Firefox web browser",
       # dbus: the session bus a second start hands its addresses over (see session_bus/3).
-      packages: ["firefox", "font-dejavu", "icu-data-en", "dbus"],
+      # Fonts: DejaVu for Latin, Greek and Cyrillic; Noto CJK for Chinese,
+      # Japanese and Korean; Droid's non-Latin set for Thai, Devanagari,
+      # Tamil, Arabic, Hebrew, Georgian, Armenian and Ethiopic; Noto for
+      # Bengali, Khmer, Lao and Myanmar. Without one, a script shows as boxes.
+      packages: ["firefox", "font-dejavu", "icu-data-en", "dbus"] ++ @asian_fonts,
       # 3.24's gdk-pixbuf decodes images through glycin, whose loaders run
       # in a bubblewrap sandbox at fixed paths; 3.23's (2.44 too) has its own.
       pins: %{"gdk-pixbuf" => "v3.23"},
@@ -372,7 +381,8 @@ defmodule Lepton.Apps do
     end
   end
 
-  defp fonts_conf(prefix) do
+  @doc false
+  def fonts_conf(prefix) do
     conf = """
     <?xml version="1.0"?>
     <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
@@ -380,6 +390,14 @@ defmodule Lepton.Apps do
       <dir>#{prefix}/usr/share/fonts</dir>
       <cachedir prefix="xdg">fontconfig</cachedir>
       <include ignore_missing="yes">#{prefix}/etc/fonts/conf.d</include>
+      <!-- Droid's CJK fallbacks (Chinese glyph shapes for Japanese, poorly
+           spaced Hangul): Noto CJK covers all they do, and better. -->
+      <selectfont>
+        <rejectfont>
+          <glob>*/DroidSansFallback*</glob>
+          <glob>*/DroidSansJapanese*</glob>
+        </rejectfont>
+      </selectfont>
     </fontconfig>
     """
 

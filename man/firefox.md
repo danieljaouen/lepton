@@ -6,6 +6,13 @@ desktop's icon or Start menu. The first time, Firefox is installed
 (which takes `sudo` unless you are root); when updates are due, they
 are installed before it starts.
 
+Its fonts cover Chinese, Japanese and Korean (Noto CJK), and Thai,
+Hindi, Bengali, Tamil, Khmer, Lao, Myanmar, Arabic and Hebrew, besides
+Latin, Greek and Cyrillic. An install from before these fonts came with
+Firefox downloads them on its next start and uses them from the start
+after that; `sudo app update firefox`, with Firefox closed, does it at
+once.
+
 Firefox is not tied to the terminal it was started from: it keeps
 running when that window is closed.
 

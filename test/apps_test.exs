@@ -144,15 +144,27 @@ defmodule Lepton.AppsTest do
     V:1.16.2-r0
     S:10
     I:20
+
     """
 
-    pkgs = Alpine.parse_index(text, "community")
+    fonts = Enum.map_join(Apps.asian_fonts(), "\n", &"P:#{&1}\nV:1-r0\nS:10\nI:20\n")
+    pkgs = Alpine.parse_index(text <> fonts, "community")
     %{packages: Map.new(pkgs, &{&1.name, &1}), provides: %{}}
   end
+
+  defp fonts, do: Enum.map(Apps.asian_fonts(), &{&1, "1-r0"})
 
   defp record(dir, versions) do
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, ".lepton-app"), Base.encode64(:erlang.term_to_binary(%{packages: versions, size: 1, branch: "v3.24"})))
+  end
+
+  test "fonts: the app's own, with Droid's CJK fallbacks left to Noto CJK" do
+    prefix = tmp_dir("fontsconf")
+    assert :ok = Apps.fonts_conf(prefix)
+    conf = File.read!(Path.join(prefix, "etc/fonts/lepton.conf"))
+    assert conf =~ "<dir>#{prefix}/usr/share/fonts</dir>"
+    assert conf =~ "<glob>*/DroidSansFallback*</glob>"
   end
 
   test "apps' libraries go on musl's search path, after the system's, once" do
@@ -180,7 +192,7 @@ defmodule Lepton.AppsTest do
     System.put_env("LEPTON_STATE_DIR", tmp_dir("updstate"))
     on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
     installed = [{"firefox", "160.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}]
-    record(Apps.dir("firefox"), installed)
+    record(Apps.dir("firefox"), installed ++ fonts())
     File.write!(Path.join(Apps.dir("firefox"), "old"), "")
 
     assert Apps.changes(installed, [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"nss", "3.1"}]) ==
@@ -190,6 +202,8 @@ defmodule Lepton.AppsTest do
     # Installed from another definition of the app (packages Lepton has added since): checked now;
     # the same packages after all: recorded, and not again.
     assert Apps.check_due?("firefox") and Apps.redefined?("firefox")
+    # Fonts for Chinese, Japanese, Korean, Thai, Hindi and the other Asian scripts.
+    assert ["font-noto-cjk", "font-droid-nonlatin"] -- Apps.get("firefox").packages == []
     now = System.os_time(:second)
     assert {:ok, :current} = Apps.stage("firefox", fn _ -> :ok end, index: app_index("160.0-r0"))
     refute Apps.redefined?("firefox")
@@ -197,7 +211,7 @@ defmodule Lepton.AppsTest do
     assert Apps.check_due?("firefox", now + 10 * 86_400 + 60)
 
     # A newer build, already downloaded (staged): stage reports it without downloading again.
-    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}])
+    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}] ++ fonts())
     File.write!(Path.join(Apps.staged_dir("firefox"), "new"), "")
     assert {:ok, {:staged, [{"firefox", "160.0-r0", "161.0-r0"}]}} = Apps.stage("firefox", fn _ -> :ok end, index: app_index("161.0-r0"))
     assert Apps.staged?("firefox")
@@ -205,7 +219,7 @@ defmodule Lepton.AppsTest do
     # Setup failing puts the old version back; succeeding swaps the new one in.
     assert {:error, "boom"} = Apps.apply_staged("firefox", fn _, _ -> {:error, "boom"} end)
     assert Apps.version("firefox") == "160.0-r0" and File.exists?(Path.join(Apps.dir("firefox"), "old"))
-    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}])
+    record(Apps.staged_dir("firefox"), [{"firefox", "161.0-r0"}, {"font-dejavu", "2.37-r6"}, {"icu-data-en", "78.1-r0"}, {"dbus", "1.16.2-r0"}] ++ fonts())
     assert :ok = Apps.apply_staged("firefox", fn _, prefix -> if File.exists?(Path.join(prefix, ".lepton-app")), do: :ok end)
     assert Apps.version("firefox") == "161.0-r0"
     refute Apps.staged?("firefox") or File.exists?(Path.join(Apps.dir("firefox"), "old"))
