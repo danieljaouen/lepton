@@ -776,6 +776,9 @@ defmodule Lepton.PhotonTest do
     # The shell running the command, and the command.
     assert eventually(fn -> length(on_tty.()) >= 2 end)
     procs = on_tty.()
+    # The window is on the desktop and has the keyboard: Alt+F4 goes to the
+    # focused window, so pressed before that, it closes nothing.
+    assert eventually(fn -> match?([%{title: "System Monitor", focused: true}], Photon.info(ph).windows) end)
 
     # Alt+F4 closes the window.
     for {code, down} <- [{56, true}, {62, true}, {62, false}, {56, false}], do: Photon.input(ph, {:key, code, down})

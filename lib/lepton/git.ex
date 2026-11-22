@@ -197,6 +197,19 @@ defmodule Lepton.Git do
 
   # -- trees ---------------------------------------------------------------------------------
 
+  # A submodule's tree entry (a gitlink): the commit of another repository.
+  @gitlink "160000"
+
+  @doc "Is this a submodule's entry (tree mode, or index mode)?"
+  def gitlink?(mode), do: mode in [@gitlink, 0o160000]
+
+  # The submodules' paths in an index or flattened tree.
+  defp gitlinks(entries) do
+    for {path, e} <- entries, gitlink?(if(is_map(e), do: e.mode, else: elem(e, 0))), do: path
+  end
+
+  defp inside?(path, dirs), do: Enum.any?(dirs, &String.starts_with?(path, &1 <> "/"))
+
   def read_commit(repo, sha) do
     {:commit, content} = Object.read!(repo, sha)
     content |> Object.parse_commit() |> Map.put(:sha, sha)
@@ -325,7 +338,9 @@ defmodule Lepton.Git do
   def status(repo) do
     index = Index.read(repo)
     head = head_tree(repo)
-    files = worktree_files(repo)
+    subs = gitlinks(index)
+    # Files inside a submodule's directory are the submodule's.
+    files = Enum.reject(worktree_files(repo), &inside?(&1, subs))
     file_set = MapSet.new(files)
 
     staged =
@@ -340,6 +355,7 @@ defmodule Lepton.Git do
           full = Path.join(repo.root, path)
 
           cond do
+            gitlink?(e.mode) -> acc
             not MapSet.member?(file_set, path) and not File.exists?(full) -> acc ++ [{path, :deleted}]
             not File.exists?(full) -> acc
             unchanged_stat?(full, e) -> acc
@@ -368,7 +384,8 @@ defmodule Lepton.Git do
 
   def add(repo, paths) do
     index = Index.read(repo)
-    files = worktree_files(repo)
+    subs = gitlinks(index)
+    files = Enum.reject(worktree_files(repo), &inside?(&1, subs))
 
     targets =
       Enum.flat_map(paths, fn p ->
@@ -389,12 +406,17 @@ defmodule Lepton.Git do
       Enum.reduce(targets, index, fn rel, idx ->
         full = Path.join(repo.root, rel)
 
-        if File.exists?(full) or symlink?(full) do
-          content = if symlink?(full), do: elem(File.read_link(full), 1), else: File.read!(full)
-          sha = Object.write(repo, :blob, content)
-          Map.put(idx, rel, Index.entry_for(full, rel, sha))
-        else
-          Map.delete(idx, rel)
+        cond do
+          rel in subs ->
+            idx
+
+          File.exists?(full) or symlink?(full) ->
+            content = if symlink?(full), do: elem(File.read_link(full), 1), else: File.read!(full)
+            sha = Object.write(repo, :blob, content)
+            Map.put(idx, rel, Index.entry_for(full, rel, sha))
+
+          true ->
+            Map.delete(idx, rel)
         end
       end)
 
@@ -574,6 +596,10 @@ defmodule Lepton.Git do
     c
   end
 
+  # What a diff shows for an entry: the file, or for a submodule its
+  # commit, as git does ("Subproject commit SHA").
+  defp shown(repo, mode, sha), do: if(gitlink?(mode), do: "Subproject commit #{sha}\n", else: blob(repo, sha))
+
   def file_diff(repo, path, kind) do
     index = Index.read(repo)
     head = head_tree(repo)
@@ -582,8 +608,8 @@ defmodule Lepton.Git do
     {old, new} =
       case kind do
         :untracked -> {"", File.read!(full)}
-        :unstaged -> {(index[path] && blob(repo, index[path].sha)) || "", if(File.exists?(full), do: File.read!(full), else: "")}
-        :staged -> {(head[path] && blob(repo, elem(head[path], 1))) || "", (index[path] && blob(repo, index[path].sha)) || ""}
+        :unstaged -> {(index[path] && shown(repo, index[path].mode, index[path].sha)) || "", if(File.regular?(full), do: File.read!(full), else: "")}
+        :staged -> {(head[path] && shown(repo, elem(head[path], 0), elem(head[path], 1))) || "", (index[path] && shown(repo, index[path].mode, index[path].sha)) || ""}
       end
 
     Lepton.Diff.unified(old, new, "a/" <> path, "b/" <> path, header: "")
@@ -619,8 +645,8 @@ defmodule Lepton.Git do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.map_join(fn path ->
-      a = if old[path], do: blob(repo, elem(old[path], 1)), else: ""
-      b = if new[path], do: blob(repo, elem(new[path], 1)), else: ""
+      a = if old[path], do: shown(repo, elem(old[path], 0), elem(old[path], 1)), else: ""
+      b = if new[path], do: shown(repo, elem(new[path], 0), elem(new[path], 1)), else: ""
       body = Lepton.Diff.unified(a, b, "", "", header: "")
       if body == "", do: "", else: "diff --git a/#{path} b/#{path}\n--- a/#{path}\n+++ b/#{path}\n" <> body
     end)
@@ -703,20 +729,29 @@ defmodule Lepton.Git do
       for {path, {mode, sha}} <- new, into: %{} do
         full = Path.join(repo.root, path)
 
-        unless not force and match?({^mode, ^sha}, old[path]) and File.exists?(full) do
-          File.mkdir_p!(Path.dirname(full))
-          content = blob(repo, sha)
+        cond do
+          # A submodule: its commit is another repository's. Like git
+          # without --recurse-submodules, an empty directory stands for it.
+          mode == @gitlink ->
+            File.mkdir_p!(full)
 
-          if mode == "120000" do
-            File.rm(full)
-            File.ln_s(content, full)
-          else
-            File.write!(full, content)
-            if mode == "100755", do: File.chmod(full, 0o755)
-          end
+          not force and match?({^mode, ^sha}, old[path]) and File.exists?(full) ->
+            :ok
+
+          true ->
+            File.mkdir_p!(Path.dirname(full))
+            content = blob(repo, sha)
+
+            if mode == "120000" do
+              File.rm(full)
+              File.ln_s(content, full)
+            else
+              File.write!(full, content)
+              if mode == "100755", do: File.chmod(full, 0o755)
+            end
         end
 
-        {path, Index.entry_for(full, path, sha)}
+        {path, if(mode == @gitlink, do: Index.gitlink_entry(path, sha), else: Index.entry_for(full, path, sha))}
       end
 
     Index.write(repo, index)
@@ -813,7 +848,7 @@ defmodule Lepton.Git do
         c = read_commit(repo, sha)
         files = flatten_tree(repo, c.tree)
 
-        for {path, {_mode, s}} <- files do
+        for {path, {mode, s}} <- files, not gitlink?(mode) do
           full = Path.join(repo.root, path)
           File.mkdir_p!(Path.dirname(full))
           File.write!(full, blob(repo, s))

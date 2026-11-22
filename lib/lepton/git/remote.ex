@@ -523,7 +523,8 @@ defmodule Lepton.Git.Remote do
           reachable(repo, [c.tree | c.parents] ++ rest, acc)
 
         {:tree, content} ->
-          children = for {_mode, _name, s} <- Object.parse_tree(content), do: s
+          # (a submodule's commit is another repository's: not sent)
+          children = for {mode, _name, s} <- Object.parse_tree(content), not Git.gitlink?(mode), do: s
           reachable(repo, children ++ rest, acc)
 
         _ ->

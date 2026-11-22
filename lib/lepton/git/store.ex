@@ -473,6 +473,9 @@ defmodule Lepton.Git.Index do
     File.write!(path(repo), data <> :crypto.hash(:sha, data))
   end
 
+  @doc "The index entry of a submodule (a gitlink): its commit, mode 160000, nothing on disk to stat."
+  def gitlink_entry(rel, sha), do: %{path: rel, sha: sha, mode: 0o160000, size: 0, mtime: {0, 0}, ctime: {0, 0}, ino: 0, dev: 0}
+
   @doc "Build an index entry for a worktree file whose blob is `sha`."
   def entry_for(full_path, rel, sha) do
     {:ok, st} = File.stat(full_path, time: :posix)

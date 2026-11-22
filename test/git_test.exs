@@ -70,6 +70,38 @@ defmodule Lepton.GitTest do
     assert File.read!(Path.join(dir, "f")) == "changed\n"
   end
 
+  # The lepton repository's site/ is a submodule: its tree entry is the
+  # site repository's commit, which a clone of lepton doesn't have.
+  test "a submodule checks out as an empty directory, and stays in the index, status, diffs and new trees" do
+    dir = tmp_dir("gitsub")
+    repo = Repo.init(dir)
+    sub = "1bb7a7ddf038f478673a3bd325c1f56548b2491e"
+    file = Object.write(repo, :blob, "hello\n")
+    tree = Object.write(repo, :tree, Object.encode_tree([{"100644", "README.md", file}, {"160000", "site", sub}]))
+    who = "A <a@example.com> 0 +0000"
+    commit = Object.write(repo, :commit, "tree #{tree}\nauthor #{who}\ncommitter #{who}\n\nwith a submodule\n")
+    Git.update_ref(repo, "refs/heads/main", commit)
+
+    # What clone does after fetching: no "object 1bb7a7d... not found".
+    files = Git.flatten_tree(repo, tree)
+    assert files["site"] == {"160000", sub}
+    Git.write_worktree(repo, %{}, files)
+    assert File.read!(Path.join(dir, "README.md")) == "hello\n"
+    assert File.dir?(Path.join(dir, "site")) and File.ls!(Path.join(dir, "site")) == []
+    assert Index.read(repo)["site"].mode == 0o160000
+
+    # Clean, even with files in the submodule's directory.
+    File.write!(Path.join([dir, "site", "index.html"]), "x")
+    assert %{staged: [], unstaged: [], untracked: []} = Git.status(repo)
+    {:ok, _} = Git.add(repo, ["."])
+    assert Index.read(repo)["site"].sha == sub
+    refute Map.has_key?(Index.read(repo), "site/index.html")
+    # A new tree keeps the submodule.
+    assert {"160000", "site", ^sub} = Enum.find(Object.parse_tree(elem(Object.read!(repo, Git.write_tree(repo, Index.read(repo))), 1)), &(elem(&1, 1) == "site"))
+    # A diff shows its commit, as git does.
+    assert Git.commit_diff(repo, commit) =~ "+Subproject commit #{sub}"
+  end
+
   test "index round trip" do
     dir = tmp_dir("gitidx")
     repo = Repo.init(dir)
