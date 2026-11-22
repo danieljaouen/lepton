@@ -40,23 +40,28 @@ defmodule Lepton.Bridge do
     if Process.whereis(__MODULE__) && Lepton.Sys.native?(), do: GenServer.call(__MODULE__, {:ensure, user}), else: nil
   end
 
+  @doc """
+  Make every user's socket. Boot calls it once the users are known (the
+  data partition is mounted, `/etc/passwd` synced): when the bridge
+  starts, they aren't yet.
+  """
+  def start_all do
+    if Process.whereis(__MODULE__) && Lepton.Sys.native?(), do: GenServer.call(__MODULE__, :start_all), else: :ok
+  end
+
   # -- server ---------------------------------------------------------------------------
 
   @impl true
-  def init(nil) do
-    if Lepton.Sys.native?(), do: send(self(), :start_all)
-    {:ok, %{listeners: %{}}}
-  end
+  def init(nil), do: {:ok, %{listeners: %{}}}
 
   @impl true
-  def handle_info(:start_all, st) do
-    st = Enum.reduce(Users.list(), st, fn u, st -> elem(listen(st, u), 1) end)
-    {:noreply, st}
-  end
-
   def handle_info(_, st), do: {:noreply, st}
 
   @impl true
+  def handle_call(:start_all, _from, st) do
+    {:reply, :ok, Enum.reduce(Users.list(), st, fn u, st -> elem(listen(st, u), 1) end)}
+  end
+
   def handle_call({:ensure, user}, _from, st) do
     {path, st} = listen(st, user)
     {:reply, path, st}

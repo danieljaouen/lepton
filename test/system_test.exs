@@ -73,6 +73,13 @@ defmodule Lepton.SystemTest do
     assert "simpledrm" in loaded or "virtio_gpu" in loaded
   end
 
+  test "Lepton is the init process; another VM on it is a program (Mix building Lepton in Lepton)" do
+    assert Lepton.Sys.pid1?("1") and Lepton.Sys.pid1?(~c"1")
+    refute Lepton.Sys.pid1?("4242")
+    # Here: the OS itself in lepton-test, a program on a Mac.
+    assert Lepton.Sys.native?() == (Lepton.Sys.pid1?() and File.exists?("/bin/busybox"))
+  end
+
   test "/etc/os-release has Lepton's version" do
     file = Enum.find(["rootfs/etc/os-release", "/etc/os-release"], &File.exists?/1)
     assert File.read!(file) =~ ~s(VERSION_ID="#{Lepton.Init.version()}"\n)

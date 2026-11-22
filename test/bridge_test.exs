@@ -48,4 +48,14 @@ defmodule Lepton.BridgeTest do
     assert {"hi\n", 0} = sh("lepton echo hi")
     assert {"x\n", 0} = sh("lepton -c 'echo x'")
   end
+
+  @tag :native
+  test "after boot, every user has a socket of their own" do
+    for u <- Lepton.Users.list() do
+      path = Lepton.Bridge.socket(u.uid)
+      assert File.exists?(path), "no socket for #{u.name}"
+      {:ok, %{mode: mode, uid: uid}} = File.stat(Path.dirname(path))
+      assert Bitwise.band(mode, 0o777) == 0o700 and uid == u.uid
+    end
+  end
 end

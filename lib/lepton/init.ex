@@ -80,6 +80,8 @@ defmodule Lepton.Init do
       # Services that started before the data partition read their settings again.
       Lepton.Sound.reload()
       Lepton.Users.sync_etc()
+      # Each user's socket for Lepton's commands from native programs.
+      Lepton.Bridge.start_all()
       Lepton.Pkg.load_installed()
       Lepton.Power.start()
       Lepton.Net.start_background()

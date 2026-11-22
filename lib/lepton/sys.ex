@@ -13,7 +13,15 @@ defmodule Lepton.Sys do
 
   @busybox "/bin/busybox"
 
-  def native?, do: File.exists?(@busybox) and os() == :linux
+  @doc """
+  Is this Erlang VM Lepton itself, the OS? Lepton's VM is the init
+  process (`/init` is `erlexec`, so the VM is PID 1). Another VM on a
+  running Lepton (Mix, building or documenting Lepton in Lepton) is a
+  program, as on a Mac: Lepton's application started there (`mix
+  lepton.docs` starts it) must not run a second copy of the system's
+  services: the network, USB, the memory guard, users, the bridge.
+  """
+  def native?, do: pid1?() and File.exists?(@busybox) and os() == :linux
 
   def os do
     case :os.type() do
@@ -23,7 +31,7 @@ defmodule Lepton.Sys do
     end
   end
 
-  def pid1?, do: System.pid() == "1"
+  def pid1?(pid \\ System.pid()), do: to_string(pid) == "1"
 
   @doc "Runs a busybox applet: returns {output, exit_status}."
   def shim(applet, args) do

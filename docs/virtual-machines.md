@@ -88,10 +88,15 @@ git clone --recurse-submodules https://github.com/danieljaouen/lepton.git
 git clone https://github.com/danieljaouen/danieljaouen.github.io.git
 git clone https://github.com/danieljaouen/lepton.iso.git
 cd lepton
-mix lepton.iso                  # the ISO, from its sources (about 1 GB to download the first time)
-mix lepton.qemu --test          # its self-tests, in a VM
-mix lepton.publish              # the release, and the site
+mix lepton.iso && mix lepton.qemu --test && mix lepton.publish
 ```
+
+That builds the ISO from its sources (about 1 GB to download the first
+time), runs its self-tests in a VM, and only if they pass, publishes the
+release and the site. Mix runs in a VM of its own, which Lepton treats
+as a program, not as the OS: Lepton's application started there (to
+generate the docs) runs as it does on a Mac, without a second copy of
+the system's services.
 
 - The ISO installs a dotfiles repository into `/root`: `~/.dotfiles`, or
   the one `LEPTON_DOTFILES` names.
