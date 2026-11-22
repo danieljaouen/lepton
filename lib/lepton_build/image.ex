@@ -309,9 +309,26 @@ defmodule LeptonBuild.Image do
 
   defp elixir_apps do
     for app <- @elixir_apps,
-        dir = :code.lib_dir(String.to_atom(app)) |> to_string(),
+        dir = elixir_app_dir(app),
         entry <- copy_app(dir, "#{@erlang_root}/lib/#{app}-#{System.version()}") do
       entry
+    end
+  end
+
+  # Where an Elixir application is: on the code path, or next to elixir's
+  # own directory (Mix doesn't load them all: Lepton's Mix, building
+  # Lepton, has only elixir, logger and mix). Homebrew's are lib/APP;
+  # Lepton's, /usr/lib/erlang/lib/APP-VERSION.
+  @doc false
+  def elixir_app_dir(app) do
+    case :code.lib_dir(String.to_atom(app)) do
+      {:error, _} ->
+        base = :code.lib_dir(:elixir) |> to_string() |> Path.dirname()
+        Enum.find([Path.join(base, app), Path.join(base, "#{app}-#{System.version()}")], &File.dir?/1) ||
+          Mix.raise("Elixir's #{app} application isn't here (in #{base})")
+
+      dir ->
+        to_string(dir)
     end
   end
 
