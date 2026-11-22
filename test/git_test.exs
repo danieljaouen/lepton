@@ -102,6 +102,29 @@ defmodule Lepton.GitTest do
     assert Git.commit_diff(repo, commit) =~ "+Subproject commit #{sub}"
   end
 
+  test "symlinks check out as links (even dangling ones), stay links in the index and new trees, and are clean" do
+    dir = tmp_dir("gitlink")
+    repo = Repo.init(dir)
+    file = Object.write(repo, :blob, "brew 'git'\n")
+    # A link to a file checked out after it ("locations" sorts before "topics"), and one to nothing.
+    later = Object.write(repo, :blob, "../topics/Brewfile")
+    nowhere = Object.write(repo, :blob, "/nonexistent/vimrc")
+    files = %{"locations/Brewfile.symlink" => {"120000", later}, "locations/vimrc.symlink" => {"120000", nowhere}, "topics/Brewfile" => {"100644", file}}
+
+    # What clone does after fetching (it crashed: no match of right hand side value: {:error, :enoent}).
+    Git.write_worktree(repo, %{}, files)
+    assert File.read_link!(Path.join(dir, "locations/Brewfile.symlink")) == "../topics/Brewfile"
+    assert File.read_link!(Path.join(dir, "locations/vimrc.symlink")) == "/nonexistent/vimrc"
+    index = Index.read(repo)
+    assert index["locations/Brewfile.symlink"].mode == 0o120000
+    assert index["locations/vimrc.symlink"].mode == 0o120000
+    assert index["topics/Brewfile"].mode == 0o100644
+
+    assert %{staged: _, unstaged: [], untracked: []} = Git.status(repo)
+    {:ok, _} = Git.add(repo, ["."])
+    assert Git.flatten_tree(repo, Git.write_tree(repo, Index.read(repo))) == files
+  end
+
   test "index round trip" do
     dir = tmp_dir("gitidx")
     repo = Repo.init(dir)

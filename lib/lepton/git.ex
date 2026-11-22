@@ -284,6 +284,8 @@ defmodule Lepton.Git do
   end
 
   defp symlink?(p), do: match?({:ok, %{type: :symlink}}, File.lstat(p))
+  # There, or a symlink (whose target may not be: a dangling link is still a file to git).
+  defp present?(p), do: File.exists?(p) or symlink?(p)
 
   defp ignore_rules(repo) do
     global = Config.get(Config.load(repo), "core", "excludesfile")
@@ -356,8 +358,8 @@ defmodule Lepton.Git do
 
           cond do
             gitlink?(e.mode) -> acc
-            not MapSet.member?(file_set, path) and not File.exists?(full) -> acc ++ [{path, :deleted}]
-            not File.exists?(full) -> acc
+            not MapSet.member?(file_set, path) and not present?(full) -> acc ++ [{path, :deleted}]
+            not present?(full) -> acc
             unchanged_stat?(full, e) -> acc
             blob_sha_of_file(full) != e.sha -> acc ++ [{path, :modified}]
             true -> acc
@@ -369,7 +371,7 @@ defmodule Lepton.Git do
   end
 
   defp unchanged_stat?(full, e) do
-    case File.stat(full, time: :posix) do
+    case File.lstat(full, time: :posix) do
       {:ok, st} -> st.size == e.size and {st.mtime, 0} == e.mtime and e.size > 0
       _ -> false
     end
@@ -427,7 +429,7 @@ defmodule Lepton.Git do
   defp deleted_in_index(repo, index, prefix) do
     for {path, _} <- index,
         prefix == "" or path == prefix or String.starts_with?(path, prefix <> "/"),
-        not File.exists?(Path.join(repo.root, path)),
+        not present?(Path.join(repo.root, path)),
         do: path
   end
 
@@ -464,7 +466,7 @@ defmodule Lepton.Git do
           nil -> Map.delete(idx, rel)
           {mode, sha} ->
             full = Path.join(repo.root, rel)
-            base = if File.exists?(full), do: Index.entry_for(full, rel, sha), else: %{path: rel, size: 0, mtime: {0, 0}}
+            base = if present?(full), do: Index.entry_for(full, rel, sha), else: %{path: rel, size: 0, mtime: {0, 0}}
             Map.put(idx, rel, %{base | sha: sha, mode: String.to_integer(mode, 8), mtime: {0, 0}})
         end
       end)
@@ -490,7 +492,7 @@ defmodule Lepton.Git do
     # Refresh stat info so status is fast and accurate.
     index = Map.new(index, fn {rel, e} ->
       full = Path.join(repo.root, rel)
-      if rel in Enum.map(paths, &normalize_path(repo, &1)) and File.exists?(full), do: {rel, Index.entry_for(full, rel, e.sha)}, else: {rel, e}
+      if rel in Enum.map(paths, &normalize_path(repo, &1)) and present?(full), do: {rel, Index.entry_for(full, rel, e.sha)}, else: {rel, e}
     end)
 
     Index.write(repo, index)
@@ -735,7 +737,7 @@ defmodule Lepton.Git do
           mode == @gitlink ->
             File.mkdir_p!(full)
 
-          not force and match?({^mode, ^sha}, old[path]) and File.exists?(full) ->
+          not force and match?({^mode, ^sha}, old[path]) and present?(full) ->
             :ok
 
           true ->
