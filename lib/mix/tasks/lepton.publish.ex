@@ -17,10 +17,11 @@ defmodule Mix.Tasks.Lepton.Publish do
        (`mix lepton.site.tags`)
     5. regenerates the documentation (`mix lepton.docs`: the site's `docs/` from
        `docs/*.md` and the code), so the docs describe this release
-    6. records the new site commit in this repository's `site` submodule
-       (fast-forwarding the submodule to it when the site is published from
-       a separate checkout; the site repository's workflow does the same on
-       GitHub; both make the same change, so a rebase drops the duplicate)
+    6. records the new site commit in this repository's `site` submodule:
+       the site repository's workflow moves it on GitHub after each push to
+       the site, so this waits (up to 3 minutes) for that commit and
+       fast-forwards to it, and commits the pointer itself only if it
+       doesn't come
     7. commits and pushes each repository that changed, rebasing onto any
        remote changes first (e.g. edits made on GitHub)
 
@@ -284,10 +285,38 @@ defmodule Mix.Tasks.Lepton.Publish do
     if LeptonBuild.Paths.separate_site?(site) do
       head = git(site, ["rev-parse", "HEAD"]) |> String.trim()
       git(Path.join(root, sub), ["fetch", "-q", site, "HEAD"])
-      git(Path.join(root, sub), ["checkout", "-q", "--detach", head])
-    end
 
-    commit_and_push(root, [sub], "Update site submodule for ISO from #{rev}", push)
+      # The site repository's "Update Lepton's site submodule" workflow
+      # moves the pointer on every push to the site, racing a commit made
+      # here. Wait for it, and take its commit; make one only if it
+      # doesn't come.
+      if push and await_submodule(root, sub, head) do
+        git(root, ["merge", "--ff-only", "-q", "@{u}"])
+        git(Path.join(root, sub), ["checkout", "-q", "--detach", head])
+        info("the site's workflow moved the submodule to #{String.slice(head, 0, 7)}")
+      else
+        git(Path.join(root, sub), ["checkout", "-q", "--detach", head])
+        commit_and_push(root, [sub], "Update site submodule for ISO from #{rev}", push)
+      end
+    else
+      commit_and_push(root, [sub], "Update site submodule for ISO from #{rev}", push)
+    end
+  end
+
+  @submodule_wait 36
+  # Has the upstream branch's submodule reached `head`? Polls every 5 s
+  # for up to 3 minutes.
+  defp await_submodule(root, sub, head, tries \\ @submodule_wait) do
+    git(root, ["fetch", "-q"])
+
+    cond do
+      String.contains?(git(root, ["ls-tree", "@{u}", sub]), head) -> true
+      tries <= 1 -> info("the site's workflow didn't move the submodule; committing it here"); false
+      true ->
+        if tries == @submodule_wait, do: info("waiting for the site's workflow to move the submodule")
+        Process.sleep(5_000)
+        await_submodule(root, sub, head, tries - 1)
+    end
   end
 
   # Replace the text content of every element carrying `attr`.
