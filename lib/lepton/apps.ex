@@ -398,7 +398,11 @@ defmodule Lepton.Apps do
   before `Lepton.Memory` steps in at 5%); and it doesn't use OpenH264. Firefox downloads that video plugin itself, and
   Mozilla's aarch64 build of it needs glibc: on Lepton (musl) it crashes
   ("gmpopenh264 crashed") as soon as a page uses H.264, in WebRTC calls
-  for example.
+  for example. Speech synthesis (the Web Speech API's `speechSynthesis`)
+  is off: Firefox speaks through Speech Dispatcher, which Lepton doesn't
+  have, so a page that used it got "You can't use speech synthesis
+  because the Speech Dispatcher library is missing". With it off, pages
+  don't see the API and don't try.
   """
   def firefox_policies(prefix) do
     dir = Path.join(prefix, "usr/lib/firefox/distribution")
@@ -411,6 +415,7 @@ defmodule Lepton.Apps do
             "browser.tabs.inTitlebar" => %{"Value" => 0, "Status" => "default"},
             "media.gmp-gmpopenh264.enabled" => %{"Value" => false, "Status" => "locked"},
             "media.gmp-gmpopenh264.autoupdate" => %{"Value" => false, "Status" => "locked"},
+            "media.webspeech.synth.enabled" => %{"Value" => false, "Status" => "locked"},
             "browser.tabs.unloadOnLowMemory" => %{"Value" => true, "Status" => "default"},
             "browser.low_commit_space_threshold_percent" => %{"Value" => 10, "Status" => "default"}
           }

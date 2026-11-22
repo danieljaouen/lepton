@@ -126,6 +126,10 @@ is.
   VM. OpenH264, the H.264 plugin Firefox downloads by itself, is turned off:
   Mozilla's build of it needs glibc, so on Lepton it crashed ("gmpopenh264
   crashed") whenever a page used it. Video calls use VP8 or VP9 instead.
+- Speech synthesis (pages reading text aloud through the Web Speech
+  API) is turned off: Lepton has no speech engine for Firefox to use
+  (Speech Dispatcher), so pages that tried it showed "You can't use
+  speech synthesis because the Speech Dispatcher library is missing".
 - Fonts cover the world's common scripts: DejaVu for Latin, Greek and
   Cyrillic; Noto Sans and Serif CJK for Chinese (Simplified and
   Traditional), Japanese and Korean; Droid's non-Latin fonts for Thai,

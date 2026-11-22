@@ -186,6 +186,8 @@ defmodule Lepton.AppsTest do
     assert prefs["media.gmp-gmpopenh264.autoupdate"]["Value"] == false
     assert prefs["browser.tabs.inTitlebar"]["Value"] == 0
     assert prefs["browser.tabs.unloadOnLowMemory"]["Value"] == true
+    # No Speech Dispatcher: no "speech synthesis ... library is missing" bar.
+    assert prefs["media.webspeech.synth.enabled"] == %{"Value" => false, "Status" => "locked"}
   end
 
   test "updates: checks every 10 days, stages a newer build, applies it (or rolls back)" do
