@@ -580,6 +580,30 @@ defmodule Lepton.Apps do
     {:ok, lpid}
   end
 
+  @doc """
+  The directory of busybox's applets (`sed`, `basename`, `ls`, ...) for
+  native programs, last on their PATH: Alpine's programs are shell
+  scripts at times (git's submodule command), which expect them. Made
+  when first needed (`applets/0`).
+  """
+  def applets_dir, do: "/run/lepton/busybox"
+
+  @doc "Make the applets directory (once), and return it."
+  def applets do
+    dir = applets_dir()
+
+    if Lepton.Sys.native?() and not File.dir?(dir) do
+      File.mkdir_p!(dir)
+
+      case System.cmd("/bin/busybox", ["--list"], stderr_to_stdout: true) do
+        {out, 0} -> for a <- String.split(out, "\n", trim: true), a not in ["sh", "env"], do: File.ln_s("/bin/busybox", Path.join(dir, a))
+        _ -> :ok
+      end
+    end
+
+    dir
+  end
+
   @musl_path "/etc/ld-musl-aarch64.path"
 
   @doc """

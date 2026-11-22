@@ -82,7 +82,7 @@ defmodule Lepton.MixVM do
       if Lepton.Sys.native?(), do: Lepton.Apps.musl_path(prefix)
 
       %{
-        "PATH" => Path.join(prefix, "usr/bin") <> ":" <> Path.join(prefix, "bin") <> ":" <> path,
+        "PATH" => Path.join(prefix, "usr/bin") <> ":" <> Path.join(prefix, "bin") <> ":" <> path <> ":" <> Lepton.Apps.applets(),
         "GIT_EXEC_PATH" => Path.join(prefix, "usr/libexec/git-core"),
         "GIT_TEMPLATE_DIR" => Path.join(prefix, "usr/share/git-core/templates"),
         "GIT_CONFIG_NOSYSTEM" => "1"

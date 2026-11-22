@@ -154,7 +154,7 @@ defmodule Lepton.ClaudeCode do
   @doc "The environment Claude Code runs with, for a user's `env`."
   def env(env, prefix \\ Apps.dir(@app)) do
     qemu = if dir = Lepton.VM.tool_path(), do: [dir], else: []
-    path = Enum.join([bin_dir(), Path.join(prefix, "usr/bin"), Path.join(prefix, "bin")] ++ qemu ++ ["/usr/local/bin", "/usr/bin", "/bin", applets_dir()], ":")
+    path = Enum.join([bin_dir(), Path.join(prefix, "usr/bin"), Path.join(prefix, "bin")] ++ qemu ++ ["/usr/local/bin", "/usr/bin", "/bin", Apps.applets_dir()], ":")
     certs = Path.join(prefix, "etc/ssl/certs/ca-certificates.crt")
 
     env
@@ -176,7 +176,6 @@ defmodule Lepton.ClaudeCode do
   # Programs made for it at each start: mix and elixir (the image's, in a VM
   # of their own), and busybox's applets for whatever Alpine's packages lack.
   defp bin_dir, do: "/run/lepton/claude-code/bin"
-  defp applets_dir, do: "/run/lepton/claude-code/busybox"
 
   @doc "Write the `mix` and `elixir` scripts into `dir`."
   def write_wrappers(dir) do
@@ -201,23 +200,8 @@ defmodule Lepton.ClaudeCode do
   defp prepare do
     Apps.musl_path(Apps.dir(@app))
     write_wrappers(bin_dir())
-
-    unless File.dir?(applets_dir()) do
-      File.mkdir_p!(applets_dir())
-
-      for applet <- busybox_applets(), applet not in ["sh", "env"] do
-        File.ln_s("/bin/busybox", Path.join(applets_dir(), applet))
-      end
-    end
-
+    Apps.applets()
     :ok
-  end
-
-  defp busybox_applets do
-    case System.cmd("/bin/busybox", ["--list"], stderr_to_stdout: true) do
-      {out, 0} -> String.split(out, "\n", trim: true)
-      _ -> []
-    end
   end
 
   @doc "Run `claude` with `args` for `ctx`; returns its exit status."

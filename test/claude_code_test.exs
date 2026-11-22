@@ -38,7 +38,7 @@ defmodule Lepton.ClaudeCodeTest do
     [wrappers, alpine | rest] = String.split(env["PATH"], ":")
     assert wrappers =~ "claude-code/bin" and alpine == "/apps/cc/usr/bin"
     # busybox's applets come last: Alpine's programs win.
-    assert List.last(rest) =~ "claude-code/busybox"
+    assert List.last(rest) == "/run/lepton/busybox"
   end
 
   test "on a terminal it runs under script, sized, with its arguments quoted" do
