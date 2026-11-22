@@ -153,7 +153,8 @@ defmodule Lepton.ClaudeCode do
 
   @doc "The environment Claude Code runs with, for a user's `env`."
   def env(env, prefix \\ Apps.dir(@app)) do
-    path = Enum.join([bin_dir(), Path.join(prefix, "usr/bin"), Path.join(prefix, "bin"), "/usr/local/bin", "/usr/bin", "/bin", applets_dir()], ":")
+    qemu = if dir = Lepton.VM.tool_path(), do: [dir], else: []
+    path = Enum.join([bin_dir(), Path.join(prefix, "usr/bin"), Path.join(prefix, "bin")] ++ qemu ++ ["/usr/local/bin", "/usr/bin", "/bin", applets_dir()], ":")
     certs = Path.join(prefix, "etc/ssl/certs/ca-certificates.crt")
 
     env

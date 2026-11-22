@@ -88,6 +88,19 @@ defmodule Lepton.Apps do
       exe: nil,
       gtk: false
     },
+    # QEMU, for virtual machines (Lepton.VM, `vm`; and `mix lepton.qemu`
+    # in a checkout of Lepton): the arm64 emulator, qemu-img and UEFI
+    # firmware (AAVMF). Not a program you open: machines run headless, on
+    # their serial consoles.
+    "qemu" => %{
+      title: "QEMU",
+      summary: "QEMU, for virtual machines",
+      packages: ["qemu-system-aarch64", "qemu-img", "aavmf"],
+      exclude: ~r/^(busybox.*)$/,
+      main: "qemu-system-aarch64",
+      exe: nil,
+      gtk: false
+    },
     "postgresql" => %{
       title: "PostgreSQL",
       summary: "the PostgreSQL database",

@@ -227,9 +227,15 @@ network is up; `:dotfiles` needs your dotfiles (on a Mac: `~/.dotfiles` or
 `$LEPTON_DOTFILES`, in the `topics/` layout). Options: `--only TAG`,
 `--include TAG`, `-v`, or file paths.
 
-Current results: 323 tests, 0 failures inside the VM (run from the live
-ISO; the 15 `:docs` tests, for the docs, site tags and build tasks, are
-host-only), and 317 passing plus 21 excluded (native/network) on the host.
+`mix lepton.qemu --test` also runs inside Lepton, in a checkout of this
+repository, with the `qemu` app installed: Lepton boots its ISO in a
+virtual machine of its own. With nested virtualization (`mix lepton.qemu
+--nested` on an M3 or later Mac) the guest has KVM and the suite takes
+about as long as on the Mac; see docs/virtual-machines.md.
+
+Current results: 328 tests, 0 failures inside the VM (run from the live
+ISO; the 16 `:docs` tests, for the docs, site tags and build tasks, are
+host-only), and 323 passing plus 21 excluded (native/network) on the host.
 
 ## Version updates
 

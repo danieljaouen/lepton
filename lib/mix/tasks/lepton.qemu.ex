@@ -11,6 +11,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
       mix lepton.qemu --no-cd --disk DISK --login USER:PASS --run "cmd"  # an installed system
       mix lepton.qemu --ssh-port 2222  # forward the Mac's port 2222 to the VM's sshd (port 22)
       mix lepton.qemu --vdagent SOCKET # the SPICE agent's port (UTM's clipboard sharing) on a Unix socket
+      mix lepton.qemu --nested     # nested virtualization: Lepton's KVM, for VMs inside Lepton (M3 or later)
 
   The machine matches UTM's defaults for ARM64 Linux guests: `virt`,
   UEFI (edk2), virtio-scsi CD-ROM, virtio-net, ramfb/virtio-gpu, xHCI USB
@@ -27,7 +28,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
   def run(args) do
     {opts, _} =
       OptionParser.parse!(args,
-        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string, displays: :integer, ssh_port: :integer, vdagent: :string]
+        strict: [print: :boolean, test: :boolean, run: :keep, iso: :string, timeout: :integer, mem: :integer, disk: :string, no_cd: :boolean, login: :string, displays: :integer, ssh_port: :integer, vdagent: :string, nested: :boolean]
       )
 
     iso = opts[:iso] || @iso
@@ -37,7 +38,7 @@ defmodule Mix.Tasks.Lepton.Qemu do
 
     cond do
       opts[:print] ->
-        Mix.shell().info(Enum.join([qemu() | base_args(iso, opts) ++ ["-nographic"]], " "))
+        Mix.shell().info(Enum.map_join([qemu() | base_args(iso, opts) ++ ["-nographic"]], " ", &if(String.contains?(&1, " "), do: "'#{&1}'", else: &1)))
 
       opts[:test] ->
         commands = ["lepton-test"]
@@ -64,8 +65,27 @@ defmodule Mix.Tasks.Lepton.Qemu do
 
   def qemu, do: System.find_executable("qemu-system-aarch64") || Mix.raise("qemu-system-aarch64 not found (brew install qemu)")
 
+  @doc """
+  How to run the guest's CPU: Hypervisor.framework on an Apple Silicon
+  Mac, KVM on Linux with `/dev/kvm` (Lepton itself, booted with nested
+  virtualization), else emulated.
+  """
+  def accel({:unix, :darwin}, true, _kvm?), do: ["-accel", "hvf", "-cpu", "host"]
+  def accel({:unix, :linux}, true, true), do: ["-accel", "kvm", "-cpu", "host"]
+  def accel(_os, _arm?, _kvm?), do: ["-accel", "tcg,thread=multi", "-cpu", "max"]
+
+  # QEMU's own share directory, next to its bin (Homebrew's, or Lepton's
+  # qemu app: Alpine's QEMU unpacked away from /usr).
+  defp share, do: Path.expand("../share", Path.dirname(qemu()))
+
+  @doc """
+  The edk2 firmware: next to the QEMU that runs (Homebrew's, or Lepton's
+  qemu app), else where distributions put it.
+  """
   def firmware do
     candidates = [
+      Path.join(share(), "qemu/edk2-aarch64-code.fd"),
+      Path.join(share(), "AAVMF/QEMU_EFI.fd"),
       "/opt/homebrew/share/qemu/edk2-aarch64-code.fd",
       "/usr/local/share/qemu/edk2-aarch64-code.fd",
       "/usr/share/qemu/edk2-aarch64-code.fd",
@@ -92,18 +112,20 @@ defmodule Mix.Tasks.Lepton.Qemu do
         do: ["-device", "virtio-serial-pci", "-chardev", "socket,id=vda,path=#{sock},server=on,wait=off", "-device", "virtserialport,chardev=vda,name=com.redhat.spice.0"],
         else: []
 
-    accel = if :os.type() == {:unix, :darwin} and arm_host?(), do: ["-accel", "hvf", "-cpu", "host"], else: ["-cpu", "max"]
+    accel = accel(:os.type(), arm_host?(), File.exists?("/dev/kvm"))
 
-    ["-M", "virt"] ++
+    # --nested: the guest gets EL2, so Lepton's KVM can run VMs of its own
+    # at full speed (Apple M3 and later with macOS 15 and later).
+    ["-M", if(opts[:nested], do: "virt,virtualization=on", else: "virt")] ++
       accel ++
+      data_dir() ++
       [
         "-m",
         to_string(opts[:mem] || 2048),
         "-smp",
-        "4",
-        "-bios",
-        firmware()
+        "4"
       ] ++
+      boot(opts) ++
       cd ++
       disk ++
       vdagent ++
@@ -125,6 +147,26 @@ defmodule Mix.Tasks.Lepton.Qemu do
         "-device",
         "ramfb"
       ]
+  end
+
+  # QEMU's data (option ROMs, keymaps) from its own share directory; and
+  # its modules (devices built as modules, as Alpine builds them).
+  defp data_dir do
+    modules = Path.expand("../lib/qemu", Path.dirname(qemu()))
+    if File.dir?(modules), do: System.put_env("QEMU_MODULE_DIR", modules)
+    if File.dir?(Path.join(share(), "qemu")), do: ["-L", Path.join(share(), "qemu")], else: []
+  end
+
+  # UEFI firmware, as UTM boots. With --nested, the kernel instead (with
+  # the ISO's own command line): edk2 hangs at EL2 under Hypervisor.framework.
+  defp boot(opts) do
+    if opts[:nested] do
+      dir = Path.dirname(opts[:iso] || @iso)
+      cmdline = File.read!(Path.join(dir, "grub.cfg")) |> then(&Regex.run(~r/linux \/boot\/vmlinuz (.*)/, &1)) |> List.last()
+      ["-kernel", Path.join(dir, "vmlinuz"), "-initrd", Path.join(dir, "initrd.img"), "-append", cmdline]
+    else
+      ["-bios", firmware()]
+    end
   end
 
   # Intel HD Audio (UTM's sound device), playing to `backend`: the Mac's

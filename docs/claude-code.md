@@ -78,9 +78,12 @@ There it has:
   own, as Lepton's own [`mix`](phoenix.html) runs: `mix test`,
   `mix compile` and `mix phx.server` work;
 - busybox's versions of the usual Unix programs (`ls`, `grep`, `sed`,
-  `find`, `wget` and so on).
+  `find`, `wget` and so on);
+- QEMU, once it is installed (`sudo app install qemu`): with it, in a
+  checkout of Lepton, `mix lepton.qemu --test` runs Lepton's self-tests in
+  a [virtual machine](virtual-machines.html).
 
-Lepton's own commands (`svc`, `app`, `photon`, Lepton's `git`, ...) run
+Lepton's own commands (`svc`, `app`, `vm`, `photon`, Lepton's `git`, ...) run
 in Lepton's VM, which a native program can't reach, so Claude Code can't
 run them. Run those yourself at Lepton's prompt.
 

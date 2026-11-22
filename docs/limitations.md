@@ -54,6 +54,9 @@ summary: What Lepton doesn't do yet.
 - [Claude Code](claude-code.html) runs its commands in Alpine's bash, so
   Lepton's own commands (`svc`, `app`, Lepton's `git`) aren't available
   to it; it gets a terminal through `script`.
+- [Virtual machines](virtual-machines.html) are arm64 only, headless (no
+  display), and need nested virtualization (an M3 or later Mac) for full
+  speed.
 - `mix` can't build dependencies that compile C code (NIFs with a
   Makefile, like `bcrypt_elixir`): Lepton has no C compiler. Use
   pure-Elixir ones (`pbkdf2_elixir`), and `iex -S mix` isn't available.

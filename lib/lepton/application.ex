@@ -23,6 +23,8 @@ defmodule Lepton.Application do
       Lepton.Postgres,
       Lepton.Proxy,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},
+      {Registry, keys: :unique, name: Lepton.VM.Registry},
+      {DynamicSupervisor, name: Lepton.VM.Supervisor, strategy: :one_for_one},
       {DynamicSupervisor, name: Lepton.SessionSupervisor, strategy: :one_for_one}
     ]
 

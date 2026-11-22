@@ -78,7 +78,8 @@ Phoenix's live reload (about 10 MB). They are on the path of `mix`
 only; at the prompt, `git` is still Lepton's own. `claude-code` holds
 what [Claude Code](claude-code.html) needs (bash, git, ripgrep,
 util-linux: about 14 MB), which `sudo claude-code install` installs
-along with Claude Code itself.
+along with Claude Code itself; and `qemu`, QEMU for
+[virtual machines](virtual-machines.html) (about 31 MB).
 
 ## Updates
 

@@ -57,7 +57,8 @@ defmodule Lepton.MixVM do
           |> Map.merge(extra)
           |> Map.put_new("LANG", "C.UTF-8")
           |> Map.put("HOME", ctx.env["HOME"] || user.home)
-          |> Map.merge(git_env(ctx.env["PATH"] || "/usr/local/bin:/usr/bin:/bin"))
+          |> then(&Map.put(&1, "PATH", with_qemu(&1["PATH"] || "/usr/local/bin:/usr/bin:/bin")))
+          |> then(&Map.merge(&1, git_env(&1["PATH"])))
 
         port =
           Port.open({:spawn_executable, exe}, [:binary, :exit_status, :use_stdio, :stderr_to_stdout, args: argv, cd: ctx.cwd, env: charlists(env)])
@@ -88,6 +89,14 @@ defmodule Lepton.MixVM do
       }
     else
       %{}
+    end
+  end
+
+  # QEMU (the qemu app) on PATH, for `mix lepton.qemu` in a checkout of Lepton.
+  defp with_qemu(path) do
+    case Lepton.VM.tool_path() do
+      nil -> path
+      dir -> dir <> ":" <> path
     end
   end
 
