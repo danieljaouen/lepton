@@ -143,7 +143,8 @@ defmodule Lepton.Alpine do
 
   # -- HTTP -----------------------------------------------------------------------------------------
 
-  defp get(url) do
+  @doc "GET `url` (through Lepton's proxy settings): `{:ok, body}` or `{:error, reason}`."
+  def get(url) do
     :inets.start()
     :ssl.start()
 
@@ -156,7 +157,8 @@ defmodule Lepton.Alpine do
 
   defp http_opts, do: [ssl: Lepton.Git.Remote.ssl_opts([]), timeout: 600_000, connect_timeout: 30_000, autoredirect: true]
 
-  defp download(url, path, progress) do
+  @doc "Download `url` to `path`, calling `progress` with the bytes so far: `:ok` or `{:error, reason}`."
+  def download(url, path, progress) do
     :inets.start()
     :ssl.start()
     {:ok, f} = :file.open(String.to_charlist(path), [:raw, :binary, :write])

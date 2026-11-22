@@ -74,6 +74,16 @@ defmodule Lepton.Commands.Dev do
     Lepton.MixVM.run(args, ctx)
   end
 
+  defcmd "claude", "Claude Code, Anthropic's coding agent (install it with: sudo claude-code install)",
+    usage: "claude [OPTIONS] [PROMPT] | claude -p PROMPT" do
+    Lepton.ClaudeCode.run(args, ctx)
+  end
+
+  defcmd "claude-code", "install, update, remove or show Claude Code (Anthropic's build, downloaded from Anthropic)",
+    usage: "claude-code [status] | install | update | remove" do
+    claude_code(args, ctx)
+  end
+
   defcmd "erl", "Erlang version information", usage: "erl" do
     IO.puts(ctx, "Erlang/OTP #{System.otp_release()} [erts-#{:erlang.system_info(:version)}] [#{:erlang.system_info(:system_architecture)}] [smp:#{System.schedulers_online()}]")
     0
@@ -778,5 +788,49 @@ defmodule Lepton.Commands.Dev do
     else
       ""
     end
+  end
+
+  # -- claude-code --------------------------------------------------------------------
+
+  defp claude_code([cmd | _], ctx) when cmd in ["install", "update", "remove"] and ctx.user != "root",
+    do: Lepton.Users.denied(ctx, "claude-code #{cmd}")
+
+  defp claude_code(args, ctx) when args in [[], ["status"]] do
+    alias Lepton.ClaudeCode
+
+    if ClaudeCode.installed?() do
+      IO.puts(ctx, "Claude Code #{ClaudeCode.version()} (#{ClaudeCode.platform()}), in #{ClaudeCode.dir()}")
+      IO.puts(ctx, "  Run it with: claude. Update it with: sudo claude-code update")
+      0
+    else
+      IO.puts(ctx, "Claude Code isn't installed. Install it with: sudo claude-code install")
+      1
+    end
+  end
+
+  defp claude_code([cmd], ctx) when cmd in ["install", "update"] do
+    say = &IO.puts(ctx, String.trim_trailing(&1))
+    if cmd == "install", do: say.("Claude Code is Anthropic's, not part of Lepton: this downloads Anthropic's build, and using it is subject to Anthropic's terms.")
+
+    case Lepton.ClaudeCode.install(say) do
+      :ok ->
+        if cmd == "install", do: say.("Start it with: claude (it asks you to log in the first time).")
+        0
+
+      {:error, reason} ->
+        IO.err(ctx, "claude-code: #{reason}")
+        1
+    end
+  end
+
+  defp claude_code(["remove"], ctx) do
+    Lepton.ClaudeCode.remove()
+    IO.puts(ctx, "Removed Claude Code. Your settings and sessions (~/.claude) are kept.")
+    0
+  end
+
+  defp claude_code(_, ctx) do
+    IO.err(ctx, "usage: claude-code [status] | install | update | remove")
+    2
   end
 end

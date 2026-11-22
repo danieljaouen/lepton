@@ -51,6 +51,9 @@ summary: What Lepton doesn't do yet.
   only, no terminal). For the ones that start others through a shell
   (Mix's rebar3, PostgreSQL's `initdb`), `/bin/sh` is busybox's; at
   Lepton's prompt the shell is always `lsh`.
+- [Claude Code](claude-code.html) runs its commands in Alpine's bash, so
+  Lepton's own commands (`svc`, `app`, Lepton's `git`) aren't available
+  to it; it gets a terminal through `script`.
 - `mix` can't build dependencies that compile C code (NIFs with a
   Makefile, like `bcrypt_elixir`): Lepton has no C compiler. Use
   pure-Elixir ones (`pbkdf2_elixir`), and `iex -S mix` isn't available.

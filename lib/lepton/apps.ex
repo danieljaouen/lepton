@@ -75,6 +75,19 @@ defmodule Lepton.Apps do
       exe: nil,
       gtk: false
     },
+    # Not a program you open: what Claude Code (Lepton.ClaudeCode, whose
+    # binary is Anthropic's, downloaded on its own) needs from a Linux
+    # system: bash for its Bash tool, ripgrep and git, util-linux's
+    # script for a terminal, CA certificates for git over HTTPS.
+    "claude-code" => %{
+      title: "Claude Code's tools",
+      summary: "bash, git, ripgrep and a terminal, for Claude Code",
+      packages: ["bash", "git", "ripgrep", "util-linux-misc", "libgcc", "libstdc++", "ca-certificates-bundle"],
+      exclude: ~r/^(busybox.*)$/,
+      main: "bash",
+      exe: nil,
+      gtk: false
+    },
     "postgresql" => %{
       title: "PostgreSQL",
       summary: "the PostgreSQL database",
@@ -110,6 +123,7 @@ defmodule Lepton.Apps do
   def remove(name) do
     if installed?(name) do
       if name == "postgresql", do: Lepton.Postgres.unlink_tools()
+      if name == "claude-code", do: File.rm_rf(Lepton.ClaudeCode.dir())
       File.rm_rf(dir(name))
       File.rm_rf(staged_dir(name))
       File.rm(checked_file(name))
