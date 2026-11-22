@@ -50,6 +50,22 @@ The full list of what was loaded is on the
   modes, undo/redo, yank and paste, and splits;
 - ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`.
 
+## Org mode: folding
+
+In `.org` files, headings (`* `, `** `, ...) fold as in Spacemacs:
+
+| Keys | What they do |
+|---|---|
+| `TAB` on a heading | cycle it: folded, then its child headings, then the whole subtree |
+| `S-TAB` | cycle the buffer: top-level headings, then every heading, then everything |
+| `zm` (`zM`) | fold every heading: only the top-level ones show |
+| `zr` (`zR`) | reveal everything |
+| `za`, `zc`, `zo` | toggle, fold or open the heading the cursor is under |
+
+A folded heading ends in `...`. `j` and `k` step over folded text, and a
+search (`/`, `n`, `N`) that lands inside a fold opens it. Folds stay put
+as you edit above or below them; they last until the file is closed.
+
 Bindings that name commands `le` doesn't implement are listed as "not
 supported" by `keys` and `SPC h d b`, never silently dropped.
 

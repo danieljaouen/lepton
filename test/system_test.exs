@@ -83,6 +83,7 @@ defmodule Lepton.SystemTest do
   test "a publish bumps the minor version" do
     assert Mix.Tasks.Lepton.Version.bump("1.0.0") == "1.1.0"
     assert Mix.Tasks.Lepton.Version.bump("1.9.3") == "1.10.0"
+    assert Mix.Tasks.Lepton.Version.bump("1.0.0", :patch) == "1.0.1"
   end
 
   @tag :native

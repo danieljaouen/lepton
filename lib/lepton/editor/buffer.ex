@@ -16,7 +16,8 @@ defmodule Lepton.Editor.Buffer do
             redo: [],
             meta: %{},
             trailing_newline: true,
-            read_only: false
+            read_only: false,
+            folds: MapSet.new()
 
   @undo_limit 200
 

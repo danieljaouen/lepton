@@ -27,7 +27,8 @@ anything a user would notice. For each one:
    `docs/` in the site checkout (below) for a local preview.
 5. **Publish**: every publish gets a minor version bump (1.0.0 ->
    1.1.0): `mix lepton.version --bump` (mix.exs and
-   `rootfs/etc/os-release`), commit, then `mix lepton.publish` builds and releases the ISO and
+   `rootfs/etc/os-release`), or `--patch` for the build number (1.0.0 ->
+   1.0.1) when the user asks for that; commit, then `mix lepton.publish` builds and releases the ISO and
    regenerates and pushes the docs (even when the ISO is unchanged).
    `mix lepton.docs --publish` publishes documentation-only fixes.
 

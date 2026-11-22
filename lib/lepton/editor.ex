@@ -14,7 +14,7 @@ defmodule Lepton.Editor do
   """
 
   alias Lepton.{Keys, TTY}
-  alias Lepton.Editor.{Buffer, Keymap, Motion, Render, Magit}
+  alias Lepton.Editor.{Buffer, Fold, Keymap, Motion, Render, Magit}
 
   defstruct buffers: %{},
             order: [],
@@ -169,13 +169,32 @@ defmodule Lepton.Editor do
 
   def buf(st), do: st.buffers[win(st).buf]
   def win(st), do: st.windows[st.active]
-  defp put_buf(st, b), do: %{st | buffers: Map.put(st.buffers, b.id, b)}
+  defp put_buf(st, b) do
+    # Folds follow their headings through edits (and undo).
+    b =
+      case st.buffers[b.id] do
+        %{lines: old} when old != b.lines -> %{b | folds: Fold.remap(b.folds, old, b.lines)}
+        _ -> b
+      end
+
+    %{st | buffers: Map.put(st.buffers, b.id, b)}
+  end
   defp put_win(st, w), do: %{st | windows: Map.put(st.windows, w.id, w)}
   defp cursor(st), do: win(st).cursor
 
   defp set_cursor(st, {l, c}, opts \\ []) do
     b = buf(st)
     l = l |> max(0) |> min(Buffer.line_count(b) - 1)
+
+    # A line inside a folded subtree: a search opens the fold, anything
+    # else lands on the heading that hides it.
+    {st, b, l} =
+      cond do
+        MapSet.size(b.folds) == 0 -> {st, b, l}
+        opts[:reveal] -> b = Fold.reveal(b, l); {put_buf(st, b), b, l}
+        true -> {st, b, Fold.shown(Fold.hidden(b), l)}
+      end
+
     len = Buffer.line_length(b, l)
     max_c = if st.mode in [:insert, :replace] || opts[:eol], do: len, else: max(len - 1, 0)
     c = c |> max(0) |> min(max_c)
@@ -286,11 +305,24 @@ defmodule Lepton.Editor do
     w = win(st)
     {l, c} = w.cursor
     h = view_height(st)
-    top = cond do
-      l < w.top -> l
-      l >= w.top + h -> l - h + 1
-      true -> w.top
-    end
+    b = buf(st)
+
+    top =
+      if MapSet.size(b.folds) == 0 do
+        cond do
+          l < w.top -> l
+          l >= w.top + h -> l - h + 1
+          true -> w.top
+        end
+      else
+        top = Fold.shown(Fold.hidden(b), min(w.top, Buffer.line_count(b) - 1))
+
+        cond do
+          l < top -> l
+          Fold.visible_between(b, top, l) >= h -> Fold.step(b, l, -(h - 1))
+          true -> top
+        end
+      end
 
     vw = view_width(st)
     dc = display_col(Buffer.line(buf(st), l), c)
@@ -308,6 +340,22 @@ defmodule Lepton.Editor do
       "\t", acc -> acc + 8 - rem(acc, 8)
       g, acc -> acc + Lepton.Width.grapheme(g)
     end)
+  end
+
+  # -- folding (Org) -----------------------------------------------------------------------
+
+  defp fold_with(st, f) do
+    b = buf(st)
+    if Fold.outline?(b), do: st |> put_buf(f.(b)) |> set_cursor(cursor(st)), else: msg(st, "No outline to fold in #{b.mode} mode")
+  end
+
+  defp fold_here(st, f) do
+    b = buf(st)
+
+    case Fold.heading_at(b, elem(cursor(st), 0)) do
+      nil -> fold_with(st, & &1)
+      h -> st |> put_buf(f.(b, h)) |> set_cursor(cursor(st))
+    end
   end
 
   # -- normal state ------------------------------------------------------------------------
@@ -370,13 +418,16 @@ defmodule Lepton.Editor do
     case kind do
       :none -> st
       :linewise when m in ["j", "k", "<up>", "<down>"] ->
+        b = buf(st)
         {l, _} = target
+        # Folded subtrees count as one line.
+        l = if MapSet.size(b.folds) == 0, do: l, else: Fold.step(b, elem(cursor(st), 0), (st.count || 1) * if(m in ["j", "<down>"], do: 1, else: -1))
         w = win(st)
         set_cursor(st, {l, w.want_col}, keep_want: true)
 
       _ ->
         st = if m in ["G", "gg", "n", "N", "%", "{", "}"], do: push_jump(st), else: st
-        set_cursor(st, target)
+        set_cursor(st, target, reveal: m in ["n", "N"])
     end
   end
 
@@ -767,6 +818,23 @@ defmodule Lepton.Editor do
 
   def do_action(st, :keyboard_quit, _), do: %{st | pending: [], count: nil, operator: nil} |> msg("Quit")
   def do_action(st, :redraw, _), do: %{st | frame: []}
+
+  def do_action(st, :org_cycle, _) do
+    b = buf(st)
+    h = Fold.outline?(b) && Fold.heading?(b, elem(cursor(st), 0)) && elem(cursor(st), 0)
+    if h, do: (fn {b, state} -> st |> put_buf(b) |> set_cursor(cursor(st)) |> msg(state) end).(Fold.cycle(b, h)), else: st
+  end
+
+  def do_action(st, :org_global_cycle, _) do
+    b = buf(st)
+    if Fold.outline?(b), do: (fn {b, state} -> st |> put_buf(b) |> set_cursor(cursor(st)) |> msg(state) end).(Fold.global_cycle(b)), else: st
+  end
+
+  def do_action(st, :fold_all, _), do: fold_with(st, &Fold.fold_all/1)
+  def do_action(st, :unfold_all, _), do: fold_with(st, &Fold.unfold_all/1)
+  def do_action(st, :fold_close, _), do: fold_here(st, &Fold.fold/2)
+  def do_action(st, :fold_open, _), do: fold_here(st, &Fold.unfold/2)
+  def do_action(st, :fold_toggle, _), do: fold_here(st, fn b, h -> if MapSet.member?(b.folds, h), do: Fold.unfold(b, h), else: Fold.fold(b, h) end)
   def do_action(st, :normal_state, _), do: %{st | mode: :normal}
 
   # files
@@ -1735,7 +1803,7 @@ defmodule Lepton.Editor do
         origin = Map.get(st.minibuffer, :origin) || cursor(st)
         st = put_in(st.minibuffer[:origin], origin)
         {pos, _} = Motion.search(buf(st), origin, {re, dir}, 1, false)
-        set_cursor(st, pos)
+        set_cursor(st, pos, reveal: true)
 
       _ ->
         st

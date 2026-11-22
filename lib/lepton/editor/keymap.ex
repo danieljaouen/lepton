@@ -52,7 +52,15 @@ defmodule Lepton.Editor.Keymap do
     "evil-normal-state" => :normal_state,
     "evil-escape" => :normal_state,
     "undo" => :undo,
-    "comment-line" => :comment_line
+    "comment-line" => :comment_line,
+    "org-cycle" => :org_cycle,
+    "org-shifttab" => :org_global_cycle,
+    "org-global-cycle" => :org_global_cycle,
+    "evil-close-folds" => :fold_all,
+    "evil-open-folds" => :unfold_all,
+    "evil-toggle-fold" => :fold_toggle,
+    "evil-close-fold" => :fold_close,
+    "evil-open-fold" => :fold_open
   }
 
   def translate(nil), do: nil
@@ -185,7 +193,9 @@ defmodule Lepton.Editor.Keymap do
     {"v", :visual}, {"V", :visual_line}, {".", :repeat}, {":", :ex}, {"/", :search_forward},
     {"?", :search_backward}, {"n", :search_next}, {"N", :search_previous},
     {"*", :search_word_forward}, {"#", :search_word_backward}, {"z z", :scroll_line_to_center},
-    {"z t", :scroll_line_to_top}, {"z b", :scroll_line_to_bottom}, {"Z Z", :save_quit},
+    {"z t", :scroll_line_to_top}, {"z b", :scroll_line_to_bottom}, {"TAB", :org_cycle},
+    {"<backtab>", :org_global_cycle}, {"z m", :fold_all}, {"z M", :fold_all}, {"z r", :unfold_all},
+    {"z R", :unfold_all}, {"z a", :fold_toggle}, {"z c", :fold_close}, {"z o", :fold_open}, {"Z Z", :save_quit},
     {"Z Q", :quit_force}, {"C-d", :scroll_half_down}, {"C-u", :scroll_half_up},
     {"C-f", :page_down}, {"C-b", :page_up}, {"<next>", :page_down}, {"<prior>", :page_up},
     {"C-e", :scroll_line_down}, {"C-y", :scroll_line_up}, {"C-o", :jump_back}, {"g t", :next_buffer},

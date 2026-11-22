@@ -29,6 +29,11 @@ include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
 - `SPC SPC` run a command by name (M-x), `SPC ?` list bindings.
 - `SPC q q` quit.
 
+In Org files (`.org`), `TAB` on a heading cycles it (folded, children,
+subtree) and `S-TAB` cycles the whole buffer; `zm` folds every heading,
+`zr` reveals everything, and `za`, `zc` and `zo` toggle, fold and open
+the heading under the cursor.
+
 With the Spacemacs tmux layer, `C-h`, `C-j`, `C-k` and `C-l` move
 between windows and on into neighbouring tmux panes.
 

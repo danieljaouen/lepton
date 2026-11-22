@@ -7,7 +7,7 @@ defmodule Lepton.Editor.Render do
   """
 
   alias Lepton.Editor
-  alias Lepton.Editor.{Buffer, Keymap, Syntax}
+  alias Lepton.Editor.{Buffer, Fold, Keymap, Syntax}
 
   @state_colors %{normal: "48;5;214", insert: "48;5;112", visual: "48;5;248", visual_line: "48;5;248", replace: "48;5;167", special: "48;5;141"}
 
@@ -78,20 +78,33 @@ defmodule Lepton.Editor.Render do
     fci = if st.vars["fill-column-indicator"], do: st.vars["display-fill-column-indicator-column"], else: nil
     hl = highlight_spans(st, b, id)
 
+    # The buffer lines shown, top to bottom: folded subtrees (Org) are
+    # skipped, and their heading ends in an ellipsis.
+    {shown, folded} =
+      if MapSet.size(b.folds) == 0 do
+        {Enum.to_list(win.top..(win.top + text_h - 1)), MapSet.new()}
+      else
+        {Fold.visible_lines(b, win.top, text_h), b |> Fold.hidden() |> MapSet.new(&(&1.first - 1))}
+      end
+
+    row_of = shown |> Enum.with_index() |> Map.new()
+    cl_row = Map.get(row_of, cl)
+
     lines =
       for i <- 0..(text_h - 1) do
-        n = win.top + i
+        n = Enum.at(shown, i) || Buffer.line_count(b)
 
         if n < Buffer.line_count(b) do
           num =
             cond do
               gutter == 0 -> ""
-              relative and n != cl -> "\e[38;5;240m" <> String.pad_leading(to_string(abs(n - cl)), gutter - 1) <> " \e[0m"
+              relative and n != cl -> "\e[38;5;240m" <> String.pad_leading(to_string(if(cl_row, do: abs(i - cl_row), else: abs(n - cl))), gutter - 1) <> " \e[0m"
               true -> "\e[38;5;#{if n == cl, do: "214", else: "240"}m" <> String.pad_leading(to_string(n + 1), gutter - 1) <> " \e[0m"
             end
 
           line = Buffer.line(b, n) |> expand_tabs()
           # (by columns: Chinese, Japanese and Korean characters take two)
+          line = if MapSet.member?(folded, n), do: line <> " ...", else: line
           {vis, len} = visible(line, win.left, text_w)
           body = Syntax.highlight(vis, b.mode, Map.get(hl, n), win.left, st.vars["show-whitespace"])
           pad_len = text_w - len
@@ -105,7 +118,7 @@ defmodule Lepton.Editor.Render do
       end
 
     mode_line = mode_line(st, id, b, active, w)
-    cursor_row = cl - win.top
+    cursor_row = cl_row || cl - win.top
     cursor_col = gutter + Editor.display_col(Buffer.line(b, cl), cc) - win.left
     {lines ++ [mode_line], {r + cursor_row, c + cursor_col}}
   end

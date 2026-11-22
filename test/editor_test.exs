@@ -144,4 +144,109 @@ defmodule Lepton.EditorTest do
     assert cursor != nil
     assert Enum.any?(rows, &String.contains?(Lepton.Style.strip(&1), "file.ex"))
   end
+
+  describe "Org folding" do
+    @org """
+    * One
+    body one
+    ** One A
+    text a
+    ** One B
+    text b
+    * Two
+    body two
+    """
+
+    defp screen(st) do
+      {rows, _} = Lepton.Editor.Render.frame(st)
+      Enum.map(rows, &Lepton.Style.strip/1)
+    end
+
+    defp shows?(st, text), do: Enum.any?(screen(st), &String.contains?(&1, text))
+    defp line(st), do: elem(cursor(st), 0)
+
+    test "TAB cycles a heading: folded, children, subtree" do
+      {st, _} = editor(@org, name: "notes.org")
+      st = keys(st, "TAB")
+      assert st.message == "FOLDED"
+      assert shows?(st, "* One ...")
+      refute shows?(st, "body one")
+      refute shows?(st, "One A")
+      assert shows?(st, "body two")
+
+      st = keys(st, "TAB")
+      assert st.message == "CHILDREN"
+      assert shows?(st, "body one") and shows?(st, "** One A ...") and shows?(st, "** One B ...")
+      refute shows?(st, "text a")
+
+      st = keys(st, "TAB")
+      assert st.message == "SUBTREE"
+      assert shows?(st, "text a") and shows?(st, "text b")
+
+      assert keys(st, "TAB").message == "FOLDED"
+      # Not on a heading: nothing happens.
+      assert keys(st, "j TAB").buffers == keys(st, "j").buffers
+    end
+
+    test "zm folds every heading, zr reveals everything" do
+      {st, _} = editor(@org, name: "notes.org")
+      st = keys(st, "z m")
+      assert shows?(st, "* One ...") and shows?(st, "* Two ...")
+      refute shows?(st, "One A")
+      refute shows?(st, "body two")
+
+      st = keys(st, "z r")
+      for t <- ["body one", "text a", "text b", "body two"], do: assert(shows?(st, t))
+      refute shows?(st, "...")
+    end
+
+    test "j and k skip folded subtrees; za, zc and zo work under the cursor" do
+      {st, _} = editor(@org, name: "notes.org")
+      st = keys(st, "z m")
+      assert line(keys(st, "j")) == 6
+      assert line(keys(st, "j k")) == 0
+      # zo opens One; its children stay folded.
+      st = keys(st, "z o")
+      assert shows?(st, "body one") and shows?(st, "** One A ...")
+      assert line(keys(st, "2 j")) == 2
+      # za on a line inside One A's body toggles One A.
+      st = keys(st, "2 j z a")
+      assert shows?(st, "text a")
+      st = keys(st, "j z c")
+      assert line(st) == 2
+      refute shows?(st, "text a")
+    end
+
+    test "S-TAB cycles the buffer: overview, contents, show all" do
+      {st, _} = editor(@org, name: "notes.org")
+      st = keys(st, "<backtab>")
+      assert st.message == "OVERVIEW"
+      refute shows?(st, "One A")
+      st = keys(st, "<backtab>")
+      assert st.message == "CONTENTS"
+      assert shows?(st, "One A") and shows?(st, "Two")
+      refute shows?(st, "text a")
+      st = keys(st, "<backtab>")
+      assert st.message == "SHOW ALL"
+      assert shows?(st, "text a")
+    end
+
+    test "a search opens the fold it lands in; edits keep folds" do
+      {st, _} = editor(@org, name: "notes.org")
+      st = keys(st, "z m / t e x t SPC b RET")
+      assert line(st) == 5 and shows?(st, "text b")
+      # A line added above moves the folds down with their headings.
+      {st, _} = editor(@org, name: "notes.org")
+      st = keys(st, "G z c g g O n e w ESC")
+      assert shows?(st, "* Two ...")
+      refute shows?(st, "body two")
+      assert MapSet.to_list(Editor.buf(st).folds) == [7]
+    end
+
+    test "outside Org, zm says there is nothing to fold" do
+      {st, _} = editor("a\nb\n")
+      st = keys(st, "z m")
+      assert st.message =~ "No outline"
+    end
+  end
 end
