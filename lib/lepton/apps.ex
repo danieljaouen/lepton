@@ -68,8 +68,10 @@ defmodule Lepton.Apps do
     # Phoenix's live reload (file_system). In the shell, git is Lepton's.
     "mix-tools" => %{
       title: "Mix tools",
-      summary: "git and inotifywait, for Mix",
-      packages: ["git", "inotify-tools"],
+      summary: "git, inotifywait and tar, for Mix",
+      # tar, xz and zstd: what Lepton's own build (`mix lepton.iso`, in a
+      # checkout of Lepton) unpacks its sources with.
+      packages: ["git", "inotify-tools", "tar", "xz", "zstd"],
       exclude: ~r/^(busybox.*)$/,
       main: "git",
       exe: nil,

@@ -235,6 +235,8 @@ defmodule Lepton.ClaudeCode do
         prepare()
         user = Lepton.Users.get(ctx.user) || Lepton.Users.get("root")
         env = env(Map.put(ctx.env, "HOME", ctx.env["HOME"] || user.home))
+        # Lepton's own commands, through `lepton COMMAND` (Lepton.Bridge).
+        env = if bridge = Lepton.Bridge.ensure(user), do: Map.put(env, "LEPTON_BRIDGE", bridge), else: env
 
         if ctx.tty && TTY.tty?(ctx.stdin) && TTY.tty?(ctx.stdout),
           do: interactive(args, ctx, user, env),

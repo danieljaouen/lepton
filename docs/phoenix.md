@@ -35,7 +35,7 @@ mix archive.install hex phx_new --force     # the Phoenix generator
 - `postgresql setup` installs PostgreSQL, creates its database cluster,
   and starts it as a service that also starts at boot. On the classic
   desktop, the **Install PostgreSQL** icon does the same.
-- `mix-tools` holds two programs Mix runs itself: git, for git
+- `mix-tools` holds programs Mix runs itself: git, for git
   dependencies (a new Phoenix app gets its icons, Heroicons, from
   GitHub), and inotifywait, for live reload. Only Mix sees them. At
   Lepton's prompt, `git` is still Lepton's own.

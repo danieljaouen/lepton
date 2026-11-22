@@ -51,9 +51,9 @@ summary: What Lepton doesn't do yet.
   only, no terminal). For the ones that start others through a shell
   (Mix's rebar3, PostgreSQL's `initdb`), `/bin/sh` is busybox's; at
   Lepton's prompt the shell is always `lsh`.
-- [Claude Code](claude-code.html) runs its commands in Alpine's bash, so
-  Lepton's own commands (`svc`, `app`, Lepton's `git`) aren't available
-  to it; it gets a terminal through `script`.
+- [Claude Code](claude-code.html) runs its commands in Alpine's bash, and
+  Lepton's own commands through `lepton COMMAND`, without a terminal; it
+  gets a terminal of its own through `script`.
 - [Virtual machines](virtual-machines.html) are arm64 only, headless (no
   display), and need nested virtualization (an M3 or later Mac) for full
   speed.

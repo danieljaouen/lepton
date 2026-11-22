@@ -633,6 +633,7 @@ defmodule Lepton.Commands.Admin do
            (if opts["password-stdin"], do: read_stdin_line(ctx), else: ctx.tty && Lepton.Setup.read_secret(ctx, "Password for #{name}: ")),
          {:ok, user} <- Lepton.Users.create(name, password, gecos: opts["c"] || name, sudo: opts["sudo"] == true) do
       Lepton.Users.sync_etc()
+      Lepton.Bridge.ensure(user)
       IO.puts(ctx, "Created #{user.name} (uid #{user.uid}, home #{user.home})#{if opts["sudo"], do: ", allowed to use sudo", else: ""}.")
       0
     else

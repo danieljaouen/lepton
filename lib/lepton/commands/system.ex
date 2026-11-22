@@ -372,6 +372,22 @@ defmodule Lepton.Commands.System do
     0
   end
 
+  defcmd "lepton", "run a Lepton command line; from native programs (Claude Code's bash), /usr/bin/lepton does the same through Lepton's bridge",
+    usage: "lepton [-i] COMMAND [ARGS...] | lepton [-i] -c LINE" do
+    args = if args != [] and hd(args) == "-i", do: tl(args), else: args
+
+    line =
+      case args do
+        ["-c", line] -> line
+        [] -> nil
+        argv -> Enum.map_join(argv, " ", &Lepton.ClaudeCode.sh_quote/1)
+      end
+
+    if line,
+      do: Lepton.Shell.run_string(line, cwd: ctx.cwd, env: ctx.env, stdin: ctx.stdin, stdout: ctx.stdout, stderr: ctx.stderr, tty: ctx.tty, user: ctx.user),
+      else: (Lepton.IO.err(ctx, "usage: lepton [-i] COMMAND [ARGS...] | lepton [-i] -c LINE"); 2)
+  end
+
   defcmd "sleep", "delay for a specified amount of time", usage: "sleep SECONDS" do
     secs = args |> List.first("1") |> Float.parse() |> then(fn {f, _} -> f; :error -> 1.0 end)
     Process.sleep(trunc(secs * 1000))

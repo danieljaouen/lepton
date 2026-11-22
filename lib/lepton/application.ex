@@ -21,6 +21,7 @@ defmodule Lepton.Application do
       Lepton.Wifi,
       Lepton.Users,
       Lepton.Postgres,
+      Lepton.Bridge,
       Lepton.Proxy,
       {Registry, keys: :unique, name: Lepton.Mux.Registry},
       {Registry, keys: :unique, name: Lepton.VM.Registry},

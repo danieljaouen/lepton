@@ -83,9 +83,20 @@ There it has:
   checkout of Lepton, `mix lepton.qemu --test` runs Lepton's self-tests in
   a [virtual machine](virtual-machines.html).
 
-Lepton's own commands (`svc`, `app`, `vm`, `photon`, Lepton's `git`, ...) run
-in Lepton's VM, which a native program can't reach, so Claude Code can't
-run them. Run those yourself at Lepton's prompt.
+Lepton's own commands (`svc`, `app`, `vm`, `photon`, Lepton's `git`, ...)
+are functions in Lepton's VM, not programs, so bash can't run them
+directly. It runs them through `lepton`:
+
+```sh
+lepton svc status
+lepton vm start test
+lepton -c 'vm log test | tail -5'
+```
+
+`lepton` sends the command line to Lepton, which runs it as you, and
+prints what it prints. Commands that need a terminal (`le`,
+`vm console`) don't work this way. Claude Code finds `lepton` on its path
+and can use it like any other command.
 
 It runs as you, with your files and your permissions. It can change the
 files you can change, so review what it proposes, as anywhere.

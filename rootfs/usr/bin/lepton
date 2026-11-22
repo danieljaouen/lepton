@@ -1,0 +1,74 @@
+#!/usr/bin/escript
+%% lepton: run Lepton's own commands (svc, app, vm, ...) from a native
+%% program, such as Claude Code's bash. It sends the command line to
+%% Lepton over the user's socket (Lepton.Bridge), which runs it in lsh as
+%% this user, and prints what it prints; it exits with its status.
+%%
+%%   lepton COMMAND [ARGS...]     run a command (its arguments quoted for lsh)
+%%   lepton -c 'LINE'             run a command line (pipes, ;, && ...)
+%%   lepton -i ...                send this program's standard input too
+%%
+%% At Lepton's own prompt, `lepton` is a command of Lepton's that does the same.
+
+main(Args) ->
+    {Stdin, Rest} = case Args of
+        ["-i" | R] -> {true, R};
+        R -> {false, R}
+    end,
+    Line = case Rest of
+        ["-c", L] -> L;
+        [] -> usage();
+        ["-h" | _] -> usage();
+        ["--help" | _] -> usage();
+        Argv -> string:join([quote(A) || A <- Argv], " ")
+    end,
+    Path = case os:getenv("LEPTON_BRIDGE") of
+        false -> "/run/lepton/bridge/" ++ uid() ++ "/socket";
+        P -> P
+    end,
+    case gen_tcp:connect({local, Path}, 0, [binary, {packet, 4}, {active, false}]) of
+        {ok, S} ->
+            {ok, Cwd} = file:get_cwd(),
+            ok = gen_tcp:send(S, term_to_binary({run, unicode:characters_to_binary(Line), unicode:characters_to_binary(Cwd), Stdin})),
+            Stdin andalso spawn_link(fun() -> send_stdin(S) end),
+            loop(S);
+        {error, Reason} ->
+            io:format(standard_error, "lepton: can't reach Lepton at ~s (~p): run this on Lepton~n", [Path, Reason]),
+            halt(1)
+    end.
+
+usage() ->
+    io:format(standard_error, "usage: lepton [-i] COMMAND [ARGS...] | lepton [-i] -c 'LINE'~n", []),
+    halt(2).
+
+loop(S) ->
+    case gen_tcp:recv(S, 0) of
+        {ok, Frame} ->
+            case binary_to_term(Frame, [safe]) of
+                {out, 1, Data} -> file:write(standard_io, Data), loop(S);
+                {out, 2, Data} -> file:write(standard_error, Data), loop(S);
+                {exit, Status} -> halt(Status);
+                _ -> loop(S)
+            end;
+        {error, _} ->
+            halt(255)
+    end.
+
+send_stdin(S) ->
+    io:setopts(standard_io, [binary]),
+    case file:read(standard_io, 65536) of
+        {ok, Data} -> gen_tcp:send(S, term_to_binary({stdin, iolist_to_binary(Data)})), send_stdin(S);
+        _ -> gen_tcp:send(S, term_to_binary(eof))
+    end.
+
+%% Quote an argument for lsh, as for sh: 'it'\''s'.
+quote(A) ->
+    case re:run(A, "^[A-Za-z0-9_./=:,@%+-]+$", [unicode]) of
+        {match, _} -> A;
+        nomatch -> "'" ++ string:replace(A, "'", "'\\''", all) ++ "'"
+    end.
+
+uid() ->
+    {ok, Status} = file:read_file("/proc/self/status"),
+    {match, [Uid]} = re:run(Status, "^Uid:\\s+(\\d+)", [multiline, {capture, all_but_first, list}]),
+    Uid.

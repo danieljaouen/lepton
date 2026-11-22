@@ -16,7 +16,7 @@ Lepton has no C compiler.
 
 Git dependencies (a new Phoenix app has one, `heroicons`) and Phoenix's
 live reload need programs Mix runs itself: `sudo app install mix-tools`
-installs them (Alpine's git and inotifywait, on Mix's path only; at the
+installs them (Alpine's git, inotifywait, tar, xz and zstd, on Mix's path only; at the
 prompt, `git` is still Lepton's). Programs Mix downloads (esbuild,
 Tailwind) run as they are.
 

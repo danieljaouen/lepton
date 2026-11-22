@@ -76,12 +76,40 @@ mix lepton.qemu --test          # the self-test suite, in a VM inside Lepton
 
 With KVM, the suite takes about as long as it does on the Mac.
 
+## Building and publishing Lepton from Lepton
+
+The whole cycle works inside Lepton, with `sudo app install qemu
+mix-tools` (mix-tools brings git, and tar, xz and zstd for the build's
+sources). Lay the repositories out as on the Mac, side by side:
+
+```sh
+cd ~/src
+git clone --recurse-submodules https://github.com/danieljaouen/lepton.git
+git clone https://github.com/danieljaouen/danieljaouen.github.io.git
+git clone https://github.com/danieljaouen/lepton.iso.git
+cd lepton
+mix lepton.iso                  # the ISO, from its sources (about 1 GB to download the first time)
+mix lepton.qemu --test          # its self-tests, in a VM
+mix lepton.publish              # the release, and the site
+```
+
+- The ISO installs a dotfiles repository into `/root`: `~/.dotfiles`, or
+  the one `LEPTON_DOTFILES` names.
+- Publishing needs a GitHub token, in `GH_TOKEN`, and pushes over HTTPS.
+  Point git at it with a `GIT_ASKPASS` script that prints
+  `x-access-token` for the user name and the token for the password.
+- Commits need your name and email: `GIT_AUTHOR_NAME`,
+  `GIT_AUTHOR_EMAIL` (and `GIT_COMMITTER_...`), or `user.name` and
+  `user.email` in `~/.gitconfig`.
+- On the live ISO all of this is kept in memory: give the VM 6 GB or
+  more.
+
 ## Limits
 
 - No display: machines run on their serial consoles. Lepton as a guest
   works fully there; a desktop guest's screen isn't shown.
 - arm64 guests only (`qemu-system-aarch64`).
-- `vm` is Lepton's own command, so Claude Code can't run it. It can run
-  QEMU itself, and `mix lepton.qemu`.
+- `vm` is Lepton's own command: native programs, Claude Code's bash
+  among them, run it as `lepton vm ...`; `vm console` needs a terminal.
 
 <!-- commands: vm -->

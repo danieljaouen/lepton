@@ -73,8 +73,9 @@ opening in a window: `bluetooth`, [Bluetooth](bluetooth.html)'s programs
 `postgresql`, the [PostgreSQL](postgresql.html) database server (26
 packages, about 18 MB to download, 49 MB installed), which
 `sudo postgresql setup` installs and starts; and `mix-tools`, the
-programs `mix` runs: git, for git dependencies, and inotifywait, for
-Phoenix's live reload (about 10 MB). They are on the path of `mix`
+programs `mix` runs: git, for git dependencies, inotifywait, for
+Phoenix's live reload, and tar, xz and zstd, for building Lepton itself
+(about 11 MB). They are on the path of `mix`
 only; at the prompt, `git` is still Lepton's own. `claude-code` holds
 what [Claude Code](claude-code.html) needs (bash, git, ripgrep,
 util-linux: about 14 MB), which `sudo claude-code install` installs
