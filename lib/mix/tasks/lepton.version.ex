@@ -1,20 +1,23 @@
 defmodule Mix.Tasks.Lepton.Version do
-  @shortdoc "Print Lepton's version, or bump it"
+  @shortdoc "Print Lepton's version, or bump it for a release"
   @moduledoc """
   Lepton's version lives in `mix.exs` (`@version`) and in
   `rootfs/etc/os-release` (`VERSION_ID`).
 
-      mix lepton.version          # print it
-      mix lepton.version --bump   # 1.0.0 -> 1.1.0, in both files
-      mix lepton.version --patch  # 1.0.0 -> 1.0.1: the build number
+      mix lepton.version            # print it
+      mix lepton.version --patch    # bug fixes:           1.4.2 -> 1.4.3
+      mix lepton.version --minor    # new features:        1.4.2 -> 1.5.0
+      mix lepton.version --major    # a complete overhaul: 1.4.2 -> 2.0.0
 
-  Every publish gets a version bump: the minor version unless the
-  build number is asked for. Bump, commit, then `mix lepton.publish`.
+  Every publish gets one bump, by the biggest change it releases: a
+  release with a feature is `--minor` even if it fixes bugs too. Bump,
+  commit, then `mix lepton.publish`.
   """
   use Mix.Task
 
   @mix "mix.exs"
   @os_release "rootfs/etc/os-release"
+  @parts %{"--patch" => :patch, "--minor" => :minor, "--major" => :major}
 
   @impl true
   def run(args) do
@@ -24,8 +27,8 @@ defmodule Mix.Tasks.Lepton.Version do
       [] ->
         Mix.shell().info(current)
 
-      [flag] when flag in ["--bump", "--patch"] ->
-        next = if flag == "--patch", do: bump(current, :patch), else: bump(current)
+      [flag] when is_map_key(@parts, flag) ->
+        next = bump(current, @parts[flag])
         replace!(@mix, ~s(@version "#{current}"), ~s(@version "#{next}"))
         replace!(@os_release, ~s(VERSION_ID="#{current}"), ~s(VERSION_ID="#{next}"))
         # This task compiled the project when it started, perhaps within
@@ -35,7 +38,7 @@ defmodule Mix.Tasks.Lepton.Version do
         Mix.shell().info("#{current} -> #{next}")
 
       _ ->
-        Mix.raise("usage: mix lepton.version [--bump | --patch]")
+        Mix.raise("usage: mix lepton.version [--patch | --minor | --major]")
     end
   end
 
@@ -47,10 +50,18 @@ defmodule Mix.Tasks.Lepton.Version do
     end
   end
 
-  @doc "The next minor version, X.Y.Z -> X.(Y+1).0, or build number, X.Y.Z -> X.Y.(Z+1)."
-  def bump(version, part \\ :minor) do
+  @doc """
+  The next version: `:patch` (bug fixes, X.Y.Z -> X.Y.Z+1), `:minor`
+  (features, X.Y+1.0) or `:major` (an overhaul, X+1.0.0).
+  """
+  def bump(version, part) do
     %Version{major: major, minor: minor, patch: patch} = Version.parse!(version)
-    if part == :patch, do: "#{major}.#{minor}.#{patch + 1}", else: "#{major}.#{minor + 1}.0"
+
+    case part do
+      :patch -> "#{major}.#{minor}.#{patch + 1}"
+      :minor -> "#{major}.#{minor + 1}.0"
+      :major -> "#{major + 1}.0.0"
+    end
   end
 
   defp replace!(file, from, to) do

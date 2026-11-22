@@ -87,10 +87,11 @@ defmodule Lepton.SystemTest do
 
   # The build tasks live in the repository only, like the docs (:docs).
   @tag :docs
-  test "a publish bumps the minor version" do
-    assert Mix.Tasks.Lepton.Version.bump("1.0.0") == "1.1.0"
-    assert Mix.Tasks.Lepton.Version.bump("1.9.3") == "1.10.0"
-    assert Mix.Tasks.Lepton.Version.bump("1.0.0", :patch) == "1.0.1"
+  test "a release bumps the build number for fixes, the minor version for features, the major for an overhaul" do
+    assert Mix.Tasks.Lepton.Version.bump("1.4.2", :patch) == "1.4.3"
+    assert Mix.Tasks.Lepton.Version.bump("1.4.2", :minor) == "1.5.0"
+    assert Mix.Tasks.Lepton.Version.bump("1.9.3", :minor) == "1.10.0"
+    assert Mix.Tasks.Lepton.Version.bump("1.4.2", :major) == "2.0.0"
   end
 
   @tag :native

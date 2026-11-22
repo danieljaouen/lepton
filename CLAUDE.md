@@ -25,10 +25,13 @@ anything a user would notice. For each one:
    guide linked, every command documented; `test/man_test.exs`: every
    command has a manual page). `mix lepton.docs` writes
    `docs/` in the site checkout (below) for a local preview.
-5. **Publish**: every publish gets a minor version bump (1.0.0 ->
-   1.1.0): `mix lepton.version --bump` (mix.exs and
-   `rootfs/etc/os-release`), or `--patch` for the build number (1.0.0 ->
-   1.0.1) when the user asks for that; commit, then `mix lepton.publish` builds and releases the ISO and
+5. **Publish**: every publish gets one version bump (mix.exs and
+   `rootfs/etc/os-release`), chosen by the biggest change it releases,
+   without asking: `mix lepton.version --patch` for bug fixes only
+   (1.4.2 -> 1.4.3), `--minor` for new features (1.4.2 -> 1.5.0),
+   `--major` for a complete overhaul (1.4.2 -> 2.0.0). Say which in the
+   report. If the user names a bump, use theirs. Commit, then
+   `mix lepton.publish` builds and releases the ISO and
    regenerates and pushes the docs (even when the ISO is unchanged).
    `mix lepton.docs --publish` publishes documentation-only fixes.
 
