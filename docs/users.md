@@ -88,9 +88,12 @@ at every boot.
 
 Accounts and sudo are enforced by Lepton's own commands, not by the
 kernel. Lepton's whole userland is one Erlang VM running as root, so code
-you run with `iex`, `elixir` or `mix` can still do anything. Think of
+you run with `iex` or `elixir` can still do anything. (`mix` runs as
+you, in a VM of its own.) Think of
 accounts as protection against mistakes and a clear line between your
-files and the system, not as a wall between untrusted users.
+files and the system, not as a wall between untrusted users. Don't share
+a Lepton machine with people you don't trust, or let them log in through
+`ssh`: see [Limitations](limitations.html).
 
 The files your commands create are yours, even though Lepton writes them
 as root. That covers redirects (`>`, `>>`), `touch`, `mkdir`, `cp`,

@@ -7,6 +7,15 @@ summary: What Lepton doesn't do yet.
 
 # Limitations
 
+> **Don't use Lepton where several people share one machine, or where
+> anyone you don't trust can log in.** Lepton's userland is one Erlang VM
+> running as root. Accounts and `sudo` are enforced by Lepton's commands,
+> not by the kernel: anyone with a shell (at the console, through `ssh`,
+> or a native program through `lepton`) can run `iex` or `elixir` and do
+> anything root can, including reading every user's files and password
+> hashes. Use separate accounts to keep your own files tidy, not to keep
+> people apart. See [Users and sudo](users.html).
+
 - The live ISO keeps everything in RAM. An installed system persists
   `/root` and `/var/lib/lepton` only; changes elsewhere (for example
   `/etc`) reset at boot.
@@ -25,7 +34,8 @@ summary: What Lepton doesn't do yet.
   work; WPA3-only and enterprise (802.1X) networks don't.
 - [Users and sudo](users.html) are enforced by Lepton's commands, not the
   kernel: everything runs in one Erlang VM as root, so `iex` and
-  `elixir` can bypass them. Services all run as root.
+  `elixir` can bypass them (see the warning above). Services all run as
+  root.
 - Services are simple ones only: no dependencies (`After=`,
   `Requires=`), timers, socket activation or resource limits.
 - git: no three-way merge (pulls fast-forward only) and no rebase.
