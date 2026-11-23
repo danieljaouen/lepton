@@ -66,6 +66,15 @@ defmodule Lepton.SSHDTest do
     assert SSH.blob(scanned) == SSH.blob(SSH.public(key))
   end
 
+  # OpenSSH 10 warns about a connection without it. Lepton's crypto has
+  # ML-KEM from OpenSSL 3.5 (Ubuntu 26.04's, which the image ships).
+  test "the key exchange is post-quantum: mlkem768x25519-sha256", ctx do
+    assert hd(:ssh.default_algorithms()[:kex]) == :"mlkem768x25519-sha256"
+    assert {:ok, conn, _} = connect(ctx)
+    assert :ssh.connection_info(conn, [:algorithms])[:algorithms][:kex] == :"mlkem768x25519-sha256"
+    SSH.close(conn)
+  end
+
   test "passwords never work, and neither do other keys, other accounts or a writable authorized_keys", ctx do
     # The right password, but the daemon offers public keys only.
     assert {:error, _} =

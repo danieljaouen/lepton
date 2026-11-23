@@ -31,7 +31,7 @@ pre-built, unmodified substrate that is downloaded at build time
 | `wpa_supplicant` (+ `hostapd` for the self-tests) | Alpine (musl, in `/usr/lib/musl`) | WPA authentication for Wi-Fi |
 | Firefox and its libraries (GTK, fonts) | Alpine, downloaded when first used (`Lepton.Apps`, `Lepton.Alpine`) | a complete web browser |
 | ERTS / OTP 29.1.2 | Hex.pm prebuilt for arm64 | "Erlang, and so on down the line" |
-| glibc, libstdc++, zlib, libtinfo, libcrypto | Ubuntu 24.04 arm64 | ERTS links against them |
+| glibc, libstdc++, zlib, libtinfo, libcrypto (OpenSSL 3.5, for ML-KEM) | Ubuntu 26.04 arm64 | ERTS links against them |
 | GRUB EFI | Debian `grub-efi-arm64-unsigned` | firmware → kernel loader |
 | CA certificates | Alpine | TLS trust roots |
 | busybox (static) | Alpine | **syscall shim**: `mount(2)`, `finit_module(2)` and termios `ioctl(2)`, which ERTS cannot issue (`Lepton.Sys`). It is never a command at Lepton's prompt; `/bin/sh` and `/usr/bin/env` link to it only for native programs that start others through them (Mix's rebar3, PostgreSQL's `initdb`), and its applets fill in the usual Unix programs for Claude Code's bash. |
@@ -234,9 +234,9 @@ virtual machine of its own. With nested virtualization (`mix lepton.qemu
 --nested` on an M3 or later Mac) the guest has KVM and the suite takes
 about as long as on the Mac; see docs/virtual-machines.md.
 
-Current results: 352 tests, 0 failures inside the VM (run from the live
+Current results: 353 tests, 0 failures inside the VM (run from the live
 ISO; the 19 `:docs` tests, for the docs, site tags and build tasks, are
-host-only), and 348 passing plus 23 excluded (native/network) on the host.
+host-only), and 349 passing plus 23 excluded (native/network) on the host.
 
 ## Version updates
 

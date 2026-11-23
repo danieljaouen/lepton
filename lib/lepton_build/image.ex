@@ -379,7 +379,7 @@ defmodule LeptonBuild.Image do
   defp shared_libs(src, otp_dir, erts) do
     # soname -> host path, from every extracted Ubuntu package.
     available =
-      for pkg <- ~w(libc6 libtinfo6 zlib1g libstdc++6 libgcc-s1 libssl3t64),
+      for pkg <- LeptonBuild.Sources.ubuntu_packages(),
           dir <- [Path.join(src[pkg].dir, "usr/lib/aarch64-linux-gnu"), Path.join(src[pkg].dir, "lib/aarch64-linux-gnu")],
           File.dir?(dir),
           file <- File.ls!(dir),

@@ -12,7 +12,7 @@ defmodule LeptonBuild.Sources do
   recorded in `sources.lock` inside the cache directory.
   """
 
-  @otp_url "https://builds.hex.pm/builds/otp/arm64/ubuntu-24.04"
+  @otp_url "https://builds.hex.pm/builds/otp/arm64/ubuntu-26.04"
 
   @alpine_mirror "https://dl-cdn.alpinelinux.org/alpine"
   @alpine_branch "v3.24"
@@ -51,8 +51,9 @@ defmodule LeptonBuild.Sources do
   def firmware_packages, do: Enum.map(@alpine_firmware, &elem(&1, 1))
 
   @ubuntu_mirror "http://ports.ubuntu.com/ubuntu-ports"
-  @ubuntu_suites ["noble-updates", "noble"]
-  @ubuntu_packages ~w(libc6 libtinfo6 zlib1g libstdc++6 libgcc-s1 libssl3t64)
+  @ubuntu_suites ["resolute-updates", "resolute"]
+  @ubuntu_packages ~w(libc6 libtinfo6 zlib1g libstdc++6 libgcc-s1 libssl3t64 libzstd1)
+  def ubuntu_packages, do: @ubuntu_packages
 
   @debian_mirror "https://deb.debian.org/debian"
   @debian_suite "trixie"
@@ -128,7 +129,8 @@ defmodule LeptonBuild.Sources do
         end
       end) || raise "#{otp_version} not listed in #{@otp_url}/builds.txt"
 
-    file = download!("#{@otp_url}/#{otp_version}.tar.gz", "#{otp_version}.tar.gz", sha256: sha)
+    # Named for the distribution too: builds of one version differ between them.
+    file = download!("#{@otp_url}/#{otp_version}.tar.gz", "#{otp_version}-#{Path.basename(@otp_url)}.tar.gz", sha256: sha)
     dir = extract_dir("otp")
     extract_once!(file, dir)
     {"otp", %{version: otp_version, sha256: sha, dir: Path.join(dir, otp_version)}}
@@ -194,7 +196,10 @@ defmodule LeptonBuild.Sources do
       deb = download!("#{mirror}/#{pkg["Filename"]}", Path.basename(pkg["Filename"]), sha256: pkg["SHA256"])
       dir = extract_dir(name)
 
-      unless File.dir?(dir) do
+      stamp = dir <> ".from"
+
+      # Extracted again when the package's version changes.
+      unless File.dir?(dir) and File.read(stamp) == {:ok, Path.basename(deb)} do
         tmp = dir <> ".tmp"
         File.rm_rf!(tmp)
         File.mkdir_p!(tmp)
@@ -206,7 +211,9 @@ defmodule LeptonBuild.Sources do
         File.write!(data_file, data)
         system_tar!(data_file, tmp)
         File.rm!(data_file)
+        File.rm_rf!(dir)
         File.rename!(tmp, dir)
+        File.write!(stamp, Path.basename(deb))
       end
 
       {name, %{version: pkg["Version"], sha256: pkg["SHA256"], dir: dir}}

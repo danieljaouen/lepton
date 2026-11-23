@@ -42,6 +42,10 @@ The host key, an ed25519 key, is made the first time `sshd` starts. An
 installed system keeps it, so clients recognise Lepton after a restart;
 the live ISO makes a new one each boot.
 
+Key exchange is post-quantum first: `mlkem768x25519-sha256` (ML-KEM-768
+with X25519, which OpenSSH 10 prefers and warns without), then
+`curve25519-sha256` and the other usual ones for older clients.
+
 ## OPTIONS
 
 - `-p PORT`: listen on PORT instead of 22. To keep it in the service,

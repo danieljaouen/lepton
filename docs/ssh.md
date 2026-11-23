@@ -198,6 +198,10 @@ ssh alice@192.168.1.23 uptime  # one command; its exit status is ssh's
 The first time, `ssh` shows Lepton's host key fingerprint. Check it
 against the one in `svc logs sshd` before you answer yes.
 
+The connection's key exchange is post-quantum, `mlkem768x25519-sha256`,
+as OpenSSH 10 (the Mac's `ssh` too) prefers: it doesn't warn that the
+connection "is not using a post-quantum key exchange algorithm".
+
 - You log in as one of Lepton's [accounts](users.html), with a key in
   that account's `~/.ssh/authorized_keys` (one OpenSSH public key per
   line; options before the key are allowed and ignored). Root can log
