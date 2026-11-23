@@ -303,7 +303,7 @@ defmodule Lepton.EditorTest do
     end
   end
 
-  test "magit: s saves the file's buffer first and stages it; s on a section heading stages the section" do
+  test "magit: s saves the file's buffer first and stages it, s on a section heading stages the section; commit with , c / C-c C-c / :wq, cancel with C-c C-k" do
     dir = tmp_dir("magit")
     repo = Lepton.Git.Repo.init(dir)
     File.write!(Path.join(dir, "words.org"), "* one\n")
@@ -336,5 +336,27 @@ defmodule Lepton.EditorTest do
     # Nowhere to stage from: it says so.
     st = keys(st, "g g s")
     assert st.message =~ "Nothing to stage here"
+
+    # c c, then C-c C-k: canceled, back to the status, nothing committed.
+    st = keys(st, "S c c")
+    assert Editor.buf(st).kind == :commit and st.mode == :insert
+    st = keys(st, "o o p s C-c C-k")
+    assert st.message == "Commit canceled" and Editor.buf(st).kind == :magit and st.mode == :normal
+    assert length(Lepton.Git.log(repo, 10)) == 1
+
+    # , c commits (from normal state) and comes back to the status.
+    st = keys(st, "c c T w o ESC , c")
+    assert st.message =~ ~r/^\[\S+ [0-9a-f]{7}\] Two$/ and Editor.buf(st).kind == :magit
+    assert hd(Lepton.Git.log(repo, 10)).subject == "Two" and Lepton.Git.status(repo).staged == []
+    refute st.quit
+
+    # C-c C-c from insert state, and :wq, commit too.
+    File.write!(Path.join(dir, "b.txt"), "b3\n")
+    st = keys(st, "S c c T h r e e C-c C-c")
+    assert hd(Lepton.Git.log(repo, 10)).subject == "Three" and Editor.buf(st).kind == :magit
+    File.write!(Path.join(dir, "b.txt"), "b4\n")
+    st = keys(st, "g r S c c F o u r ESC : w q RET")
+    assert hd(Lepton.Git.log(repo, 10)).subject == "Four" and Editor.buf(st).kind == :magit
+    refute st.quit
   end
 end

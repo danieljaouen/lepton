@@ -8,7 +8,8 @@ defmodule Lepton.Editor.Magit do
   Evilified keys: `s`/`u` stage/unstage the file at point (on a section's
   heading: every file in it), `S`/`U` all,
   `TAB` toggles the file's diff, `c c` commits (write the message, then
-  `:wq` / `SPC f s` + `q`), `c a` amends, `P p` pushes and `F p` pulls
+  `, c` or `C-c C-c`, or `:wq`; `, k` or `C-c C-k` cancels; either way
+  back to the status), `c a` amends, `P p` pushes and `F p` pulls
   (GitHub over HTTPS), `b b`/`b c` switch/create branches, `l l` log,
   `g r` refresh, `q` quits. The user's magit-mode-map bindings
   (`C-j`/`C-k` window movement, `/`, `n`, `N`, `Z` stash, `zt`, `zz`)
@@ -23,11 +24,15 @@ defmodule Lepton.Editor.Magit do
 
     case Git.root(dir) do
       nil -> Editor.api(st, :error, "Not inside a Git repository")
-      root ->
-        {st, saved} = Editor.api(st, :save_repo_buffers, root)
-        st = render_status(st, root, MapSet.new())
-        if saved != [], do: Editor.api(st, :msg, "Saved #{Enum.join(saved, ", ")}"), else: st
+      root -> status_for(st, root)
     end
+  end
+
+  @doc "The status buffer of the repository at `root` (its modified buffers saved first)."
+  def status_for(st, root) do
+    {st, saved} = Editor.api(st, :save_repo_buffers, root)
+    st = render_status(st, root, MapSet.new())
+    if saved != [], do: Editor.api(st, :msg, "Saved #{Enum.join(saved, ", ")}"), else: st
   end
 
   defp render_status(st, root, expanded) do
@@ -204,7 +209,7 @@ defmodule Lepton.Editor.Magit do
 
       template =
         initial <>
-          "\n# Please enter the commit message for your changes. Lines starting\n# with '#' will be ignored. Save and close (:wq or ZZ) to commit.\n#\n" <>
+          "\n# Please enter the commit message for your changes. Lines starting\n# with '#' will be ignored. , c or C-c C-c (or :wq) commits; , k or\n# C-c C-k cancels.\n#\n" <>
           Enum.map_join(staged, "\n", fn {p, how} -> "#\t#{how}: #{p}" end) <> "\n"
 
       File.write!(path, template)

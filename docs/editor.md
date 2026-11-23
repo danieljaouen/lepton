@@ -83,7 +83,19 @@ supported" by `keys` and `SPC h d b`, never silently dropped.
 `Z`. `s` and `u` take the file under the cursor, or on a section's
 heading (Unstaged changes, Untracked files, Staged changes) every file in
 it. As magit does, the status buffer first saves your modified buffers
-in the repository, so what you typed is what you stage. See
-[git and GitHub](git.html).
+in the repository, so what you typed is what you stage.
+
+To commit, press `c c` (or `c a` to amend the last commit): a buffer
+opens for the message, in insert state. Write it, then finish as in
+Spacemacs:
+
+| Keys | |
+|---|---|
+| `, c`, `, ,` or `C-c C-c` (also `:wq`, `ZZ`) | commit |
+| `, k`, `, a` or `C-c C-k` | cancel |
+
+`C-c C-c` and `C-c C-k` work in insert state too. Either way you are back
+in the status buffer, with the commit (`[main 1a2b3c4] Subject`) in the
+echo area; then `P p` pushes. See [git and GitHub](git.html).
 
 <!-- commands: le -->

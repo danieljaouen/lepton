@@ -74,7 +74,8 @@ gh api /user
 
 ## From the editor
 
-In `le`, `SPC g s` opens a magit-style status buffer, where `P p` pushes
-and `F p` pulls. See [the editor](editor.html#git-from-the-editor).
+In `le`, `SPC g s` opens a magit-style status buffer: `s` stages, `c c`
+opens the commit message (finish with `, c` or `C-c C-c`, cancel with
+`, k` or `C-c C-k`), `P p` pushes and `F p` pulls. See [the editor](editor.html#git-from-the-editor).
 
 <!-- commands: git gh -->

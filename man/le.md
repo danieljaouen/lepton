@@ -27,7 +27,9 @@ include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
   maximise.
 - `SPC p f` find a file in the project, `SPC s s` or `SPC /` search.
 - `SPC g s` git status (magit-style: `s` stage, `u` unstage, `c c`
-  commit, `P p` push, `F p` pull).
+  commit, `P p` push, `F p` pull). In the commit message, `, c` or
+  `C-c C-c` (or `:wq`) commits and `, k` or `C-c C-k` cancels; both
+  return to the status.
 - `SPC SPC` run a command by name (M-x), `SPC ?` list bindings.
 - `SPC q q` quit.
 

@@ -371,6 +371,14 @@ defmodule Lepton.Editor do
 
   # -- normal state ------------------------------------------------------------------------
 
+  # with-editor in a commit message buffer (Spacemacs): `, c` / `, ,` /
+  # `C-c C-c` commit, `, a` / `, k` / `C-c C-k` cancel.
+  @commit_normal %{
+    [",", "c"] => :commit_finish, [",", ","] => :commit_finish, ["C-c", "C-c"] => :commit_finish,
+    [",", "a"] => :commit_cancel, [",", "k"] => :commit_cancel, ["C-c", "C-k"] => :commit_cancel
+  }
+  @commit_insert %{["C-c", "C-c"] => :commit_finish, ["C-c", "C-k"] => :commit_cancel}
+
   defp normal_key(st, key) do
     cond do
       st.pending == [] and st.operator == nil and key == "q" and st.macro_rec != nil ->
@@ -390,8 +398,9 @@ defmodule Lepton.Editor do
 
       true ->
         seq = st.pending ++ [key]
+        table = if buf(st).kind == :commit, do: Map.merge(st.km.normal, @commit_normal), else: st.km.normal
 
-        case Keymap.lookup(st.km.normal, seq) do
+        case Keymap.lookup(table, seq) do
           {:action, action} ->
             st = %{st | pending: []}
             count = st.count
@@ -720,6 +729,9 @@ defmodule Lepton.Editor do
   def do_action(st, :append, _), do: enter_insert(st) |> then(fn st -> {l, c} = cursor(st); if Buffer.line_length(buf(st), l) > 0, do: set_cursor(st, {l, c + 1}), else: st end)
   def do_action(st, :insert_bol, _), do: enter_insert(st) |> then(&set_cursor(&1, {elem(cursor(&1), 0), Motion.first_non_blank(buf(&1), elem(cursor(&1), 0))}))
   def do_action(st, :append_eol, _), do: enter_insert(st) |> then(&set_cursor(&1, {elem(cursor(&1), 0), Buffer.line_length(buf(&1), elem(cursor(&1), 0))}))
+
+  def do_action(st, :commit_finish, _), do: st |> exit_insert_if_needed() |> save() |> close_commit()
+  def do_action(st, :commit_cancel, _), do: st |> exit_insert_if_needed() |> close_commit() |> msg("Commit canceled")
 
   def do_action(st, :open_below, _) do
     st = snapshot(st)
@@ -1175,7 +1187,8 @@ defmodule Lepton.Editor do
       b.path == nil -> prompt(st, :write_file, "Write file: ", dir_of(st) <> "/")
       true ->
         {result, st} = save_buffer(st, b)
-        if result == :ok, do: msg(st, "Wrote #{Lepton.Ctx.tildify(st.ctx, b.path)}"), else: st
+        # (A commit message's save says what was committed instead.)
+        if result == :ok and b.kind != :commit, do: msg(st, "Wrote #{Lepton.Ctx.tildify(st.ctx, b.path)}"), else: st
     end
   end
 
@@ -1196,6 +1209,29 @@ defmodule Lepton.Editor do
         {:error, msg(st, "Cannot save #{b.name}: #{reason}", true)}
     end
   end
+
+  # A commit message buffer is done (committed, or not): back to the
+  # repository's status, as magit does. The message stays in the echo area.
+  defp close_commit(st) do
+    b = buf(st)
+
+    if b.kind == :commit do
+      message = {st.message, st.message_error}
+      st = kill_buffer(st, b.id)
+
+      if st.quit do
+        st
+      else
+        st = Magit.status_for(st, b.meta.repo_root)
+        %{st | message: elem(message, 0), message_error: elem(message, 1)}
+      end
+    else
+      st
+    end
+  end
+
+  defp exit_insert_if_needed(%{mode: m} = st) when m in [:insert, :replace], do: exit_insert(st)
+  defp exit_insert_if_needed(st), do: st
 
   # magit-save-repository-buffers: before git looks at the files, save
   # the modified buffers visiting files in the repository at `root`.
@@ -1251,6 +1287,9 @@ defmodule Lepton.Editor do
     b = buf(st)
 
     cond do
+      b.kind == :commit ->
+        close_commit(st)
+
       b.kind in [:magit, :help, :log, :list, :dired] and map_size(st.windows) == 1 and length(st.order) > 1 ->
         kill_buffer(st, b.id)
 
@@ -1509,6 +1548,7 @@ defmodule Lepton.Editor do
   defp insert_dispatch(st, key, e1) do
     seq = st.pending ++ [key]
     table = if st.completion, do: Map.merge(st.km.insert, st.km.completion), else: st.km.insert
+    table = if buf(st).kind == :commit, do: Map.merge(table, @commit_insert), else: table
 
     case Keymap.lookup(table, seq) do
       {:action, action} -> insert_action(%{st | pending: []}, action) |> update_completion(action)
