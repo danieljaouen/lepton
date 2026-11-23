@@ -57,3 +57,38 @@ defmodule LeptonBuild.DotfilesSourceTest do
     end
   end
 end
+
+defmodule LeptonBuild.StripBeamTest do
+  use ExUnit.Case
+
+  # The build tooling lives in the repository only (:docs).
+  @moduletag :docs
+
+  test "the image's modules lose what records the build machine, and keep working" do
+    [{mod, beam}] =
+      Code.compile_string("""
+      defmodule LeptonStripProbe do
+        @moduledoc "A probe."
+        @external_resource "/Users/someone/src/lepton/man/ls.md"
+        @doc "Twice."
+        def twice(x), do: 2 * x
+      end
+      """)
+
+    stripped = LeptonBuild.Image.strip_beam(beam)
+    {:ok, _, before} = :beam_lib.all_chunks(beam)
+    {:ok, _, chunks} = :beam_lib.all_chunks(stripped)
+    # Every chunk stays (code, docs, line numbers, ...) but those two.
+    assert Enum.map(chunks, &elem(&1, 0)) == Enum.map(before, &elem(&1, 0)) -- [~c"Dbgi", ~c"CInf"]
+    refute :binary.match(stripped, "/Users/someone") != :nomatch
+    refute :binary.match(beam, "/Users/someone") == :nomatch, "(the probe did record the path before)"
+
+    :code.purge(mod)
+    :code.delete(mod)
+    {:module, ^mod} = :code.load_binary(mod, ~c"in_memory", stripped)
+    assert mod.twice(21) == 42
+  after
+    :code.purge(LeptonStripProbe)
+    :code.delete(LeptonStripProbe)
+  end
+end

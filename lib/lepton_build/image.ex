@@ -341,7 +341,7 @@ defmodule LeptonBuild.Image do
       for file <- Path.wildcard(Path.join(ebin, "*.beam")),
           name = Path.basename(file, ".beam"),
           shipped?(name) do
-        {name, {:file, Path.join(dest, Path.basename(file)), 0o644, {:path, file}}}
+        {name, {:file, Path.join(dest, Path.basename(file)), 0o644, {:data, strip_beam(File.read!(file))}}}
       end
 
     {:ok, [{:application, :lepton, props}]} = :file.consult(Path.join(ebin, "lepton.app"))
@@ -350,6 +350,26 @@ defmodule LeptonBuild.Image do
     app_file = :io_lib.format(~c"~p.~n", [{:application, :lepton, props}]) |> IO.iodata_to_binary()
 
     [{:file, Path.join(dest, "lepton.app"), 0o644, {:data, app_file}} | Enum.map(beams, &elem(&1, 1))]
+  end
+
+  @doc """
+  A compiled module without what records the build machine: its debug
+  info (`Dbgi`: the code again, for debuggers and type tools, with the
+  source's absolute path), its compile info (`CInf`: the source path and
+  options) and its `@external_resource` attributes (the absolute paths
+  of files read at compile time). Its code, docs (`h`), line numbers and
+  other attributes stay.
+  """
+  def strip_beam(beam) do
+    {:ok, _mod, chunks} = :beam_lib.all_chunks(beam)
+
+    chunks =
+      for {id, data} <- chunks, id not in [~c"Dbgi", ~c"CInf"] do
+        if id == ~c"Attr", do: {id, data |> :erlang.binary_to_term() |> Keyword.delete(:external_resource) |> :erlang.term_to_binary()}, else: {id, data}
+      end
+
+    {:ok, stripped} = :beam_lib.build_module(chunks)
+    stripped
   end
 
   defp shipped?(module) do

@@ -25,8 +25,12 @@ defmodule Lepton.Man do
   for f <- @files, do: @external_resource(f)
   @sources Map.new(@files, &{Path.basename(&1, ".md"), File.read!(&1)})
 
-  # A page added or removed recompiles this module.
-  def __mix_recompile__?, do: @dir |> Path.join("*.md") |> Path.wildcard() |> Enum.sort() != @files
+  @names Enum.map(@files, &Path.basename/1)
+
+  # A page added or removed recompiles this module. (Mix asks from the
+  # project's root; file names only, so no absolute path of the build
+  # machine is compiled in.)
+  def __mix_recompile__?, do: Path.wildcard("man/*.md") |> Enum.map(&Path.basename/1) |> Enum.sort() != @names
 
   @indent 7
 

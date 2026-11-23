@@ -44,7 +44,6 @@ defmodule Lepton.Services do
   @log_max 1_048_576
   @start_burst 5
   @start_interval 10_000
-  @repo_units Path.expand("../../rootfs/etc/lepton/services", __DIR__)
 
   def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -64,7 +63,9 @@ defmodule Lepton.Services do
       _ -> hd(unit_dirs())
     end
   end
-  def system_dir, do: if(Lepton.Sys.native?(), do: "/etc/lepton/services", else: @repo_units)
+  # (Off Lepton, in development: the repository's, from its root, where
+  # Mix and the tests run.)
+  def system_dir, do: if(Lepton.Sys.native?(), do: "/etc/lepton/services", else: Path.join(File.cwd!(), "rootfs/etc/lepton/services"))
   def home, do: if(Lepton.Sys.native?(), do: "/root", else: System.user_home!())
 
   @doc "Every service with a unit file, by name."
