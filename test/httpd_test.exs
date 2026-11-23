@@ -187,6 +187,18 @@ defmodule Lepton.HTTPDTest do
     assert location == "https://app.test:#{https}/a?b"
   end
 
+  # As browsers offer it (x25519mlkem768 first): ML-KEM needs OpenSSL 3.5,
+  # in Lepton's runtime since 1.12.0. TLS 1.2 has no post-quantum groups.
+  test "HTTPS key exchange is post-quantum: x25519mlkem768" do
+    {:ok, "pq.test"} = Certs.self_signed(["pq.test"])
+    %{https: https} = start(%HTTPD{tls_port: 0, sites: []})
+    {:ok, s} = :ssl.connect(~c"127.0.0.1", https, [verify: :verify_none, server_name_indication: ~c"pq.test"], 5000)
+    assert {:ok, info} = :ssl.connection_information(s, [:protocol, :selected_group])
+    assert info[:protocol] == :"tlsv1.3"
+    assert info[:selected_group] == :x25519mlkem768
+    :ssl.close(s)
+  end
+
   test "Let's Encrypt: the order, the HTTP-01 challenge (answered by httpd), the certificate, renewal" do
     %{http: port} = start(%HTTPD{sites: [site(root: tmp_dir("www2"))]})
     acme = Lepton.FakeACME.start(port)

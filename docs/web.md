@@ -53,6 +53,10 @@ CERT -k KEY` give one to use for any name. `-r` (`redirect_https =
 true`) sends plain HTTP to HTTPS. Ports below 1024 (80, 443) need root:
 run it with `sudo`, or as a service.
 
+HTTPS speaks TLS 1.3 and 1.2. Over TLS 1.3 the key exchange is
+post-quantum, `X25519MLKEM768`, as current browsers offer it; TLS 1.2,
+for older clients, has no post-quantum key exchange.
+
 ## Certificates
 
 Which certificate depends on who will visit:
