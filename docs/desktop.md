@@ -157,7 +157,9 @@ Photon with a different window manager, styled after Windows 95:
 
 - grey 3D window frames with a navy title bar and **minimize**,
   **maximize** and **close** buttons (double-click a title bar to
-  maximize or restore)
+  maximize or restore); fullscreen (a video's fullscreen button in
+  Firefox, or F11) fills the whole display, over the taskbar, until you
+  leave it (Esc)
 - a teal desktop with icons for [Firefox](apps.html), the Terminal, the
   Text Editor (`le`), the System Monitor (`top`),
   [Passwords](passwords.html) and **Install PostgreSQL** (which sets up

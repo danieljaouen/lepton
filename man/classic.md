@@ -8,6 +8,9 @@ button for each window, the Wi-Fi signal, Bluetooth, the volume, an
 emoji picker and a clock; and the Start menu (click Start or press
 Ctrl+Esc).
 
+A window that goes fullscreen (a video in Firefox) fills its display
+with no frame, over the taskbar while it has the focus.
+
 The emoji picker (the yellow smiley beside the clock) types the emoji
 you click into the focused window: a text field in Firefox or a
 terminal window. A window that can't take it gets it on the clipboard

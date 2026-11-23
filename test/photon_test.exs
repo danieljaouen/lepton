@@ -305,6 +305,71 @@ defmodule Lepton.PhotonTest do
     _ = b
   end
 
+  # A video's fullscreen button in Firefox: xdg_toplevel.set_fullscreen.
+  test "fullscreen: the whole display, no frame, over the taskbar while focused; back as it was" do
+    {ph, out, env} = start_photon(wm: "classic")
+    a = window(env, 100, 50, Render.px(1, 1, 1))
+    {c, shm} = Client.bind(a.c, "wl_shm", 1)
+    # The client draws a w x h buffer of `pixel`, as asked.
+    draw = fn c, w, h, pixel ->
+      {c, pool, file} = Client.shm_pool(c, shm, w * h * 4, env["XDG_RUNTIME_DIR"])
+      :ok = :file.pwrite(file, 0, :binary.copy(pixel, w * h))
+      {c, buf} = Client.create(c, pool, :create_buffer, "wl_buffer", [:new, 0, w, h, w * 4, 1])
+      c = c |> Client.request(a.surface, :attach, [buf, 0, 0]) |> Client.request(a.surface, :damage_buffer, [0, 0, w, h]) |> Client.request(a.surface, :commit, [])
+      {c, _} = Client.roundtrip(c)
+      Photon.sync(ph)
+      c
+    end
+
+    configured = fn c ->
+      {evs, c} = events(c)
+      [{w, h, states} | _] = Enum.reverse(for {id, "xdg_toplevel", :configure, [w, h, st]} <- evs, id == a.top, do: {w, h, for(<<x::native-32 <- st>>, do: x)})
+      {{w, h, Enum.sort(states)}, c}
+    end
+
+    # Maximized first, then fullscreen: the display's size, "fullscreen" (2) and activated (4).
+    c = Client.request(c, a.top, :set_maximized, [])
+    {{mw, mh, [1, 4]}, c} = configured.(c)
+    c = draw.(c, mw, mh, Render.px(1, 1, 1))
+    c = Client.request(c, a.top, :set_fullscreen, [0])
+    assert {{640, 400, [1, 2, 4]}, c} = configured.(c)
+    c = draw.(c, 640, 400, Render.px(3, 3, 3))
+    assert [%{fullscreen: true, x: 0, y: 0, width: 640, height: 400}] = Photon.info(ph).windows
+
+    # No title bar or border, and the taskbar is under it.
+    for {x, y} <- [{0, 0}, {639, 0}, {320, 390}, {5, 395}], do: assert(pixel_at(out, x, y) == Render.px(3, 3, 3))
+    # A click where the Start button was is the window's, not the taskbar's.
+    Photon.input(ph, {:abs_px, 20, 390, 0})
+    Photon.input(ph, {:button, 0x110, true})
+    Photon.input(ph, {:button, 0x110, false})
+    Photon.sync(ph)
+    assert pixel_at(out, 100, 400 - 28 - 20) == Render.px(3, 3, 3)
+    # Maximizing does nothing while it's fullscreen.
+    c = Client.request(c, a.top, :set_maximized, [])
+    assert [%{fullscreen: true, x: 0, y: 0}] = Photon.info(ph).windows
+
+    # Another window takes the focus: the taskbar is back on top; the window stays fullscreen.
+    b = window(env, 80, 40, Render.px(2, 2, 2))
+    Photon.sync(ph)
+    assert pixel_at(out, 320, 390) == Render.rgb("#c0c0c0")
+    assert {{640, 400, [1, 2]}, c} = configured.(c)
+    Photon.input(ph, {:key, 56, true})
+    Photon.input(ph, {:key, 15, true})
+    Photon.input(ph, {:key, 15, false})
+    Photon.input(ph, {:key, 56, false})
+    Photon.sync(ph)
+    assert pixel_at(out, 320, 390) == Render.px(3, 3, 3)
+
+    # Leaving fullscreen: maximized again, framed, above the taskbar.
+    {_, c} = configured.(c)
+    c = Client.request(c, a.top, :unset_fullscreen, [])
+    assert {{^mw, ^mh, [1, 4]}, c} = configured.(c)
+    _c = draw.(c, mw, mh, Render.px(1, 1, 1))
+    assert pixel_at(out, 320, 390) == Render.rgb("#c0c0c0")
+    assert Enum.any?(Photon.info(ph).windows, &match?(%{fullscreen: false, maximized: true, width: ^mw}, &1))
+    _ = b
+  end
+
   test "a window bigger than the screen is asked to fit it" do
     {ph, _out, env} = start_photon()
     win = window(env, 700, 500, Render.px(9, 9, 9))

@@ -62,6 +62,7 @@ defmodule Lepton.Photon do
 
   # xdg_toplevel states
   @maximized 1
+  @fullscreen 2
   @resizing 3
   @activated 4
 
@@ -94,7 +95,8 @@ defmodule Lepton.Photon do
     @moduledoc false
     # x, y: the frame's top-left (toplevels) or the content's (popups)
     # seq: the order windows opened in (taskbars keep it)
-    defstruct [:key, :kind, :x, :y, :title_rows, :parent, :seq, maximized: nil, minimized: false]
+    # fullscreen: nil, or where the window was and its size, to go back to
+    defstruct [:key, :kind, :x, :y, :title_rows, :parent, :seq, maximized: nil, fullscreen: nil, minimized: false]
   end
 
   defstruct [
@@ -304,7 +306,7 @@ defmodule Lepton.Photon do
     windows =
       for w <- Enum.reverse(st.windows) do
         s = surface(st, w.key)
-        %{title: s.title, app_id: s.app_id, kind: w.kind, x: w.x, y: w.y, width: s.w, height: s.h, focused: w.key == st.keyboard_focus, minimized: w.minimized, maximized: w.maximized != nil}
+        %{title: s.title, app_id: s.app_id, kind: w.kind, x: w.x, y: w.y, width: s.w, height: s.h, focused: w.key == st.keyboard_focus, minimized: w.minimized, maximized: w.maximized != nil, fullscreen: w.fullscreen != nil}
       end
 
     {:reply, %{socket: st.socket_path, clients: clients, windows: windows, output: {st.output.width, st.output.height}, wm: st.wm}, st}
@@ -711,8 +713,8 @@ defmodule Lepton.Photon do
 
   defp request(st, sock, _id, obj, :set_maximized, []), do: maximize(st, {sock, obj.data.surface}, true)
   defp request(st, sock, _id, obj, :unset_maximized, []), do: maximize(st, {sock, obj.data.surface}, false)
-  defp request(st, sock, _id, obj, :set_fullscreen, [_output]), do: maximize(st, {sock, obj.data.surface}, true)
-  defp request(st, sock, _id, obj, :unset_fullscreen, []), do: maximize(st, {sock, obj.data.surface}, false)
+  defp request(st, sock, _id, obj, :set_fullscreen, [_output]), do: fullscreen(st, {sock, obj.data.surface}, true)
+  defp request(st, sock, _id, obj, :unset_fullscreen, []), do: fullscreen(st, {sock, obj.data.surface}, false)
 
   defp request(st, _sock, _id, %{iface: "xdg_toplevel"}, op, _args) when op in [:set_parent, :show_window_menu, :set_max_size, :set_min_size, :set_minimized], do: st
   defp request(st, _sock, _id, %{iface: "xdg_popup"}, :grab, _args), do: st
@@ -1209,6 +1211,7 @@ defmodule Lepton.Photon do
   defp content_size(%Surface{w: w, h: h}), do: {w, h}
 
   defp content_origin(_st, %Win{kind: :popup, x: x, y: y}), do: {x, y}
+  defp content_origin(_st, %Win{fullscreen: f, x: x, y: y}) when f != nil, do: {x, y}
   defp content_origin(st, %Win{x: x, y: y}) do
     {dx, dy} = st.wm.content_offset()
     {x + dx, y + dy}
@@ -1272,10 +1275,16 @@ defmodule Lepton.Photon do
     case surface(st, key) do
       %Surface{role: {:toplevel, _}} ->
         w = window(st, key)
-        states = if(key == st.keyboard_focus, do: [@activated], else: []) ++ if(w && w.maximized, do: [@maximized], else: [])
+        states = if(key == st.keyboard_focus, do: [@activated], else: []) ++ if(w && w.maximized, do: [@maximized], else: []) ++ if(w && w.fullscreen, do: [@fullscreen], else: [])
         # A maximized window must be told its size every time: for GTK,
         # "maximized" with 0x0 means "pick a size", and it picks 1x1.
-        {cw, ch} = if w && w.maximized, do: maximized_size(st, w), else: {0, 0}
+        {cw, ch} =
+          cond do
+            w && w.fullscreen -> fullscreen_size(st, w)
+            w && w.maximized -> maximized_size(st, w)
+            true -> {0, 0}
+          end
+
         configure(st, key, cw, ch, states)
 
       _ ->
@@ -1300,7 +1309,7 @@ defmodule Lepton.Photon do
   # A window that grew past the bottom or right of the work area moves back into it.
   defp keep_in_work_area(st, key) do
     case {window(st, key), surface(st, key)} do
-      {%Win{kind: :toplevel, maximized: nil} = w, %Surface{} = s} ->
+      {%Win{kind: :toplevel, maximized: nil, fullscreen: nil} = w, %Surface{} = s} ->
         {ax, ay, aw, ah} = st.wm.work_area(st.wm_state)
         {_, _, fw, fh} = window_rect(st, w, s)
         x = w.x |> min(ax + aw - fw) |> max(ax)
@@ -1335,6 +1344,9 @@ defmodule Lepton.Photon do
 
   defp maximize(st, key, on?) do
     case window(st, key) do
+      %Win{fullscreen: f} when f != nil ->
+        st
+
       %Win{} = w ->
         {ax, ay, _, _} = display_area(st, w)
         {cw, ch} = content_size(surface(st, key))
@@ -1357,6 +1369,37 @@ defmodule Lepton.Photon do
       nil ->
         st
     end
+  end
+
+  # Fullscreen (a video's fullscreen button in Firefox): the whole display
+  # the window is on, no frame, over the taskbar while it has the focus.
+  # Leaving it puts the window back where it was, maximized if it was.
+  defp fullscreen(st, key, on?) do
+    case window(st, key) do
+      %Win{kind: :toplevel, fullscreen: nil} = w when on? ->
+        {dx, dy, _, _} = Screen.rect_at(st.output, {w.x + 40, w.y + 8})
+        {cw, ch} = content_size(surface(st, key))
+        st = damage_window(st, key) |> put_window(%{w | fullscreen: {w.x, w.y, cw, ch}, x: dx, y: dy})
+        st |> raise_window(key) |> focus(key) |> reconfigure(key) |> damage_window(key)
+
+      %Win{kind: :toplevel, fullscreen: {x, y, pw, ph}} = w when not on? ->
+        st = damage_window(st, key) |> put_window(%{w | fullscreen: nil, x: x, y: y})
+
+        if w.maximized do
+          st |> reconfigure(key) |> redecorate(key) |> damage_window(key)
+        else
+          configure(st, key, pw, ph, if(key == st.keyboard_focus, do: [@activated], else: [])) |> redecorate(key)
+        end
+
+      _ ->
+        st
+    end
+  end
+
+  # The display a fullscreen window covers: its size.
+  defp fullscreen_size(st, %Win{x: x, y: y}) do
+    {_, _, dw, dh} = Screen.rect_at(st.output, {x, y})
+    {dw, dh}
   end
 
   # -- displays ------------------------------------------------------------------------------
@@ -1396,6 +1439,11 @@ defmodule Lepton.Photon do
         st = %{st | background: st.wm.background(st.wm_state)}
 
         Enum.reduce(st.windows, st, fn
+          %Win{kind: :toplevel, fullscreen: f} = w, st when f != nil ->
+            {dx, dy, _, _} = Screen.rect_at(st.output, {min(w.x, screen.width - 1), min(w.y, screen.height - 1)})
+            st = put_window(st, %{w | x: dx, y: dy})
+            reconfigure(st, w.key)
+
           %Win{kind: :toplevel, maximized: m} = w, st when m != nil ->
             {ax, ay, _, _} = display_area(st, %{w | x: min(w.x, screen.width - 1)})
             st = put_window(st, %{w | x: ax, y: ay})
@@ -1432,6 +1480,8 @@ defmodule Lepton.Photon do
 
   defp window_rect(_st, %Win{kind: :popup, x: x, y: y}, s), do: Tuple.insert_at(Tuple.insert_at(content_size(s), 0, y), 0, x)
 
+  defp window_rect(_st, %Win{fullscreen: f, x: x, y: y}, s) when f != nil, do: Tuple.insert_at(Tuple.insert_at(content_size(s), 0, y), 0, x)
+
   defp window_rect(st, %Win{x: x, y: y}, s) do
     {cw, ch} = content_size(s)
     {fw, fh} = st.wm.frame_size(cw, ch)
@@ -1461,7 +1511,9 @@ defmodule Lepton.Photon do
     st = refresh_wm(st)
     if st.repaint, do: Process.cancel_timer(st.repaint)
     {below, above} = st.wm_layers
-    layers = below ++ layers(st) ++ above ++ shot_layers(st)
+    # The focused window, fullscreen, covers the taskbar too (and its popups it).
+    {windows, top} = layers(st) |> Enum.split_with(&(not &1.top))
+    layers = below ++ windows ++ above ++ top ++ shot_layers(st)
     cursor = if st.hide_cursor, do: nil, else: cursor(st)
 
     rows = Enum.flat_map(merge(st.damage), &Render.compose(&1, st.background, layers, cursor))
@@ -1518,6 +1570,8 @@ defmodule Lepton.Photon do
   end
 
   defp layers(st) do
+    top = fullscreen_top(st)
+
     for w <- st.windows, not w.minimized, s = surface(st, w.key), s != nil and s.content != nil do
       {cw, ch} = content_size(s)
       {gx, gy} = case s.geometry do
@@ -1527,16 +1581,30 @@ defmodule Lepton.Photon do
 
       row = content_rows(st, w.key, s, gx, gy, cw)
 
-      case w.kind do
-        :popup ->
-          %{x: w.x, y: w.y, w: cw, h: ch, row: row}
+      on_top = top != nil and (w.key == top or (w.kind == :popup and elem(w.key, 0) == elem(top, 0)))
 
-        :toplevel ->
-          {fw, rows} = w.title_rows || {0, nil}
-          {need, _} = st.wm.frame_size(cw, ch)
-          rows = if fw == need and rows, do: rows, else: st.wm.decorations(s.title || "", need, w.key == st.keyboard_focus, w.maximized != nil)
-          st.wm.frame_layer(w.x, w.y, cw, ch, rows, w.key == st.keyboard_focus, row)
-      end
+      layer =
+        cond do
+          # Popups, and a fullscreen window: no frame.
+          w.kind == :popup or w.fullscreen != nil ->
+            %{x: w.x, y: w.y, w: cw, h: ch, row: row}
+
+          true ->
+            {fw, rows} = w.title_rows || {0, nil}
+            {need, _} = st.wm.frame_size(cw, ch)
+            rows = if fw == need and rows, do: rows, else: st.wm.decorations(s.title || "", need, w.key == st.keyboard_focus, w.maximized != nil)
+            st.wm.frame_layer(w.x, w.y, cw, ch, rows, w.key == st.keyboard_focus, row)
+        end
+
+      Map.put(layer, :top, on_top)
+    end
+  end
+
+  # The focused window, if it is fullscreen: it is drawn over the taskbar.
+  defp fullscreen_top(st) do
+    case window(st, st.keyboard_focus) do
+      %Win{fullscreen: f, minimized: false} = w when f != nil -> w.key
+      _ -> nil
     end
   end
 
@@ -1702,7 +1770,7 @@ defmodule Lepton.Photon do
       {x, y, ww, wh} = window_rect(st, w, s)
 
       if px >= x and px < x + ww and py >= y and py < y + wh do
-        part = if w.kind == :popup, do: :content, else: st.wm.frame_part(ww, wh, trunc(px - x), trunc(py - y))
+        part = if w.kind == :popup or w.fullscreen != nil, do: :content, else: st.wm.frame_part(ww, wh, trunc(px - x), trunc(py - y))
         {ox, oy} = content_origin(st, w)
         {gx, gy} = geometry_origin(s)
         {w, part, {px - ox + gx, py - oy + gy}}
@@ -1782,8 +1850,11 @@ defmodule Lepton.Photon do
     alt? = band(st.mods, Keymap.alt()) != 0
     {double?, st} = double_click(st, code)
 
-    # The window manager's own surfaces (taskbar, menus) come first.
-    case st.wm.click(st.wm_state, wm_info(st), st.pointer, code, double?) do
+    # The window manager's own surfaces (taskbar, menus) come first, unless
+    # a fullscreen window covers them.
+    wm_click = if over_fullscreen?(st), do: {:pass, st.wm_state, []}, else: st.wm.click(st.wm_state, wm_info(st), st.pointer, code, double?)
+
+    case wm_click do
       {:handled, wm_state, actions} ->
         run_actions(%{st | wm_state: wm_state}, actions)
 
@@ -1801,6 +1872,7 @@ defmodule Lepton.Photon do
             st = if w.kind == :toplevel, do: focus(st, w.key), else: st
 
             cond do
+              w.fullscreen != nil -> st |> pointer_motion() |> send_button(code, 1)
               alt? and code == @btn_left and w.kind == :toplevel -> start_move(st, w)
               alt? and code == @btn_right and w.kind == :toplevel -> start_resize(st, w.key)
               part == :title and code == @btn_left and double? -> maximize(st, w.key, w.maximized == nil)
@@ -1813,6 +1885,17 @@ defmodule Lepton.Photon do
               true -> st
             end
         end
+    end
+  end
+
+  defp over_fullscreen?(st) do
+    with key when key != nil <- fullscreen_top(st),
+         w = window(st, key),
+         {x, y, ww, wh} = window_rect(st, w, surface(st, key)) do
+      {px, py} = st.pointer
+      px >= x and px < x + ww and py >= y and py < y + wh
+    else
+      _ -> false
     end
   end
 
@@ -2448,11 +2531,16 @@ defmodule Lepton.Photon do
       st = damage_window(st, key) |> put_window(%{w | x: w.x - fx + tx, y: w.y - fy + ty})
 
       st =
-        if w.maximized do
-          {ax, ay, _, _} = display_area(st, window(st, key))
-          st |> put_window(%{window(st, key) | x: ax, y: ay}) |> reconfigure(key) |> redecorate(key)
-        else
-          keep_in_work_area(st, key)
+        cond do
+          w.fullscreen ->
+            st |> put_window(%{window(st, key) | x: tx, y: ty}) |> reconfigure(key)
+
+          w.maximized ->
+            {ax, ay, _, _} = display_area(st, window(st, key))
+            st |> put_window(%{window(st, key) | x: ax, y: ay}) |> reconfigure(key) |> redecorate(key)
+
+          true ->
+            keep_in_work_area(st, key)
         end
 
       damage_window(st, key)
