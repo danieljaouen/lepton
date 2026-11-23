@@ -28,6 +28,10 @@ closes. If a Firefox started without that bus (installed before it came
 with Firefox) is still open, `firefox` says to close it and start it
 again.
 
+Spotify's web player, Netflix and other streaming sites need Widevine,
+a DRM plugin from Google: install it with `sudo widevine install`, and
+restart Firefox. See widevine(1).
+
 ## FILES
 
 - `~/.cache/lepton/firefox.log`: Firefox's output.
@@ -41,4 +45,4 @@ again.
 
 ## SEE ALSO
 
-app(1), photon(1), classic(1), www(1), https://trylepton.app/docs/apps.html
+app(1), widevine(1), photon(1), classic(1), www(1), https://trylepton.app/docs/apps.html

@@ -32,6 +32,11 @@ defmodule Lepton.Commands.Desktop do
     app(args, ctx)
   end
 
+  defcmd "widevine", "Widevine, the DRM plugin Firefox needs for Spotify, Netflix and other streaming sites",
+    usage: "widevine [status] | install | update | remove" do
+    widevine(args, ctx)
+  end
+
   defcmd "keyboard", "input sources on the desktop: keyboard layouts (Thai, Hindi, Arabic, ...) and Korean; accents (Alt+e e: é); Caps Lock as Ctrl",
     usage: "keyboard [list] | use ID | next | add ID... | remove ID... | set ID... | accents [on | off] | caps [ctrl | lock]" do
     keyboard(args, ctx)
@@ -354,6 +359,63 @@ defmodule Lepton.Commands.Desktop do
       true ->
         IO.err(ctx, "open: le needs a terminal (or the desktop)")
         1
+    end
+  end
+
+  defp widevine(args, ctx) when args not in [[], ["status"], ["install"], ["update"], ["remove"]] do
+    IO.err(ctx, "usage: widevine [status] | install | update | remove")
+    2
+  end
+
+  defp widevine(args, ctx) when args in [[], ["status"]] do
+    if Lepton.Widevine.installed?() do
+      IO.puts(ctx, "Widevine #{Lepton.Widevine.version()} is installed (#{Lepton.Widevine.gmp_dir()}).")
+    else
+      IO.puts(ctx, "Widevine is not installed. Install it with: sudo widevine install")
+    end
+
+    0
+  end
+
+  defp widevine([cmd], ctx) when ctx.user != "root", do: Users.denied(ctx, "widevine #{cmd}")
+
+  defp widevine(["remove"], ctx) do
+    Lepton.Widevine.remove()
+    IO.puts(ctx, "Removed Widevine (restart Firefox).")
+    0
+  end
+
+  defp widevine(["update"], ctx) do
+    if Lepton.Widevine.installed?(), do: widevine_get("update", ctx), else: (IO.err(ctx, "widevine: not installed (sudo widevine install)"); 1)
+  end
+
+  defp widevine(["install"], ctx), do: widevine_get("install", ctx)
+
+  defp widevine_get(cmd, ctx) do
+    from = Lepton.Widevine.chrome_version()
+
+    case Lepton.Widevine.latest() do
+      {:error, reason} ->
+        IO.err(ctx, "widevine: #{if is_binary(reason), do: reason, else: inspect(reason)}")
+        1
+
+      {:ok, %{version: ^from} = pkg} when cmd == "update" ->
+        IO.puts(ctx, "Widevine #{Lepton.Widevine.version()} is up to date (from Google Chrome #{pkg.version}).")
+        0
+
+      {:ok, pkg} ->
+        IO.puts(ctx, "Widevine is Google's software, not open source. It comes from Google (dl.google.com),")
+        IO.puts(ctx, "under Google's terms: #{Path.join(Lepton.Widevine.dir(), "LICENSE")} once installed.")
+
+        case Lepton.Widevine.install(pkg, &IO.puts(ctx, &1)) do
+          :ok ->
+            if Apps.running?("firefox"), do: IO.puts(ctx, "Restart Firefox to use it.")
+            0
+
+          {:error, reason} ->
+            IO.err(ctx, "widevine: #{if is_binary(reason), do: reason, else: inspect(reason)}")
+            1
+        end
     end
   end
 

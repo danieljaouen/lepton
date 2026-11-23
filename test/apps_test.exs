@@ -147,12 +147,13 @@ defmodule Lepton.AppsTest do
 
     """
 
-    fonts = Enum.map_join(Apps.asian_fonts(), "\n", &"P:#{&1}\nV:1-r0\nS:10\nI:20\n")
+    fonts = Enum.map_join(Apps.asian_fonts() ++ ~w(gcompat xz), "\n", &"P:#{&1}\nV:1-r0\nS:10\nI:20\n")
     pkgs = Alpine.parse_index(text <> fonts, "community")
     %{packages: Map.new(pkgs, &{&1.name, &1}), provides: %{}}
   end
 
-  defp fonts, do: Enum.map(Apps.asian_fonts(), &{&1, "1-r0"})
+  # The Asian fonts, and gcompat and xz (for Widevine).
+  defp fonts, do: Enum.map(Apps.asian_fonts() ++ ~w(gcompat xz), &{&1, "1-r0"})
 
   defp record(dir, versions) do
     File.mkdir_p!(dir)

@@ -163,4 +163,26 @@ Firefox plays sound on the [sound card](sound.html) Lepton plays on, at
 the system volume. Set the volume with `volume`, the volume keys or the
 classic desktop's speaker.
 
-<!-- commands: app firefox -->
+## Spotify, Netflix and other DRM sites
+
+Spotify's web player, Netflix, Disney+, Amazon Prime Video and other
+streaming sites play protected music and video, which needs Widevine, a
+DRM plugin from Google. Firefox downloads it by itself on x86-64 Linux,
+but Mozilla has no build of it for ARM64, so Lepton gets it for you:
+
+    sudo widevine install
+
+and restart Firefox. It downloads Google Chrome for ARM64 Linux from
+Google's repository (about 140 MB), takes Widevine out of it and deletes
+the rest; Widevine is Google's software, under Google's terms, so it
+comes from Google rather than with Lepton. `widevine` says which version
+you have; `sudo widevine update` gets a newer one when Chrome has one.
+
+Widevine is built for glibc, and Lepton's apps use musl: it loads
+through gcompat (which comes with Firefox), and Lepton resolves the few
+relocations musl's loader doesn't do when it installs it. DRM is on in
+Lepton's Firefox, so sites play without asking. A Firefox installed
+before this needs its new packages first: `sudo app update firefox`,
+with Firefox closed.
+
+<!-- commands: app firefox widevine -->

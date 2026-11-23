@@ -36,7 +36,12 @@ defmodule Lepton.Apps do
       # Japanese and Korean; Droid's non-Latin set for Thai, Devanagari,
       # Tamil, Arabic, Hebrew, Georgian, Armenian and Ethiopic; Noto for
       # Bengali, Khmer, Lao and Myanmar. Without one, a script shows as boxes.
-      packages: ["firefox", "font-dejavu", "icu-data-en", "dbus"] ++ @asian_fonts,
+      # gcompat: glibc's names over musl, for Widevine (the DRM plugin,
+      # built for glibc, that `widevine install` gets from Google; Alpine's
+      # Firefox preloads gcompat for it): Spotify, Netflix and the like.
+      # xz: unpacks the Chrome package Widevine comes in (busybox's
+      # decoder can't: it was packed with a 256 MB dictionary).
+      packages: ["firefox", "font-dejavu", "icu-data-en", "dbus", "gcompat", "xz"] ++ @asian_fonts,
       # 3.24's gdk-pixbuf decodes images through glycin, whose loaders run
       # in a bubblewrap sandbox at fixed paths; 3.23's (2.44 too) has its own.
       pins: %{"gdk-pixbuf" => "v3.23"},
@@ -456,6 +461,9 @@ defmodule Lepton.Apps do
       policies = %{
         "policies" => %{
           "DontCheckDefaultBrowser" => true,
+          # DRM (Widevine) on, without asking: Spotify's web player and
+          # other streaming sites need it.
+          "EncryptedMediaExtensions" => %{"Enabled" => true},
           "Preferences" => %{
             "browser.tabs.inTitlebar" => %{"Value" => 0, "Status" => "default"},
             "media.gmp-gmpopenh264.enabled" => %{"Value" => false, "Status" => "locked"},
@@ -474,6 +482,8 @@ defmodule Lepton.Apps do
             "browser.tabs.unloadOnLowMemory" => %{"Value" => true, "Status" => "default"},
             "browser.low_commit_space_threshold_percent" => %{"Value" => 10, "Status" => "default"}
           }
+          # Widevine, once `widevine install` has put it in (Lepton.Widevine).
+          |> Map.merge(Map.new(Lepton.Widevine.prefs(), fn {k, v} -> {k, %{"Value" => v, "Status" => "default"}} end))
         }
       }
 
@@ -616,7 +626,7 @@ defmodule Lepton.Apps do
     File.mkdir_p!(Path.dirname(log))
     prepare_home(home, user, app)
     # The proxy, if any, through Lepton's forwarder (Firefox reads http_proxy & co.).
-    env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name) |> Map.merge(Lepton.Proxy.app_env(ctx.env))
+    env = env(prefix, ctx.env) |> Map.put("HOME", home) |> Map.merge(alsa_env(prefix)) |> bluetooth_libs(name) |> Map.merge(Lepton.Proxy.app_env(ctx.env)) |> Map.merge(if(name == "firefox", do: Lepton.Widevine.env(), else: %{}))
     if Lepton.Sys.native?(), do: musl_path(prefix)
     # Firefox installed before a policy (or the input-method cache) was added gets it too.
     firefox_policies(prefix)
