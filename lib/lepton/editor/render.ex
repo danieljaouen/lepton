@@ -84,7 +84,7 @@ defmodule Lepton.Editor.Render do
       if MapSet.size(b.folds) == 0 do
         {Enum.to_list(win.top..(win.top + text_h - 1)), MapSet.new()}
       else
-        {Fold.visible_lines(b, win.top, text_h), b |> Fold.hidden() |> MapSet.new(&(&1.first - 1))}
+        {Fold.visible_lines(b, win.top, text_h), Fold.folded_headings(b)}
       end
 
     row_of = shown |> Enum.with_index() |> Map.new()
@@ -232,7 +232,9 @@ defmodule Lepton.Editor.Render do
     end
 
     modified = if b.modified, do: "*", else: if(b.read_only, do: "%", else: "-")
-    name = "#{modified} #{b.name}"
+    # evil's "Recording @q"
+    rec = if active && st.macro_rec, do: "[@#{elem(st.macro_rec, 0)}] ", else: ""
+    name = "#{rec}#{modified} #{b.name}"
     branch = if b.path, do: Lepton.Git.branch(Path.dirname(b.path)), else: nil
     right = "#{b.mode}  #{if branch, do: " " <> branch <> "  ", else: ""}#{l + 1}:#{c}  #{pct} "
     bg = if active, do: "48;5;237;38;5;252", else: "48;5;235;38;5;244"

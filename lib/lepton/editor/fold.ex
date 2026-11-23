@@ -15,6 +15,11 @@ defmodule Lepton.Editor.Fold do
   folded subtree are skipped when drawing and by `j` and `k`; a search
   that lands inside one opens it. Edits keep folds above and below the
   changed lines (`remap/3`).
+
+  Lines added while a subtree is folded stay visible until it is folded
+  again (`Buffer.revealed`), as text typed in Emacs is: `O` above a
+  heading opens a line at the end of the folded entry before it, and
+  that line shows, with the entry still folded.
   """
 
   alias Lepton.Editor.Buffer
@@ -54,12 +59,26 @@ defmodule Lepton.Editor.Fold do
 
   # -- what is hidden -------------------------------------------------------------------
 
-  @doc "The hidden line ranges: one per folded heading with a body."
+  @doc "The hidden line ranges: a folded heading's body, but for lines added since (`revealed`)."
   def hidden(%{folds: folds} = b) do
     if MapSet.size(folds) == 0 do
       []
     else
-      for h <- Enum.sort(folds), (e = subtree_end(b, h)) > h, do: (h + 1)..e
+      for h <- Enum.sort(folds), (e = subtree_end(b, h)) > h, r <- without(h + 1, e, b.revealed), do: r
+    end
+  end
+
+  @doc "The folded headings that hide lines (they end in an ellipsis)."
+  def folded_headings(b), do: for(h <- b.folds, subtree_end(b, h) > h, into: MapSet.new(), do: h)
+
+  defp without(a, z, revealed) do
+    if Enum.any?(revealed, &(&1 in a..z)) do
+      a..z
+      |> Enum.chunk_by(&MapSet.member?(revealed, &1))
+      |> Enum.reject(&MapSet.member?(revealed, hd(&1)))
+      |> Enum.map(&(hd(&1)..List.last(&1)))
+    else
+      [a..z]
     end
   end
 
@@ -115,7 +134,8 @@ defmodule Lepton.Editor.Fold do
 
   # -- changing folds -------------------------------------------------------------------
 
-  def fold(b, hs), do: %{b | folds: Enum.reduce(List.wrap(hs), b.folds, &MapSet.put(&2, &1))}
+  # Folding hides again the lines added since (`revealed`).
+  def fold(b, hs), do: %{b | folds: Enum.reduce(List.wrap(hs), b.folds, &MapSet.put(&2, &1)), revealed: MapSet.new()}
   def unfold(b, hs), do: %{b | folds: Enum.reduce(List.wrap(hs), b.folds, &MapSet.delete(&2, &1))}
 
   @doc "Open whatever hides line `n` (a search landed there)."
@@ -127,10 +147,10 @@ defmodule Lepton.Editor.Fold do
   end
 
   @doc "Fold every heading (zm): only the top-level ones stay visible."
-  def fold_all(b), do: %{b | folds: MapSet.new(headings(b))}
+  def fold_all(b), do: %{b | folds: MapSet.new(headings(b)), revealed: MapSet.new()}
 
   @doc "Reveal everything (zr)."
-  def unfold_all(b), do: %{b | folds: MapSet.new()}
+  def unfold_all(b), do: %{b | folds: MapSet.new(), revealed: MapSet.new()}
 
   @doc """
   `org-cycle` on heading `h`: folded → children → subtree → folded.
@@ -161,7 +181,7 @@ defmodule Lepton.Editor.Fold do
         # Contents: every heading shows, bodies don't. A heading's body is
         # the text before its first child, so fold the leaves only.
         leaves = Enum.filter(with_body, fn h -> descendants(b, h) == [] end)
-        {%{b | folds: MapSet.new(leaves)}, "CONTENTS"}
+        {%{b | folds: MapSet.new(leaves), revealed: MapSet.new()}, "CONTENTS"}
 
       MapSet.size(b.folds) > 0 and contents?(b, hs) ->
         {unfold_all(b), "SHOW ALL"}
@@ -188,21 +208,47 @@ defmodule Lepton.Editor.Fold do
     if MapSet.size(folds) == 0 or old == new do
       folds
     else
-      {os, ns} = {tuple_size(old), tuple_size(new)}
-      prefix = Enum.find(0..(min(os, ns) - 1)//1, min(os, ns), &(elem(old, &1) != elem(new, &1)))
-      max_suffix = min(os, ns) - prefix
-      suffix = Enum.find(0..(max_suffix - 1)//1, max_suffix, &(elem(old, os - 1 - &1) != elem(new, ns - 1 - &1)))
-      delta = ns - os
+      {prefix, suffix, os, ns} = diff(old, new)
 
-      for h <- folds,
-          n = (cond do
-            h < prefix -> h
-            h >= os - suffix -> h + delta
-            true -> nil
-          end),
-          n != nil and n < ns and level(elem(new, n)) > 0,
-          into: MapSet.new(),
-          do: n
+      for h <- folds, n = moved(h, prefix, suffix, os, ns), n != nil and level(elem(new, n)) > 0, into: MapSet.new(), do: n
     end
+  end
+
+  @doc """
+  The revealed lines across the same edit: they move as folds do, stay
+  revealed when edited, and lines it adds while something is folded join
+  them.
+  """
+  def remap_revealed(revealed, folds, old, new) do
+    if MapSet.size(folds) == 0 or old == new do
+      if MapSet.size(folds) == 0, do: MapSet.new(), else: revealed
+    else
+      {prefix, suffix, os, ns} = diff(old, new)
+      kept = for n <- revealed, m = moved(n, prefix, suffix, os, ns), m != nil, into: MapSet.new(), do: m
+      # Added lines, and the changed lines that were revealed: revealed.
+      edited? = Enum.any?(revealed, &(&1 >= prefix and &1 < os - suffix))
+      if ns > os or edited?, do: Enum.into(prefix..(ns - suffix - 1)//1, kept), else: kept
+    end
+  end
+
+  # The lines two versions share at the start and at the end.
+  defp diff(old, new) do
+    {os, ns} = {tuple_size(old), tuple_size(new)}
+    prefix = Enum.find(0..(min(os, ns) - 1)//1, min(os, ns), &(elem(old, &1) != elem(new, &1)))
+    max_suffix = min(os, ns) - prefix
+    suffix = Enum.find(0..(max_suffix - 1)//1, max_suffix, &(elem(old, os - 1 - &1) != elem(new, ns - 1 - &1)))
+    {prefix, suffix, os, ns}
+  end
+
+  # Where line `n` is after the edit, or nil if it was changed.
+  defp moved(n, prefix, suffix, os, ns) do
+    m =
+      cond do
+        n < prefix -> n
+        n >= os - suffix -> n + ns - os
+        true -> nil
+      end
+
+    if m != nil and m < ns, do: m
   end
 end

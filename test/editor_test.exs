@@ -145,6 +145,39 @@ defmodule Lepton.EditorTest do
     assert Enum.any?(rows, &String.contains?(Lepton.Style.strip(&1), "file.ex"))
   end
 
+  test "keyboard macros: qq records, q stops, @q plays, @@ repeats, counts, qQ appends" do
+    {st, _} = editor("one\ntwo\nthree\nfour\nfive\nsix\n")
+    # Record: wrap the line in brackets and go down.
+    st = keys(st, "q q I [ ESC A ] ESC j q")
+    assert st.message == "Recorded @q (7 keys)" and st.macro_rec == nil
+    assert text(st) == "[one]\ntwo\nthree\nfour\nfive\nsix\n"
+    st = keys(st, "@ q")
+    assert text(st) =~ "[two]\nthree"
+    st = keys(st, "@ @")
+    assert text(st) =~ "[three]\nfour"
+    st = keys(st, "2 @ q")
+    assert text(st) == "[one]\n[two]\n[three]\n[four]\n[five]\nsix\n"
+    assert elem(cursor(st), 0) == 5
+
+    # qW appends to w; q in insert mode is text.
+    {st, _} = editor("a\n")
+    st = keys(st, "q w A q ESC q")
+    assert text(st) == "aq\n"
+    st = keys(st, "q W A ! ESC q @ w")
+    assert text(st) == "aq!q!\n"
+
+    # A register without a macro, and @@ before any @.
+    {st, _} = editor("a\n")
+    st = keys(st, "@ @")
+    assert st.message =~ "No macro played yet"
+    st = keys(st, "@ z")
+    assert st.message =~ "Register z has no macro"
+    # A macro that calls itself stops.
+    st = keys(st, "q r A x ESC @ r q")
+    st = keys(st, "@ r")
+    assert st.message =~ "too deeply"
+  end
+
   describe "Org folding" do
     @org """
     * One
@@ -243,10 +276,65 @@ defmodule Lepton.EditorTest do
       assert MapSet.to_list(Editor.buf(st).folds) == [7]
     end
 
+    test "O and o with folds: the new line shows, the folds stay; folding again hides it" do
+      org = "* a\nbody a\n* b\nbody b\n"
+      {st, _} = editor(org, name: "notes.org")
+      # O above * b opens a line at the end of folded * a: it shows, and
+      # what is typed goes there (not onto * a).
+      st = keys(st, "z m j O x RET y ESC")
+      assert text(st) == "* a\nbody a\nx\ny\n* b\nbody b\n"
+      assert line(st) == 3 and shows?(st, "x") and shows?(st, "y") and shows?(st, "* a ...")
+      refute shows?(st, "body a")
+      assert MapSet.member?(Editor.buf(st).folds, 0)
+      # o on folded * b opens below its subtree.
+      st = keys(st, "j o z ESC")
+      assert text(st) == "* a\nbody a\nx\ny\n* b\nbody b\nz\n"
+      assert line(st) == 6 and shows?(st, "z") and not shows?(st, "body b")
+      # zm folds them away again.
+      st = keys(st, "z m")
+      refute shows?(st, "x") or shows?(st, "z")
+      assert Lepton.Editor.Fold.visible_lines(Editor.buf(st), 0, 10) == [0, 4]
+    end
+
     test "outside Org, zm says there is nothing to fold" do
       {st, _} = editor("a\nb\n")
       st = keys(st, "z m")
       assert st.message =~ "No outline"
     end
+  end
+
+  test "magit: s saves the file's buffer first and stages it; s on a section heading stages the section" do
+    dir = tmp_dir("magit")
+    repo = Lepton.Git.Repo.init(dir)
+    File.write!(Path.join(dir, "words.org"), "* one\n")
+    File.write!(Path.join(dir, "b.txt"), "b\n")
+    Lepton.Git.add(repo, [dir])
+    {:ok, _} = Lepton.Git.commit(repo, "one")
+    File.write!(Path.join(dir, "new.txt"), "new\n")
+    File.write!(Path.join(dir, "b.txt"), "b2\n")
+    ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+    st = Editor.init([Path.join(dir, "words.org")], ctx)
+
+    # An edit not saved yet: magit saves it, so it is there to stage.
+    st = keys(st, "o * SPC t w o ESC SPC g s")
+    assert st.message == "Saved words.org"
+    assert File.read!(Path.join(dir, "words.org")) == "* one\n* two\n"
+    lines = Buffer.lines(Editor.buf(st))
+    at = Enum.find_index(lines, &(&1 =~ ~r/^modified\s+words.org/))
+    st = keys(st, String.duplicate("j ", at) <> "s")
+    assert {"words.org", :modified} in Lepton.Git.status(repo).staged
+    assert {"b.txt", :modified} in Lepton.Git.status(repo).unstaged
+
+    # On "Untracked files": every untracked file. On "Staged changes", u unstages them all.
+    lines = Buffer.lines(Editor.buf(st))
+    st = keys(st, "g g" <> String.duplicate(" j", Enum.find_index(lines, &String.starts_with?(&1, "Untracked files"))) <> " s")
+    assert Enum.any?(Lepton.Git.status(repo).staged, &match?({"new.txt", _}, &1))
+    lines = Buffer.lines(Editor.buf(st))
+    st = keys(st, "g g" <> String.duplicate(" j", Enum.find_index(lines, &String.starts_with?(&1, "Staged changes"))) <> " u")
+    assert Lepton.Git.status(repo).staged == []
+
+    # Nowhere to stage from: it says so.
+    st = keys(st, "g g s")
+    assert st.message =~ "Nothing to stage here"
   end
 end

@@ -48,6 +48,10 @@ The full list of what was loaded is on the
 - helm-style candidate lists;
 - evil operators, motions and text objects with counts and `.`, visual
   modes, undo/redo, yank and paste, and splits;
+- keyboard macros: `q` and a register (`a`–`z`, `0`–`9`) records what you
+  type, `q` stops (the mode line shows `[@q]` meanwhile), `@q` plays it
+  back, `@@` plays the last one again, and a count repeats it (`5@q`).
+  `qQ` (the capital) adds to macro `q`. Macros last until `le` quits;
 - ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`.
 
 ## Org mode: folding
@@ -65,6 +69,9 @@ In `.org` files, headings (`* `, `** `, ...) fold as in Spacemacs:
 A folded heading ends in `...`. `j` and `k` step over folded text, and a
 search (`/`, `n`, `N`) that lands inside a fold opens it. Folds stay put
 as you edit above or below them; they last until the file is closed.
+`o` on a folded heading opens a line below its subtree; `O` opens one
+above, at the end of the entry before it, which stays folded. Lines you
+add while something is folded show until you fold again (`zm`, `TAB`).
 
 Bindings that name commands `le` doesn't implement are listed as "not
 supported" by `keys` and `SPC h d b`, never silently dropped.
@@ -73,6 +80,10 @@ supported" by `keys` and `SPC h d b`, never silently dropped.
 
 `SPC g s` opens a magit-style status buffer: stage with `s`, unstage with
 `u`, commit with `c c`, push with `P p`, pull with `F p`, and stash with
-`Z`. See [git and GitHub](git.html).
+`Z`. `s` and `u` take the file under the cursor, or on a section's
+heading (Unstaged changes, Untracked files, Staged changes) every file in
+it. As magit does, the status buffer first saves your modified buffers
+in the repository, so what you typed is what you stage. See
+[git and GitHub](git.html).
 
 <!-- commands: le -->

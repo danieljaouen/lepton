@@ -2,7 +2,11 @@ defmodule Lepton.Editor.Magit do
   @moduledoc """
   A magit-style git porcelain inside `le` (`SPC g s`).
 
-  Evilified keys: `s`/`u` stage/unstage the file at point, `S`/`U` all,
+  Modified buffers visiting the repository's files are saved first, as
+  `magit-save-repository-buffers` does, so git sees what you typed.
+
+  Evilified keys: `s`/`u` stage/unstage the file at point (on a section's
+  heading: every file in it), `S`/`U` all,
   `TAB` toggles the file's diff, `c c` commits (write the message, then
   `:wq` / `SPC f s` + `q`), `c a` amends, `P p` pushes and `F p` pulls
   (GitHub over HTTPS), `b b`/`b c` switch/create branches, `l l` log,
@@ -19,7 +23,10 @@ defmodule Lepton.Editor.Magit do
 
     case Git.root(dir) do
       nil -> Editor.api(st, :error, "Not inside a Git repository")
-      root -> render_status(st, root, MapSet.new())
+      root ->
+        {st, saved} = Editor.api(st, :save_repo_buffers, root)
+        st = render_status(st, root, MapSet.new())
+        if saved != [], do: Editor.api(st, :msg, "Saved #{Enum.join(saved, ", ")}"), else: st
     end
   end
 
@@ -72,7 +79,8 @@ defmodule Lepton.Editor.Magit do
     end
   end
 
-  # Which file (and section) is at point?
+  # Which file (and section) is at point? On a section's heading: the
+  # section, and no file.
   defp at_point(st) do
     b = Editor.buf(st)
     {l, _} = Editor.api(st, :cursor, nil)
@@ -92,12 +100,13 @@ defmodule Lepton.Editor.Magit do
         end
       end)
 
-    # Diff lines belong to the file line above them.
+    # Diff lines belong to the file line above them (within the section).
     file_line =
       lines
       |> Enum.take(l + 1)
       |> Enum.reverse()
-      |> Enum.find(&Regex.match?(~r/^(untracked|modified|new file|deleted|added)\s/, &1))
+      |> Enum.take_while(&(not Regex.match?(~r/^(Untracked files|Unstaged changes|Staged changes|Recent commits) \(?/, &1)))
+      |> Enum.find(&Regex.match?(~r/^(untracked|modified|new file|deleted|added|renamed|typechange)\s/, &1))
 
     path = file_line && file_line |> String.split(~r/\s+/, parts: 2) |> List.last() |> String.trim()
     {section, path}
@@ -112,10 +121,12 @@ defmodule Lepton.Editor.Magit do
     result =
       case action do
         _ when repo == nil -> Editor.api(st, :error, "Not in a magit buffer")
-        :magit_stage when path != nil and section in [:untracked, :unstaged] -> Git.add(repo, [path]); refresh(st)
-        :magit_unstage when path != nil and section == :staged -> Git.unstage(repo, [path]); refresh(st)
-        :magit_stage_all -> Git.add(repo, ["."]); refresh(st)
-        :magit_unstage_all -> Git.unstage(repo, :all); refresh(st)
+        :magit_stage when section in [:untracked, :unstaged] -> git(st, fn -> Git.add(repo, paths(repo, section, path)) end)
+        :magit_stage -> Editor.api(st, :error, "Nothing to stage here (s on a file under Untracked files or Unstaged changes)")
+        :magit_unstage when section == :staged -> git(st, fn -> Git.unstage(repo, paths(repo, section, path)) end)
+        :magit_unstage -> Editor.api(st, :error, "Nothing to unstage here (u on a file under Staged changes)")
+        :magit_stage_all -> git(st, fn -> Git.add(repo, ["."]) end)
+        :magit_unstage_all -> git(st, fn -> Git.unstage(repo, :all) end)
         :special_refresh -> refresh(st)
         :special_toggle when path != nil -> toggle(st, section, path)
         :special_open when path != nil -> Editor.api(st, :visit, Path.join(root, path))
@@ -127,7 +138,7 @@ defmodule Lepton.Editor.Magit do
         :magit_pull -> remote_op(st, repo, :pull)
         :magit_checkout -> Editor.api(st, :prompt, {{:magit, &checkout/2}, "Checkout branch: ", ""})
         :magit_branch_create -> Editor.api(st, :prompt, {{:magit, &create_branch/2}, "Create and checkout branch: ", ""})
-        :magit_discard when path != nil and section == :unstaged -> Git.restore(repo, [path]); refresh(st)
+        :magit_discard when path != nil and section == :unstaged -> git(st, fn -> Git.restore(repo, [path]) end)
         :magit_stash -> stash(st, repo)
         :quit_special -> Editor.api(st, :quit_window, true)
         other -> Editor.do_action(st, other)
@@ -136,7 +147,35 @@ defmodule Lepton.Editor.Magit do
     result
   end
 
+  # The file at point, or on a section's heading every file in it.
+  defp paths(_repo, _section, path) when path != nil, do: [path]
+
+  defp paths(repo, section, nil) do
+    s = Git.status(repo)
+
+    case section do
+      :untracked -> s.untracked
+      :unstaged -> Enum.map(s.unstaged, &elem(&1, 0))
+      :staged -> Enum.map(s.staged, &elem(&1, 0))
+    end
+  end
+
+  # A git operation: the refreshed status, or what went wrong.
+  defp git(st, op) do
+    case op.() do
+      {:error, reason} -> st |> refresh() |> Editor.api(:error, "git: #{inspect_reason(reason)}")
+      _ -> refresh(st)
+    end
+  rescue
+    e -> st |> refresh() |> Editor.api(:error, "git: #{Exception.message(e)}")
+  end
+
+  defp inspect_reason(r) when is_binary(r), do: r
+  defp inspect_reason(r), do: inspect(r)
+
   defp refresh(st) do
+    b = Editor.buf(st)
+    {st, _} = if b.kind == :magit, do: Editor.api(st, :save_repo_buffers, b.meta.root), else: {st, []}
     b = Editor.buf(st)
     {l, c} = Editor.api(st, :cursor, nil)
 

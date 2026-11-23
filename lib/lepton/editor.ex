@@ -51,7 +51,14 @@ defmodule Lepton.Editor do
             maximized: nil,
             messages: [],
             prev_buffer: nil,
-            insert_snapshot: false
+            insert_snapshot: false,
+            # keyboard macros: `q` + register records, `@` + register plays
+            # (`@@` the last one played); {register, keys} while recording
+            macros: %{},
+            macro_rec: nil,
+            macro_pending: nil,
+            last_macro: nil,
+            macro_depth: 0
 
   defmodule Win do
     @moduledoc false
@@ -155,8 +162,11 @@ defmodule Lepton.Editor do
   def handle_key(st, key) do
     st = %{st | message: if(match?({:which_key, _}, st.message), do: nil, else: st.message)}
     st = if st.recording, do: %{st | recording: st.recording ++ [key]}, else: st
+    # A macro being recorded takes every key typed (not those a macro plays).
+    st = if st.macro_rec && st.macro_depth == 0, do: %{st | macro_rec: {elem(st.macro_rec, 0), [key | elem(st.macro_rec, 1)]}}, else: st
 
     cond do
+      st.macro_pending -> macro_key(st, key)
       st.minibuffer -> minibuffer_key(st, key)
       st.mode in [:insert, :replace] -> insert_key(st, key)
       st.mode in [:visual, :visual_line] -> visual_key(st, key)
@@ -173,7 +183,8 @@ defmodule Lepton.Editor do
     # Folds follow their headings through edits (and undo).
     b =
       case st.buffers[b.id] do
-        %{lines: old} when old != b.lines -> %{b | folds: Fold.remap(b.folds, old, b.lines)}
+        %{lines: old} when old != b.lines ->
+          %{b | folds: Fold.remap(b.folds, old, b.lines), revealed: Fold.remap_revealed(b.revealed, b.folds, old, b.lines)}
         _ -> b
       end
 
@@ -362,6 +373,12 @@ defmodule Lepton.Editor do
 
   defp normal_key(st, key) do
     cond do
+      st.pending == [] and st.operator == nil and key == "q" and st.macro_rec != nil ->
+        stop_macro(st)
+
+      st.pending == [] and st.operator == nil and key in ["q", "@"] ->
+        %{st | macro_pending: if(key == "q", do: :record, else: :play)}
+
       st.pending == [] and st.operator == nil and key =~ ~r/^[1-9]$/ ->
         %{st | count: key_count(st.count, key)}
 
@@ -387,6 +404,58 @@ defmodule Lepton.Editor do
           :none ->
             normal_motion_or_operator(%{st | pending: []}, seq)
         end
+    end
+  end
+
+  # -- keyboard macros (evil: q, @, @@) -----------------------------------------------------
+
+  # The key after `q` or `@`: a register (a-z, 0-9; `qA` appends to a),
+  # or `@` after `@` for the last macro played. Anything else cancels.
+  defp macro_key(st, key) do
+    kind = st.macro_pending
+    count = st.count || 1
+    st = %{st | macro_pending: nil, count: nil}
+
+    cond do
+      kind == :record and key =~ ~r/^[a-z0-9]$/ ->
+        %{st | macro_rec: {key, []}} |> msg("Recording @#{key}")
+
+      kind == :record and key =~ ~r/^[A-Z]$/ ->
+        reg = String.downcase(key)
+        %{st | macro_rec: {reg, Enum.reverse(Map.get(st.macros, reg, []))}} |> msg("Recording @#{reg} (appending)")
+
+      kind == :play and (key =~ ~r/^[a-z0-9]$/ or key =~ ~r/^[A-Z]$/ or key == "@") ->
+        reg = if key == "@", do: st.last_macro, else: String.downcase(key)
+        play_macro(st, reg, count)
+
+      true ->
+        st
+    end
+  end
+
+  defp stop_macro(st) do
+    {reg, keys} = st.macro_rec
+    # The q that stopped it was taken too.
+    keys = keys |> tl() |> Enum.reverse()
+    %{st | macro_rec: nil, macros: Map.put(st.macros, reg, keys)} |> msg("Recorded @#{reg} (#{length(keys)} keys)")
+  end
+
+  @max_macro_depth 20
+
+  defp play_macro(st, nil, _), do: msg(st, "No macro played yet (@@ repeats the last @x)", true)
+
+  defp play_macro(st, reg, count) do
+    case st.macros[reg] do
+      nil ->
+        msg(st, "Register #{reg} has no macro (record one with q#{reg} ... q)", true)
+
+      _ when st.macro_depth >= @max_macro_depth ->
+        msg(st, "Macro @#{reg} calls itself too deeply", true)
+
+      keys ->
+        st = %{st | last_macro: reg, macro_depth: st.macro_depth + 1}
+        st = Enum.reduce(1..count, st, fn _, st -> Enum.reduce(keys, st, &handle_key(&2, &1)) end)
+        %{st | macro_depth: st.macro_depth - 1}
     end
   end
 
@@ -655,9 +724,12 @@ defmodule Lepton.Editor do
   def do_action(st, :open_below, _) do
     st = snapshot(st)
     {l, _} = cursor(st)
-    indent = leading(Buffer.line(buf(st), l))
-    st = put_buf(st, Buffer.insert_lines(buf(st), l + 1, [indent]))
-    enter_insert(%{st | mode: :insert} |> set_cursor({l + 1, String.length(indent)}), false)
+    b = buf(st)
+    indent = leading(Buffer.line(b, l))
+    # On a folded heading, below its subtree (as in Emacs and vim).
+    at = if MapSet.size(b.folds) == 0, do: l + 1, else: Fold.visible_at_or_after(Fold.hidden(b), l + 1, Buffer.line_count(b)) || Buffer.line_count(b)
+    st = put_buf(st, Buffer.insert_lines(b, at, [indent]))
+    enter_insert(%{st | mode: :insert} |> set_cursor({at, String.length(indent)}), false)
   end
 
   def do_action(st, :open_above, _) do
@@ -1123,6 +1195,25 @@ defmodule Lepton.Editor do
       {:error, reason} ->
         {:error, msg(st, "Cannot save #{b.name}: #{reason}", true)}
     end
+  end
+
+  # magit-save-repository-buffers: before git looks at the files, save
+  # the modified buffers visiting files in the repository at `root`.
+  defp save_repo_buffers(st, root) do
+    root = Path.expand(root)
+
+    Enum.reduce(st.order, {st, []}, fn id, {st, saved} ->
+      b = st.buffers[id]
+
+      if b.kind == :file and b.modified and b.path && String.starts_with?(Path.expand(b.path), root <> "/") do
+        case save_buffer(st, b) do
+          {:ok, st} -> {st, [b.name | saved]}
+          {:error, st} -> {st, saved}
+        end
+      else
+        {st, saved}
+      end
+    end)
   end
 
   defp revert(st) do
@@ -2007,6 +2098,7 @@ defmodule Lepton.Editor do
   def api(st, :error, text), do: msg(st, text, true)
   def api(st, :visit, path), do: visit(st, path)
   def api(st, :save, _), do: save(st)
+  def api(st, :save_repo_buffers, root), do: save_repo_buffers(st, root)
   def api(st, :quit_window, force), do: quit_window(st, force)
   def api(st, :split, dir), do: split(st, dir)
   def api(st, :cursor, _), do: cursor(st)

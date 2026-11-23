@@ -15,7 +15,9 @@ it does not support.
 ## KEYS
 
 The vi keys work as in Vim: motions, operators and text objects with
-counts, `.`, visual modes, `u` and `C-r`, registers, splits. Ex commands
+counts, `.`, visual modes, `u` and `C-r`, registers, splits, and
+keyboard macros (`qq` ... `q` records into register q, `@q` plays it,
+`@@` again, `5@q` five times, `qQ` appends). Ex commands
 include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
 `:sort`, `:!CMD` and `:r !CMD`. Some Spacemacs leader keys:
 
