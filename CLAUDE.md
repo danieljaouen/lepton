@@ -52,6 +52,16 @@ layout); feature documentation lives in `docs/`, not in the README.
 
 - `mix test` on the host; `mix lepton.iso && mix lepton.qemu --test` runs
   the same suite inside the VM (`lepton-test`). Report both counts.
+- **Working inside Lepton** (this checkout on a Lepton machine, not the
+  Mac): the VM suite runs here too; don't send it to the Mac. QEMU is an
+  app installed on demand: if `qemu-system-aarch64` isn't on PATH, ask
+  the user to run `sudo app install qemu` (root only; `lepton app list`
+  shows what is installed). Lepton's `mix` and Claude Code's bash then
+  find it. Without `/dev/kvm` (Lepton not booted with nested
+  virtualization, as in UTM by default) QEMU emulates the CPU, many times
+  slower: pass a longer limit, `mix lepton.qemu --test --timeout 3600000`,
+  and say the run was emulated. With `/dev/kvm` it takes about as long as
+  on the Mac. See docs/virtual-machines.md.
 - The README "Testing" section and the site's stats quote the counts;
   update them when they change.
 
