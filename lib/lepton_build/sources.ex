@@ -246,9 +246,28 @@ defmodule LeptonBuild.Sources do
     end
   end
 
-  # Archive formats (gzip, xz, zstd) are decoded by the host's tar; this is
-  # build-host plumbing only and never ends up in the image.
+  # Archive formats (gzip, xz) are decoded by the host's tar; this is
+  # build-host plumbing only and never ends up in the image. zstd is
+  # decoded here (OTP's :zstd), since BusyBox tar (building inside Lepton)
+  # can't: Ubuntu's .debs carry a zstd data.tar.
   defp system_tar!(archive, dir) do
+    case File.open!(archive, [:read, :binary], &IO.binread(&1, 4)) do
+      <<0x28, 0xB5, 0x2F, 0xFD>> ->
+        plain = archive <> ".plain.tar"
+        File.write!(plain, archive |> File.read!() |> :zstd.decompress() |> IO.iodata_to_binary())
+
+        try do
+          run_tar!(plain, dir)
+        after
+          File.rm(plain)
+        end
+
+      _ ->
+        run_tar!(archive, dir)
+    end
+  end
+
+  defp run_tar!(archive, dir) do
     {out, status} = System.cmd("tar", ["-xf", archive, "-C", dir], stderr_to_stdout: true)
     # apk archives carry PAX headers bsdtar warns about; only fail on real errors.
     if status != 0 and not String.contains?(out, "Ignoring") do
