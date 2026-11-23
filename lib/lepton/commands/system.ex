@@ -791,7 +791,7 @@ defmodule Lepton.Commands.System do
 
   defcmd "man", "show the manual page for a command", usage: "man [-k KEYWORD | -f NAME] [1] NAME" do
     case args do
-      ["-k", word | _] -> apropos(ctx, word, :keyword)
+      ["-k" | words] when words != [] -> apropos(ctx, words, :keyword)
       ["-f" | names] when names != [] -> Enum.reduce(names, 0, &max(apropos(ctx, &1, :name), &2))
       ["1", name | _] -> man(ctx, name)
       [name | _] when name not in ["-k", "-f"] -> man(ctx, name)
@@ -822,19 +822,44 @@ defmodule Lepton.Commands.System do
     end
   end
 
-  defp apropos(ctx, word, how) do
+  defcmd "apropos", "search the manual pages' names and summaries (-t: their text too)",
+    usage: "apropos [-a] [-t] KEYWORD..." do
+    {flags, words} = Enum.split_with(args, &(&1 in ["-a", "--and", "-t", "--text"]))
+
+    if words == [] or Enum.any?(words, &String.starts_with?(&1, "-")) do
+      IO.err(ctx, "usage: apropos [-a] [-t] KEYWORD...")
+      2
+    else
+      apropos(ctx, words, :keyword, all: Enum.any?(flags, &(&1 in ["-a", "--and"])), text: Enum.any?(flags, &(&1 in ["-t", "--text"])))
+    end
+  end
+
+  defcmd "whatis", "the one-line summary of a manual page", usage: "whatis NAME..." do
+    if args == [],
+      do: (IO.err(ctx, "usage: whatis NAME..."); 2),
+      else: Enum.reduce(args, 0, &max(apropos(ctx, &1, :name), &2))
+  end
+
+  defp apropos(ctx, words, how, opts \\ []) do
     found =
       case how do
-        :keyword -> Lepton.Man.apropos(word)
-        :name -> for p <- [Lepton.Man.page(word)], p != nil, do: {p.name, p.summary}
+        :keyword -> Lepton.Man.apropos(words, opts)
+        :name -> for p <- [Lepton.Man.page(words)], p != nil, do: {p.name, p.summary}
       end
 
     if found == [] do
-      IO.err(ctx, "#{word}: nothing appropriate.")
+      IO.err(ctx, "#{Enum.join(List.wrap(words), " ")}: nothing appropriate.")
       16
     else
       w = found |> Enum.map(&String.length(elem(&1, 0))) |> Enum.max() |> max(10)
-      for {n, s} <- found, do: IO.puts(ctx, String.pad_trailing("#{n}(1)", w + 3) <> " - " <> s)
+      # On a terminal, a line found in a page's text fits the width.
+      fit = if ctx.tty != nil and Lepton.TTY.tty?(ctx.stdout), do: &Lepton.Width.slice(&1, 0, elem(Lepton.TTY.size(ctx.tty), 1) - 5), else: & &1
+
+      for hit <- found do
+        IO.puts(ctx, String.pad_trailing("#{elem(hit, 0)}(1)", w + 3) <> " - " <> elem(hit, 1))
+        with {_, _, line} <- hit, do: IO.puts(ctx, "    " <> fit.(line))
+      end
+
       0
     end
   end

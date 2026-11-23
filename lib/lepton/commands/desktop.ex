@@ -27,8 +27,8 @@ defmodule Lepton.Commands.Desktop do
     app(args, ctx)
   end
 
-  defcmd "keyboard", "input sources on the desktop: keyboard layouts (Thai, Hindi, Arabic, ...) and Korean; accents (Alt+e e: é)",
-    usage: "keyboard [list] | use ID | next | add ID... | remove ID... | set ID... | accents [on | off]" do
+  defcmd "keyboard", "input sources on the desktop: keyboard layouts (Thai, Hindi, Arabic, ...) and Korean; accents (Alt+e e: é); Caps Lock as Ctrl",
+    usage: "keyboard [list] | use ID | next | add ID... | remove ID... | set ID... | accents [on | off] | caps [ctrl | lock]" do
     keyboard(args, ctx)
   end
 
@@ -808,8 +808,19 @@ defmodule Lepton.Commands.Desktop do
     0
   end
 
+  defp keyboard(["caps"], ctx) do
+    IO.puts(ctx, if(Lepton.Keyboard.caps() == :ctrl, do: "Caps Lock is another Ctrl (keyboard caps lock: Caps Lock again).", else: "Caps Lock is Caps Lock (keyboard caps ctrl: another Ctrl)."))
+    0
+  end
+
+  defp keyboard(["caps", caps], ctx) when caps in ["ctrl", "lock"] do
+    {:ok, _} = Lepton.Keyboard.set_caps(String.to_existing_atom(caps))
+    IO.puts(ctx, if(caps == "ctrl", do: "Caps Lock is now another Ctrl, on the desktop and the console.", else: "Caps Lock is Caps Lock again."))
+    0
+  end
+
   defp keyboard(_, ctx) do
-    IO.err(ctx, "usage: keyboard [list] | use ID | next | add ID... | remove ID... | set ID... | accents [on | off]")
+    IO.err(ctx, "usage: keyboard [list] | use ID | next | add ID... | remove ID... | set ID... | accents [on | off] | caps [ctrl | lock]")
     2
   end
 

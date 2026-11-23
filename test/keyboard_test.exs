@@ -10,6 +10,7 @@ defmodule Lepton.KeyboardTest do
 
     on_exit(fn ->
       Keyboard.set_sources(["us"])
+      Keyboard.set_caps(:lock)
       System.delete_env("LEPTON_STATE_DIR")
     end)
   end
@@ -148,5 +149,31 @@ defmodule Lepton.KeyboardTest do
     assert File.read!(Path.join(System.get_env("LEPTON_STATE_DIR"), "keyboard")) =~ "accents off"
     assert {_, 0} = sh("keyboard accents on")
     assert Keyboard.accents?()
+  end
+
+  test "keyboard caps ctrl: Caps Lock as another Ctrl, kept in the state file and read again at boot" do
+    assert {out, 0} = sh("keyboard caps")
+    assert out =~ "Caps Lock is Caps Lock"
+    assert {out, 0} = sh("keyboard caps ctrl")
+    assert out =~ "another Ctrl" and Keyboard.caps() == :ctrl
+    assert File.read!(Path.join(System.get_env("LEPTON_STATE_DIR"), "keyboard")) =~ "caps ctrl"
+    # At boot the settings are read again from the data partition.
+    :ok = Keyboard.reload()
+    assert Keyboard.caps() == :ctrl and Keyboard.state().caps == :ctrl
+    assert {out, 0} = sh("keyboard caps")
+    assert out =~ "Caps Lock is another Ctrl"
+    assert {_, 0} = sh("keyboard caps lock")
+    assert Keyboard.caps() == :lock
+    refute File.read!(Path.join(System.get_env("LEPTON_STATE_DIR"), "keyboard")) =~ "caps"
+    assert {_, 2} = sh("keyboard caps escape")
+  end
+
+  @tag :native
+  test "keyboard caps ctrl: the console's keymap has Control on Caps Lock in every table, and Caps Lock again after" do
+    assert Lepton.Keyboard.Console.caps() == :lock
+    {:ok, _} = Keyboard.set_caps(:ctrl)
+    assert Lepton.Keyboard.Console.caps() == :ctrl
+    {:ok, _} = Keyboard.set_caps(:lock)
+    assert Lepton.Keyboard.Console.caps() == :lock
   end
 end

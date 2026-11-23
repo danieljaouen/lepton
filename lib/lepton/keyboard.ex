@@ -19,10 +19,26 @@ defmodule Lepton.Keyboard do
   alias Lepton.Wayland.Layouts
 
   @max_layouts 3
+  @public [:sources, :current, :hangul, :accents, :caps]
 
-  defstruct sources: ["us"], current: "us", hangul: true, accents: true, watchers: []
+  defstruct sources: ["us"], current: "us", hangul: true, accents: true, caps: :lock, watchers: []
 
-  def start_link(_), do: Agent.start_link(fn -> load() end, name: __MODULE__)
+  def start_link(_), do: Agent.start_link(fn -> load() |> console() end, name: __MODULE__)
+
+  @doc """
+  Read the settings again (at boot, once the data partition, where they
+  are kept, is mounted), and tell the watchers.
+  """
+  def reload do
+    if Process.whereis(__MODULE__), do: change(fn old -> %{load() | watchers: old.watchers} |> console() end)
+    :ok
+  end
+
+  # The console starts with the kernel's keymap, where Caps Lock is a lock.
+  defp console(st) do
+    if st.caps == :ctrl, do: Lepton.Keyboard.Console.set_caps(:ctrl)
+    st
+  end
 
   @doc "Every source there is: `[{id, name}]`."
   def known do
@@ -36,13 +52,14 @@ defmodule Lepton.Keyboard do
   def label(id), do: String.upcase(id)
 
   @doc """
-  The state: `%{sources: [id], current: id, hangul: bool, accents: bool}`
-  (`hangul`: Korean types Hangul, not English; `accents`: the Alt keys type
-  accents, `Lepton.Accents`).
+  The state: `%{sources: [id], current: id, hangul: bool, accents: bool,
+  caps: :lock | :ctrl}` (`hangul`: Korean types Hangul, not English;
+  `accents`: the Alt keys type accents, `Lepton.Accents`; `caps`: what
+  Caps Lock is, on the desktop and the text console).
   """
   def state do
     st = if Process.whereis(__MODULE__), do: Agent.get(__MODULE__, & &1), else: load()
-    Map.take(st, [:sources, :current, :hangul, :accents])
+    Map.take(st, @public)
   end
 
   @doc """
@@ -96,6 +113,19 @@ defmodule Lepton.Keyboard do
   @doc "Turn the accent keys on or off."
   def set_accents(on?) when is_boolean(on?), do: change(&%{&1 | accents: on?})
 
+  @doc "What Caps Lock is: `:lock` (Caps Lock), or `:ctrl` (another Ctrl)."
+  def caps, do: state().caps
+
+  @doc """
+  Make Caps Lock `:ctrl` or `:lock`, on the desktop (Photon) and the text
+  console (the kernel's keymap, `Lepton.Keyboard.Console`).
+  """
+  def set_caps(caps) when caps in [:ctrl, :lock] do
+    result = change(&%{&1 | caps: caps})
+    Lepton.Keyboard.Console.set_caps(caps)
+    result
+  end
+
   @doc "In Korean: switch between Hangul and English."
   def toggle_hangul, do: change(&%{&1 | hangul: not &1.hangul})
 
@@ -115,17 +145,17 @@ defmodule Lepton.Keyboard do
         end)
 
       save(st)
-      public = Map.take(st, [:sources, :current, :hangul, :accents])
+      public = Map.take(st, @public)
       for w <- watchers, do: send(w, {:keyboard, public})
       {:ok, public}
     else
       st = fun.(load())
       save(st)
-      {:ok, Map.take(st, [:sources, :current, :hangul, :accents])}
+      {:ok, Map.take(st, @public)}
     end
   end
 
-  # -- the file: "sources us ko th", "current ko" (and "accents off") -----------------------
+  # -- the file: "sources us ko th", "current ko" (and "accents off", "caps ctrl") -----------------------
 
   defp path, do: Lepton.Persist.state_path("keyboard")
 
@@ -136,7 +166,7 @@ defmodule Lepton.Keyboard do
         sources = for("sources " <> s <- lines, id <- String.split(s), name(id), do: id) |> Enum.uniq()
         sources = if sources == [], do: ["us"], else: sources
         current = Enum.find_value(lines, fn "current " <> c -> String.trim(c); _ -> nil end)
-        %__MODULE__{sources: sources, current: if(current in sources, do: current, else: hd(sources)), accents: "accents off" not in lines}
+        %__MODULE__{sources: sources, current: if(current in sources, do: current, else: hd(sources)), accents: "accents off" not in lines, caps: if("caps ctrl" in lines, do: :ctrl, else: :lock)}
 
       _ ->
         %__MODULE__{}
@@ -146,6 +176,7 @@ defmodule Lepton.Keyboard do
   defp save(st) do
     File.mkdir_p(Path.dirname(path()))
     accents = if st.accents, do: "", else: "accents off\n"
-    File.write(path(), "sources #{Enum.join(st.sources, " ")}\ncurrent #{st.current}\n" <> accents)
+    caps = if st.caps == :ctrl, do: "caps ctrl\n", else: ""
+    File.write(path(), "sources #{Enum.join(st.sources, " ")}\ncurrent #{st.current}\n" <> accents <> caps)
   end
 end

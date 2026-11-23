@@ -96,12 +96,52 @@ defmodule Lepton.Man do
     end
   end
 
-  @doc "Pages whose name or summary contains `keyword` (`man -k`), as `{name, summary}`."
-  def apropos(keyword) do
-    k = String.downcase(keyword)
+  @doc """
+  Pages whose name or summary contains `keyword` (`man -k`, `apropos`),
+  as `{name, summary}`; `keywords` may be a list (any of them matches).
 
-    for name <- names(), p = page(name), p.name == name, String.contains?(String.downcase(name <> " " <> p.summary), k), do: {name, p.summary}
+  Options: `all: true`, every keyword must match; `text: true`, the
+  pages' text is searched as well, and a page found only there comes as
+  `{name, summary, line}` with the first line that matches.
+  """
+  def apropos(keywords, opts \\ []) do
+    ks = keywords |> List.wrap() |> Enum.map(&normalize/1)
+    match? = fn hay -> if opts[:all], do: Enum.all?(ks, &String.contains?(hay, &1)), else: Enum.any?(ks, &String.contains?(hay, &1)) end
+
+    for name <- names(), p = page(name), p.name == name, hit = found(p, ks, match?, opts[:text]), do: hit
   end
+
+  defp found(p, ks, match?, text?) do
+    cond do
+      match?.(normalize(Enum.join(p.names, " ") <> " " <> p.summary)) ->
+        {p.name, p.summary}
+
+      text? && match?.(normalize(plain(p.body || ""))) ->
+        {p.name, p.summary, context(p.body, ks)}
+
+      true ->
+        nil
+    end
+  end
+
+  # The text around the first keyword in the page, as one line: from a
+  # few words before it ("…" when that isn't the start of a paragraph).
+  defp context(body, ks) do
+    # Paragraphs, and an example block's lines one by one.
+    paras = for p <- body |> plain() |> String.split(~r/\n\s*\n/), l <- if(p =~ ~r/\A(    .*(\n|\z))+\z/, do: String.split(p, "\n"), else: [p]), do: l
+    para = Enum.find(paras, "", &Enum.any?(ks, fn k -> String.contains?(normalize(&1), k) end))
+    line = para |> String.replace(~r/\s+/u, " ") |> String.trim()
+    at = ks |> Enum.map(&:binary.match(String.downcase(line), &1)) |> Enum.reject(&(&1 == :nomatch)) |> Enum.map(&elem(&1, 0)) |> Enum.min(fn -> 0 end)
+    before = binary_part(line, 0, at) |> String.split(" ")
+
+    if length(before) > 6,
+      do: "…" <> (before |> Enum.take(-6) |> Enum.join(" ")) <> binary_part(line, at, byte_size(line) - at),
+      else: line
+  end
+
+  # Lower case, one space between words, without Markdown's backquotes and stars.
+  defp normalize(text), do: text |> String.downcase() |> String.replace(~r/\s+/u, " ") |> String.trim()
+  defp plain(text), do: text |> String.replace(~r/^#+ .*$/m, "") |> String.replace(~r/[`*]/, "")
 
   # -- terminal rendering -----------------------------------------------------------------------
 

@@ -68,6 +68,27 @@ defmodule Lepton.ManTest do
     assert {"", 16} = sh("man -k zzzzqqq")
   end
 
+  test "apropos: names and summaries, -a every keyword, -t the pages' text with the words around; whatis" do
+    {out, 0} = sh("apropos usb")
+    assert out =~ ~r/^eject\(1\) +- unmount a USB drive or SD card so it's safe to remove$/m
+    {out, 0} = sh("apropos -a disk usb")
+    assert out =~ "lsblk(1)" and not (out =~ "eject(1)")
+    {out, 0} = sh(~s(apropos "caps lock"))
+    assert out =~ ~r/^keyboard\(1\) +- .*Caps Lock as Ctrl$/m
+    assert {"", 16} = sh("apropos loadkeys")
+    {out, 0} = sh("apropos -t loadkeys")
+    assert out =~ ~r/^keyboard\(1\) +- .*\n    …console \(the kernel's keymap, as loadkeys would set it\)/m
+    assert out =~ ~r/^apropos\(1\) .*\n    apropos -t loadkeys\n/m
+    {out, 0} = sh("apropos --text --and magit push")
+    assert out =~ "le(1)" and out =~ "P p push"
+    assert {_, 2} = sh("apropos")
+    {out, 0} = sh("whatis grep cd")
+    assert out =~ ~r/^grep\(1\) +- print lines that match patterns\ncd\(1\) +- change the current directory/
+    assert {_, 16} = sh("whatis frobnicate")
+    {out, 0} = sh("man -k caps usb")
+    assert out =~ "keyboard(1)" and out =~ "eject(1)"
+  end
+
   test "a package's command without a page gets one from its summary" do
     Lepton.Commands.register("greet-man-test", fn _, _ -> 0 end, "say hello")
     {out, 0} = sh("man greet-man-test")

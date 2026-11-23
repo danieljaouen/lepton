@@ -25,6 +25,12 @@ windows (terminal windows, `le`) the keys stay English: they don't take
 composed text yet. The other layouts type in every window, and terminal
 windows show their text (Unifont's glyphs, where Terminus has none).
 
+Caps Lock can be another Ctrl (`keyboard caps ctrl`), on the desktop
+and on the text console (the kernel's keymap, as `loadkeys` would set
+it). Kept across reboots. In a VM or over SSH the key comes from the
+other computer, so make it Ctrl there as well (on a Mac: System
+Settings, Keyboard, Keyboard Shortcuts, Modifier Keys).
+
 Accents type everywhere, not only on the desktop (the text console,
 terminal windows, SSH, tmux, Firefox): Alt and an accent key, then the
 letter, as with Option on a Mac. Alt+e acute (Alt+e e: é), Alt+` grave,
@@ -47,6 +53,8 @@ capital; Space, or the accent key again, the accent alone. One key: Alt+c
 - `accents on`, `accents off`: turn them on or off (off: the Alt keys go
   to programs as they are, for programs that use them). Kept across
   reboots.
+- `caps`: what Caps Lock is.
+- `caps ctrl`: make Caps Lock another Ctrl; `caps lock`: Caps Lock again.
 
 ## EXAMPLES
 
@@ -56,6 +64,7 @@ capital; Space, or the accent key again, the accent alone. One key: Alt+c
     keyboard list
     keyboard accents
     keyboard accents off
+    keyboard caps ctrl
 
 ## SEE ALSO
 

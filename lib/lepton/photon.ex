@@ -136,7 +136,7 @@ defmodule Lepton.Photon do
     # input sources (Lepton.Keyboard's state), the Hangul being composed
     # (Lepton.Hangul), the accent waiting for its letter (Lepton.Accents)
     # and the keys they took (their releases go nowhere)
-    kb: %{sources: ["us"], current: "us", hangul: true, accents: true},
+    kb: %{sources: ["us"], current: "us", hangul: true, accents: true, caps: :lock},
     compose: [],
     accent: nil,
     consumed: MapSet.new()
@@ -2119,6 +2119,13 @@ defmodule Lepton.Photon do
   @key_alt_r 100
   @key_hangeul 122
 
+  @key_capslock 58
+  @key_ctrl_l 29
+
+  # `keyboard caps ctrl`: Caps Lock is another (left) Ctrl, for Photon's
+  # shortcuts and for programs alike.
+  defp key(st, @key_capslock, pressed?) when :erlang.map_get(:caps, st.kb) == :ctrl, do: key(st, @key_ctrl_l, pressed?)
+
   defp key(st, code, pressed?) do
     korean? = st.kb.current == "ko"
 
@@ -2228,6 +2235,8 @@ defmodule Lepton.Photon do
     old = st.kb
     st = if kb != old, do: flush_compose(st), else: st
     st = %{st | kb: kb}
+    # Caps Lock made a Ctrl: a Caps Lock that was on goes off.
+    st = if Map.get(kb, :caps) == :ctrl, do: %{st | locked: band(st.locked, bnot(Keymap.caps()))}, else: st
     groups = Lepton.Keyboard.groups(kb.sources)
 
     st =

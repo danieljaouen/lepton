@@ -2,13 +2,30 @@
 title: Languages and keyboards
 order: 13
 section: desktop
-summary: Type Korean, Thai, Hindi, Arabic and other languages on the desktop. Choose input sources with keyboard, switch with Super+Space, and compose Hangul in Firefox.
+summary: Type Korean, Thai, Hindi, Arabic and other languages on the desktop. Choose input sources with keyboard, switch with Super+Space, compose Hangul in Firefox, and make Caps Lock a Ctrl.
 ---
 
 # Languages and keyboards
 
 Accented letters (é ü ñ č) type everywhere with Alt, on the console as
 well as on the desktop: see [Typing accents](accents.html).
+
+## Caps Lock as Ctrl
+
+To make Caps Lock another Ctrl, as many Emacs and Vim users do (and as a
+Mac can, in System Settings: Keyboard, Keyboard Shortcuts, Modifier
+Keys):
+
+    keyboard caps ctrl
+
+It works on the desktop, for Photon's shortcuts and every program, and on
+the text console, so it is the same on a PC with Lepton on its own disk
+as in a VM. The setting is the system's and is kept across reboots.
+`keyboard caps lock` makes it Caps Lock again, and `keyboard caps` says
+which it is.
+
+In UTM, or over SSH, the keys come from the Mac: there, Caps Lock is
+whatever macOS makes it, so set it on the Mac as well.
 
 ## Input sources
 

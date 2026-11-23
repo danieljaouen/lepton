@@ -135,10 +135,16 @@ two. `man CMD` shows its manual page: what it does, every option, and
 examples. Every command has one, and so does each shell builtin (`man
 cd`, or `man builtins` for them all).
 
+To find the page for something when you don't know the command,
+`apropos` searches the pages' names and summaries, and with `-t` their
+whole text:
+
 ```sh
 man ls              # the manual page, in the pager: Space, /search, q to quit
-man -k usb          # pages whose name or summary mentions usb
-man -f grep         # grep's one-line summary
+apropos usb         # pages whose name or summary mentions usb (man -k usb)
+apropos -t "caps lock"  # ... or whose text does, with the words around it
+apropos -a disk usb # pages that mention both
+whatis grep         # grep's one-line summary (man -f grep)
 man ls | grep -- -h # plain text when it isn't a terminal
 ```
 
@@ -156,4 +162,4 @@ message and `help` point here, to <https://trylepton.app/docs/>.
 mounts, drivers, DHCP, the shell, editor, multiplexer, git, packages and
 services. `--only TAG` and file arguments pick tests.
 
-<!-- commands: ps top kill pgrep pkill df du free mount poweroff reboot resize pbcopy pbpaste iex elixir mix help man keys neofetch lepton-test -->
+<!-- commands: ps top kill pgrep pkill df du free mount poweroff reboot resize pbcopy pbpaste iex elixir mix help man apropos whatis keys neofetch lepton-test -->

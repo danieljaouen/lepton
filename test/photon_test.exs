@@ -487,6 +487,30 @@ defmodule Lepton.PhotonTest do
     assert {28, 1} in key_events.(evs) and not Enum.any?(ti_events.(evs), &match?({:commit_string, _}, &1))
   end
 
+  test "keyboard caps ctrl: Caps Lock reaches programs as Left Ctrl, with the Ctrl modifier; Caps Lock otherwise" do
+    System.put_env("LEPTON_STATE_DIR", tmp_dir("kbstate"))
+    on_exit(fn -> Lepton.Keyboard.set_caps(:lock); System.delete_env("LEPTON_STATE_DIR") end)
+    {ph, _out, env} = start_photon()
+    win = window(env, 100, 60, Render.px(0, 0, 255))
+    {c, kbd} = Client.create(win.c, win.seat, :get_keyboard, "wl_keyboard")
+    {_, c} = events(c)
+    keys = fn evs -> for {^kbd, _, ev, args} <- evs, ev in [:key, :modifiers], do: {ev, if(ev == :key, do: Enum.slice(args, 2, 2), else: Enum.slice(args, 1, 3))} end
+    caps_c = fn -> for {k, p} <- [{58, true}, {46, true}, {46, false}, {58, false}], do: Photon.input(ph, {:key, k, p}) end
+
+    caps_c.()
+    {evs, c} = events(c)
+    assert keys.(evs) == [{:key, [58, 1]}, {:modifiers, [0, 0, 2]}, {:key, [46, 1]}, {:key, [46, 0]}, {:key, [58, 0]}, {:modifiers, [0, 0, 2]}]
+
+    # Caps Lock was on: made a Ctrl, it goes off.
+    {:ok, _} = Lepton.Keyboard.set_caps(:ctrl)
+    {evs, c} = events(c)
+    assert {:modifiers, [0, 0, 0]} in keys.(evs)
+    caps_c.()
+    {evs, _c} = events(c)
+    ctrl = Lepton.Wayland.Keymap.ctrl()
+    assert keys.(evs) == [{:key, [29, 1]}, {:modifiers, [ctrl, 0, 0]}, {:key, [46, 1]}, {:key, [46, 0]}, {:key, [29, 0]}, {:modifiers, [0, 0, 0]}]
+  end
+
   test "input: pointer focus and coordinates, buttons, keyboard focus, keys and modifiers" do
     {ph, _out, env} = start_photon()
     win = window(env, 100, 60, Render.px(0, 0, 255))

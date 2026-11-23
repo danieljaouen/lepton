@@ -79,6 +79,7 @@ defmodule Lepton.Init do
       if Lepton.Persist.installed?(), do: keep_log()
       # Services that started before the data partition read their settings again.
       Lepton.Sound.reload()
+      Lepton.Keyboard.reload()
       Lepton.Users.sync_etc()
       # Each user's socket for Lepton's commands from native programs.
       Lepton.Bridge.start_all()

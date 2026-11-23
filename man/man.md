@@ -14,9 +14,9 @@ section 1.
 
 ## OPTIONS
 
-- `-k KEYWORD`: list the pages whose name or summary contains KEYWORD
-  (like `apropos`).
-- `-f NAME`: print the one-line summary of NAME (like `whatis`).
+- `-k KEYWORD...`: list the pages whose name or summary contains a
+  KEYWORD (`apropos`, which can search the pages' text too).
+- `-f NAME...`: print the one-line summary of each NAME (`whatis`).
 
 ## ENVIRONMENT
 
@@ -36,4 +36,4 @@ section 1.
 
 ## SEE ALSO
 
-help(1), less(1), builtins(1)
+apropos(1), whatis(1), help(1), less(1), builtins(1)
