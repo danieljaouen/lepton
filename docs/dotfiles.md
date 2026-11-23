@@ -9,8 +9,9 @@ summary: How Lepton reads Spacemacs, tmux, zsh, starship and git configuration.
 
 Lepton is configured by a dotfiles repository, read at runtime from the
 files themselves rather than re-typed. The published ISO is built with
-[Daniel Jaouen's dotfiles](https://github.com/danieljaouen/dotfiles);
-build your own image with `mix lepton.iso --dotfiles PATH`.
+[Daniel Jaouen's dotfiles](https://github.com/danieljaouen/dotfiles), as
+they are on GitHub (the build fetches them); build your own image with
+`mix lepton.iso --dotfiles PATH`.
 
 The build installs the repository into `/root` following its own
 `locations/` convention (`*.symlink` → `~/.name`, `*.directory.symlink` →

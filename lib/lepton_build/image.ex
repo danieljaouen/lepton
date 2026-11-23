@@ -597,7 +597,7 @@ defmodule LeptonBuild.Image do
           :dir -> {:dir, base <> rel, 0o755}
           bin -> {:file, base <> rel, 0o644, {:data, bin}}
         end
-      end ++ [{:file, "/root/.dotfiles-source", 0o644, {:data, Path.expand(dotfiles) <> "\n"}}]
+      end ++ [{:file, "/root/.dotfiles-source", 0o644, {:data, LeptonBuild.Paths.dotfiles_source(dotfiles) <> "\n"}}]
     else
       Mix.shell().info("  (no dotfiles repo#{if dotfiles, do: " at #{dotfiles}"}; using built-in defaults - pass --dotfiles PATH)")
       []

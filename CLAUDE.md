@@ -112,8 +112,13 @@ disabled on 2026-11-21: its plist is kept as
   edit it or commit its pointer by hand: the site repo's "Update Lepton's
   site submodule" workflow moves it on every push to the site's main (and
   `mix lepton.publish` does locally). Pull before committing here.
-- Dotfiles: not in this repository. Builds and tests use `~/.dotfiles`
-  (or `$LEPTON_DOTFILES`).
+- Dotfiles: not in this repository. Builds (`mix lepton.iso`, the docs,
+  and so `mix lepton.publish`) use github.com/danieljaouen/dotfiles,
+  fetched into `_build/lepton/dotfiles` at each build, on the Mac and
+  inside Lepton alike: unpushed dotfiles changes aren't released.
+  `$LEPTON_DOTFILES` (or `--dotfiles PATH`) names a local checkout
+  instead, for builds of your own. `mix test` reads `~/.dotfiles` (or
+  `$LEPTON_DOTFILES`).
 - `../lepton.iso`: ISO releases (GitHub Releases; never commit the ISO)
 
 Commit or push only when asked. End commit messages with:

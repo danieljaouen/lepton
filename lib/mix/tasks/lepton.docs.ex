@@ -22,6 +22,11 @@ defmodule Mix.Tasks.Lepton.Docs do
   def run(args) do
     {opts, _} = OptionParser.parse!(args, strict: [check: :boolean, publish: :boolean])
     Mix.Task.run("app.start")
+    # The keybindings page shows what the dotfiles set: the ones the ISO is
+    # built with (from GitHub unless LEPTON_DOTFILES names others).
+    if System.get_env("LEPTON_DOTFILES") == nil do
+      if dir = Paths.dotfiles(), do: System.put_env("LEPTON_DOTFILES", dir)
+    end
 
     rev = System.cmd("git", ["rev-parse", "--short", "HEAD"]) |> elem(0) |> String.trim()
     pages = LeptonBuild.Docs.build(rev: rev)

@@ -98,8 +98,9 @@ as a program, not as the OS: Lepton's application started there (to
 generate the docs) runs as it does on a Mac, without a second copy of
 the system's services.
 
-- The ISO installs a dotfiles repository into `/root`: `~/.dotfiles`, or
-  the one `LEPTON_DOTFILES` names.
+- The ISO installs a dotfiles repository into `/root`: the one on GitHub
+  (danieljaouen/dotfiles, fetched at each build, so a build here matches
+  one on the Mac), or a local checkout that `LEPTON_DOTFILES` names.
 - Publishing needs a GitHub token, in `GH_TOKEN`, and pushes over HTTPS.
   Point git at it with a `GIT_ASKPASS` script that prints
   `x-access-token` for the user name and the token for the password.

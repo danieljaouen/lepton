@@ -114,8 +114,8 @@ refuses others), `tar`, and network access for the first build. QEMU
 (`brew install qemu`) is optional, for testing.
 
 ```sh
-mix lepton.iso                 # -> out/lepton.iso (dotfiles from ~/.dotfiles, if any)
-mix lepton.iso --dotfiles PATH # or set LEPTON_DOTFILES
+mix lepton.iso                 # -> out/lepton.iso (dotfiles from github.com/danieljaouen/dotfiles)
+mix lepton.iso --dotfiles PATH # a local checkout instead (or set LEPTON_DOTFILES)
 mix lepton.qemu                # boot in a QEMU window (UTM-equivalent machine)
 mix lepton.qemu --test         # headless boot, run lepton-test, report
 mix lepton.qemu --run "uname -a" --run "ip addr"
@@ -198,10 +198,11 @@ mix test                       # host-side test run
 - This repository. Clone it with `git clone --recursive
   https://github.com/danieljaouen/lepton` to get the website as well.
 - **Dotfiles** are not part of it. `mix lepton.iso` installs
-  `$LEPTON_DOTFILES` or `~/.dotfiles` (the published ISO uses
-  [danieljaouen/dotfiles](https://github.com/danieljaouen/dotfiles)), or
-  uses Lepton's defaults when there is none. Pass `--dotfiles PATH` to
-  choose another.
+  [danieljaouen/dotfiles](https://github.com/danieljaouen/dotfiles),
+  fetched from GitHub at each build (into `_build/lepton/dotfiles`), so
+  the published ISO has what is pushed there, wherever it is built.
+  `--dotfiles PATH` or `$LEPTON_DOTFILES` names a local checkout instead;
+  without any, the image uses Lepton's defaults.
 - **Website**: `site/` is a submodule of
   [danieljaouen.github.io](https://github.com/danieljaouen/danieljaouen.github.io)
   over HTTPS, for reading. The tooling (`mix lepton.docs`, `lepton.site.tags`,
@@ -234,8 +235,8 @@ virtual machine of its own. With nested virtualization (`mix lepton.qemu
 about as long as on the Mac; see docs/virtual-machines.md.
 
 Current results: 337 tests, 0 failures inside the VM (run from the live
-ISO; the 16 `:docs` tests, for the docs, site tags and build tasks, are
-host-only), and 331 passing plus 22 excluded (native/network) on the host.
+ISO; the 18 `:docs` tests, for the docs, site tags and build tasks, are
+host-only), and 333 passing plus 22 excluded (native/network) on the host.
 
 ## Version updates
 
