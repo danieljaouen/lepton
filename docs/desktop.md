@@ -53,6 +53,13 @@ shell and everything running in it, as closing a terminal does on Unix:
 close the System Monitor and its `top` stops too. Apps such as Firefox
 keep running. **Ctrl+Shift+V** pastes the clipboard.
 
+The text size changes as in Firefox: **Ctrl+=** (or **Ctrl++**) makes
+it bigger and **Ctrl+-** smaller, through the sizes of the Terminus font
+(14 to 32 pixels high), and **Ctrl+0** goes back to the usual 16. The
+window keeps its size and holds fewer (or more) rows and columns, which
+programs in it are told, as when you resize it. New terminal windows
+open at the size you chose last, until Lepton restarts.
+
 ## Opening files
 
 `open` (also `xdg-open`, as your dotfiles call it on Linux) opens files,

@@ -10,6 +10,10 @@ defmodule Lepton.Wayland.Font do
 
   `rows/4` renders a character as 16 rows of pixels in a given foreground
   and background colour (4-byte XRGB8888 pixels).
+
+  A terminal window's text size can be another of Terminus's heights,
+  14 to 32 pixels (`sizes/0`, `cell/1`, `sized_rows/6`); Unifont's glyphs
+  are scaled to them.
   """
 
   import Bitwise
@@ -175,6 +179,69 @@ defmodule Lepton.Wayland.Font do
   def row(byte, fg, bg) do
     for <<bit::1 <- <<byte>> >>, into: <<>>, do: if(bit == 1, do: fg, else: bg)
   end
+
+  # -- sizes (the terminal's zoom) -----------------------------------------------------------
+
+  # Terminus at each height, regular and bold: %{height => {width, {glyphs, map}, {bold_glyphs, bold_map}}}.
+  @sizes [14, 16, 18, 20, 22, 24, 28, 32]
+  # Terminus's cell widths (its PSF headers say so too).
+  @widths %{14 => 8, 16 => 8, 18 => 10, 20 => 10, 22 => 11, 24 => 12, 28 => 14, 32 => 16}
+  @terminus (for size <- @sizes, into: %{} do
+               files = for kind <- ["n", "b"], do: Path.join(@dir, "ter-v#{size}#{kind}.psf.gz")
+               Enum.each(files, &Module.put_attribute(__MODULE__, :external_resource, &1))
+               [{g, m, ^size}, {bg, bm, ^size}] = Enum.map(files, &PSF.parse(File.read!(&1)))
+               {size, {Map.fetch!(@widths, size), {g, m}, {bg, bm}}}
+             end)
+
+  @doc "The text sizes (pixel heights) there are fonts for; 16 is the usual one."
+  def sizes, do: @sizes
+
+  @doc "A character cell at text size `size`: `{width, height}` in pixels."
+  def cell(size), do: {elem(Map.fetch!(@terminus, size), 0), size}
+
+  @doc """
+  Grapheme `g` drawn at text size `size` across `cells` cells: `size` rows
+  of pixels. Terminus has every size; what only Unifont has (wide
+  characters, combining marks, ...) is its 16-pixel glyph scaled to fit.
+  """
+  def sized_rows(g, fg, bg, bold?, 16, _cells), do: grapheme_rows(g, fg, bg, bold?)
+
+  def sized_rows(g, fg, bg, bold?, size, cells) do
+    {w, {glyphs, map}, {bglyphs, bmap}} = Map.fetch!(@terminus, size)
+    {glyphs, map} = if bold?, do: {bglyphs, bmap}, else: {glyphs, map}
+
+    {sw, bits} =
+      case String.to_charlist(g) do
+        [cp] when cells == 1 and is_map_key(map, cp) -> {w, psf_bits(elem(glyphs, map[cp]), size, w)}
+        [] -> {w, List.duplicate(0, size)}
+        cps -> cps |> cluster(bold?) |> unifont_bits() |> scale(w * cells, size)
+      end
+
+    for r <- bits, do: bit_row(r, sw, fg, bg)
+  end
+
+  # A PSF glyph's rows as integers `w` bits wide.
+  defp psf_bits(glyph, h, w) do
+    bpr = div(byte_size(glyph), h)
+    for <<r::size(^bpr * 8) <- glyph>>, do: r >>> (bpr * 8 - w)
+  end
+
+  defp unifont_bits({8, bits}), do: {8, for(<<b <- bits>>, do: b)}
+  defp unifont_bits({16, bits}), do: {16, for(<<b::16 <- bits>>, do: b)}
+
+  # Nearest-neighbour: a glyph's rows (`sw` bits wide, 16 high) to `dw` x `dh`.
+  defp scale({sw, rows}, dw, dh) do
+    rows = List.to_tuple(rows)
+    sh = tuple_size(rows)
+
+    {dw,
+     for y <- 0..(dh - 1) do
+       src = elem(rows, div(y * sh, dh))
+       Enum.reduce(0..(dw - 1), 0, fn x, acc -> (acc <<< 1) ||| (src >>> (sw - 1 - div(x * sw, dw)) &&& 1) end)
+     end}
+  end
+
+  defp bit_row(r, w, fg, bg), do: for(<<bit::1 <- <<r::size(w)>> >>, into: <<>>, do: if(bit == 1, do: fg, else: bg))
 
   @doc """
   Draw `text` as 16 rows `width` pixels wide (clipped or padded with `bg`).

@@ -30,6 +30,9 @@ For a Windows 95-style desktop with a taskbar and Start menu, run
 - `Alt+Shift+Right`, `Alt+Shift+Left`: move the window to the next or
   previous display.
 - `Ctrl+Shift+V`: paste in a terminal window.
+- `Ctrl+=` (or `Ctrl++`), `Ctrl+-`, `Ctrl+0`: in a terminal window, a
+  bigger or smaller text size (14 to 32 pixels), or the usual 16 again.
+  New terminal windows open at the size chosen last.
 - `Print` (or `Super+Shift+3`): save a screenshot of the desktop in
   `~/Pictures`; `Alt+Print` (`Super+Shift+5`): the focused window;
   `Shift+Print` (`Super+Shift+4`): a region you drag, or a window you

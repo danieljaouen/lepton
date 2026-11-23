@@ -12,6 +12,11 @@ defmodule Lepton.Photon.Term do
   text-input v3's commit_string, without a text field turned on. The
   window resizes in whole cells. Closing the window ends the
   shell; the shell exiting closes the window.
+
+  Ctrl+= (or Ctrl++) and Ctrl+- make the text bigger and smaller, through
+  Terminus's sizes (`Font.sizes/0`), and Ctrl+0 goes back to 16 pixels,
+  as in Firefox. The window keeps its size and holds more or fewer
+  cells; new windows open at the size last chosen.
   """
 
   use GenServer, restart: :temporary
@@ -21,8 +26,6 @@ defmodule Lepton.Photon.Term do
   alias Lepton.{Screen, TTY}
   alias Lepton.Wayland.{Client, Font, Keymap}
 
-  @cw 8
-  @ch 16
   # margin around the text, in pixels
   @pad 4
 
@@ -34,6 +37,7 @@ defmodule Lepton.Photon.Term do
   @fg "f8f8f2"
   @bg "272822"
   @default {28, 96}
+  @text_size 16
   @repeat_delay 400
   @repeat_rate 33
 
@@ -86,7 +90,10 @@ defmodule Lepton.Photon.Term do
     c = c |> Client.request(top, :set_title, [title]) |> Client.request(top, :set_app_id, ["lepton.term"])
     c = Client.request(c, surface, :commit, [])
 
-    {rows, cols} = opts[:size] || @default
+    size = opts[:text_size] || text_size()
+    {cw, ch} = Font.cell(size)
+    # A window as big as the default one at 16 pixels, in cells of this size.
+    {rows, cols} = opts[:size] || fit_cells(cell_area(@default, Font.cell(@text_size)), {cw, ch})
     {:ok, tty} = TTY.start(backend: {Backend, {self(), {rows, cols}}}, name: "photon term", term: "xterm-256color")
 
     %{
@@ -100,6 +107,11 @@ defmodule Lepton.Photon.Term do
       screen: Screen.new(rows, cols, history_limit: 0),
       rows: rows,
       cols: cols,
+      text_size: size,
+      cw: cw,
+      ch: ch,
+      # the window's size in pixels, as last configured
+      px: nil,
       pending_size: nil,
       buffer: nil,
       busy: false,
@@ -147,8 +159,7 @@ defmodule Lepton.Photon.Term do
   end
 
   defp event({_, "xdg_toplevel", :configure, [w, h, _states]}, st) do
-    size = if w > 0 and h > 0, do: {max(div(h - 2 * @pad, @ch), 2), max(div(w - 2 * @pad, @cw), 10)}, else: nil
-    %{st | pending_size: size}
+    if w > 0 and h > 0, do: %{st | pending_size: fit_cells({w, h}, {st.cw, st.ch}), px: {w, h}}, else: %{st | pending_size: nil}
   end
 
   defp event({_, "xdg_toplevel", :close, []}, st) do
@@ -204,6 +215,27 @@ defmodule Lepton.Photon.Term do
   defp cancel_repeat(st), do: st
 
   @key_v 47
+  @key_0 11
+  @key_minus 12
+  @key_equal 13
+  @key_kp_minus 74
+  @key_kp_plus 78
+
+  # Text size, as in Firefox: Ctrl+= or Ctrl++ (Shift+=), Ctrl+-, Ctrl+0.
+  # Ctrl+Shift+- stays C-_ (undo in Emacs).
+  defp type_key(st, code) when band(st.mods, 4) == 4 and (code in [@key_equal, @key_kp_plus] or (code in [@key_minus, @key_kp_minus, @key_0] and band(st.mods, 1) == 0)) do
+    sizes = Font.sizes()
+    i = Enum.find_index(sizes, &(&1 == st.text_size))
+
+    size =
+      cond do
+        code in [@key_equal, @key_kp_plus] -> Enum.at(sizes, min(i + 1, length(sizes) - 1))
+        code in [@key_minus, @key_kp_minus] -> Enum.at(sizes, max(i - 1, 0))
+        true -> @text_size
+      end
+
+    zoom(st, size)
+  end
 
   # Ctrl+Shift+V pastes the clipboard (what Firefox copied too; newlines as
   # Return, as a terminal types them).
@@ -251,6 +283,26 @@ defmodule Lepton.Photon.Term do
     %{st | shell: {nil, proc}}
   end
 
+  # -- text size -----------------------------------------------------------------------------
+
+  @doc "The text size new terminal windows open at: the one last chosen (16 at first)."
+  def text_size, do: :persistent_term.get({__MODULE__, :text_size}, @text_size)
+
+  defp zoom(%{text_size: size} = st, size), do: st
+
+  defp zoom(st, size) do
+    :persistent_term.put({__MODULE__, :text_size}, size)
+    {cw, ch} = Font.cell(size)
+    area = st.px || cell_area({st.rows, st.cols}, {st.cw, st.ch})
+    # Kept, so the next zoom fits the same window, not this one's whole cells.
+    st = %{st | text_size: size, cw: cw, ch: ch, cache: %{}, px: area}
+    resize(st, fit_cells(area, {cw, ch}))
+  end
+
+  # A window's pixels for rows x cols cells, and the cells that fit in a window.
+  defp cell_area({rows, cols}, {cw, ch}), do: {cols * cw + 2 * @pad, rows * ch + 2 * @pad}
+  defp fit_cells({w, h}, {cw, ch}), do: {max(div(h - 2 * @pad, ch), 2), max(div(w - 2 * @pad, cw), 10)}
+
   # -- drawing -------------------------------------------------------------------------------
 
   defp resize(st, {rows, cols}) do
@@ -284,7 +336,7 @@ defmodule Lepton.Photon.Term do
         if drawn[y] == cells do
           {changed, drawn, cache}
         else
-          {pixels, cache} = render_row(cells, cache)
+          {pixels, cache} = render_row(cells, cache, st)
           {[{y, pixels} | changed], Map.put(drawn, y, cells), cache}
         end
       end)
@@ -301,15 +353,16 @@ defmodule Lepton.Photon.Term do
 
   defp present(st, changed) do
     b = st.buffer
-    width = st.cols * @cw
+    %{cw: cw, ch: ch} = st
+    width = st.cols * cw
     stride = (width + 2 * @pad) * 4
 
     writes =
-      for {y, px} <- changed, r <- 0..(@ch - 1),
-          do: {(@pad + y * @ch + r) * stride + @pad * 4, binary_part(px, r * width * 4, width * 4)}
+      for {y, px} <- changed, r <- 0..(ch - 1),
+          do: {(@pad + y * ch + r) * stride + @pad * 4, binary_part(px, r * width * 4, width * 4)}
 
     :ok = :file.pwrite(b.file, writes)
-    c = Enum.reduce(changed, st.c, fn {y, _}, c -> Client.request(c, st.ids.surface, :damage_buffer, [@pad, @pad + y * @ch, width, @ch]) end)
+    c = Enum.reduce(changed, st.c, fn {y, _}, c -> Client.request(c, st.ids.surface, :damage_buffer, [@pad, @pad + y * ch, width, ch]) end)
     c = Client.request(c, st.ids.surface, :attach, [b.id, 0, 0])
     {c, _cb} = Client.create(c, st.ids.surface, :frame, "wl_callback")
     c = Client.request(c, st.ids.surface, :commit, [])
@@ -323,8 +376,7 @@ defmodule Lepton.Photon.Term do
   defp maybe_retitle(st), do: st
 
   defp ensure_buffer(%{buffer: nil} = st) do
-    w = st.cols * @cw + 2 * @pad
-    h = st.rows * @ch + 2 * @pad
+    {w, h} = cell_area({st.rows, st.cols}, {st.cw, st.ch})
     size = w * h * 4
     {c, pool, file} = Client.shm_pool(st.c, st.ids.shm, size, st.dir)
     # The margin is the background colour; the text is drawn inside it.
@@ -335,8 +387,8 @@ defmodule Lepton.Photon.Term do
 
   defp ensure_buffer(st), do: st
 
-  # 16 pixel rows for a row of cells.
-  defp render_row(cells, cache) do
+  # The pixel rows (the text size's height) for a row of cells.
+  defp render_row(cells, cache, st) do
     {glyphs, cache} =
       Enum.map_reduce(pair(cells, []), cache, fn cell, cache ->
         case cache do
@@ -344,12 +396,12 @@ defmodule Lepton.Photon.Term do
             {rows, cache}
 
           _ ->
-            rows = glyph(cell)
+            rows = glyph(cell, st.text_size)
             {rows, Map.put(cache, cell, rows)}
         end
       end)
 
-    pixels = for r <- 0..(@ch - 1), do: Enum.map(glyphs, &elem(&1, r))
+    pixels = for r <- 0..(st.ch - 1), do: Enum.map(glyphs, &elem(&1, r))
     {IO.iodata_to_binary(pixels), cache}
   end
 
@@ -372,10 +424,10 @@ defmodule Lepton.Photon.Term do
     pair(rest, [cell | acc])
   end
 
-  defp glyph({:wide, cell}), do: glyph(cell, 16)
-  defp glyph(cell), do: glyph(cell, 8)
+  defp glyph({:wide, cell}, size), do: glyph(cell, 2, size)
+  defp glyph(cell, size), do: glyph(cell, 1, size)
 
-  defp glyph(cell, width) do
+  defp glyph(cell, cells, size) do
     {g, sgr, cursor?} =
       case cell do
         {g, sgr, :cursor} -> {g, sgr, true}
@@ -386,15 +438,17 @@ defmodule Lepton.Photon.Term do
     {fg, bg} = if cursor?, do: {bg, fg}, else: {fg, bg}
     cp = g |> String.to_charlist() |> List.first() || ?\s
     # The glyph must fill the cells: a character drawn wider than its cells is replaced.
-    fits? = Font.has?(cp) and Font.char_width(cp) == width
+    fits? = Font.has?(cp) and Font.char_width(cp) == 8 * cells
 
-    rows =
+    # A character and its combining marks (Thai vowels, accents) are drawn over each other.
+    g =
       cond do
-        # A character and its combining marks (Thai vowels, accents), drawn over each other.
-        fits? and String.length(g) == 1 and length(String.to_charlist(g)) > 1 -> Font.grapheme_rows(g, fg, bg, bold?)
-        fits? -> Font.rows(cp, fg, bg, bold?)
-        true -> Font.rows(Map.get(@fallback, cp, if(width == 16, do: 0xFF1F, else: ??)), fg, bg, bold?)
+        fits? and String.length(g) == 1 -> g
+        fits? -> <<cp::utf8>>
+        true -> <<Map.get(@fallback, cp, if(cells == 2, do: 0xFF1F, else: ??))::utf8>>
       end
+
+    rows = Font.sized_rows(g, fg, bg, bold?, size, cells)
 
     List.to_tuple(rows)
   end

@@ -906,6 +906,50 @@ defmodule Lepton.PhotonTest do
     assert eventually(fn -> Photon.info(ph).windows == [] end)
   end
 
+  test "the terminal's text size: Ctrl+= and Ctrl++ bigger, Ctrl+- smaller, Ctrl+0 back; the window keeps its size" do
+    {ph, out, env} = start_photon()
+    on_exit(fn -> :persistent_term.erase({Photon.Term, :text_size}) end)
+    {:ok, term} = Photon.Term.start(env: env, user: "root", size: {10, 40})
+    assert eventually(fn -> match?([%{app_id: "lepton.term", width: 328, height: 168}], Photon.info(ph).windows) end)
+    # "echo hi" RET
+    for code <- [18, 46, 35, 24, 57, 35, 23, 28], down <- [true, false], do: Photon.input(ph, {:key, code, down})
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ ~r/echo hi\n+hi\n/ end)
+
+    ctrl = fn codes -> for {code, down} <- [{29, true}] ++ Enum.flat_map(codes, &[{&1, true}, {&1, false}]) ++ [{29, false}], do: Photon.input(ph, {:key, code, down}) end
+    size = fn -> st = :sys.get_state(term); {st.text_size, st.rows, st.cols} end
+
+    # Ctrl+=: Terminus 10x18, as many cells as fit the 320x160 of text.
+    ctrl.([13])
+    assert eventually(fn -> size.() == {18, 8, 32} end)
+    assert eventually(fn -> match?([%{width: 328, height: 152}], Photon.info(ph).windows) end)
+    assert Photon.Term.text_size() == 18
+    # Ctrl++ (Ctrl+Shift+=), twice: 22 pixels (11 wide).
+    for _ <- 1..2, do: for({code, down} <- [{29, true}, {42, true}, {13, true}, {13, false}, {42, false}, {29, false}], do: Photon.input(ph, {:key, code, down}))
+    assert eventually(fn -> size.() == {22, 7, 29} end)
+    # The text is drawn at that size, and nothing was typed into the shell.
+    Photon.sync(ph)
+    [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    assert Output.read(out, cx, cy, 323, 162) =~ Photon.Term.colors("") |> elem(0)
+    refute Lepton.Screen.text(:sys.get_state(term).screen) =~ "C-"
+
+    # Ctrl+0: 16 again, in the window's first size; Ctrl+- to 14, and no smaller.
+    ctrl.([11])
+    assert eventually(fn -> size.() == {16, 10, 40} end)
+    assert eventually(fn -> match?([%{width: 328, height: 168}], Photon.info(ph).windows) end)
+    ctrl.([12, 12])
+    assert eventually(fn -> size.() == {14, 11, 40} end)
+    # The shell was told: its terminal is 11 rows of 40.
+    for code <- [31, 20, 20, 21, 57, 31, 23, 44, 18, 28], down <- [true, false], do: Photon.input(ph, {:key, code, down})
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ "\n11 40\n" end)
+
+    # A new window opens at the size last chosen.
+    Process.exit(term, :kill)
+    {:ok, term2} = Photon.Term.start(env: env, user: "root")
+    assert eventually(fn -> match?(%{text_size: 14, rows: 32, cols: 96}, :sys.get_state(term2)) end)
+    Process.exit(term2, :kill)
+  end
+
   test "closing a terminal window stops what runs in it (as System Monitor's top)" do
     {ph, _out, env} = start_photon()
     # (top needs Linux's /proc: sleep is a command the shell starts too)
