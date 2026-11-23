@@ -1010,6 +1010,111 @@ defmodule Lepton.PhotonTest do
     assert byte_size(Photon.screenshot(ph)) > 0
   end
 
+  # A PNG of Output.png/3's (one IDAT, filter 0): {w, h, pixel at (x, y) as {r, g, b}}.
+  defp png_info(png, x, y) do
+    <<0x89, "PNG\r\n", 0x1A, "\n", 13::32, "IHDR", w::32, h::32, _::binary-size(5), _crc::32, len::32, "IDAT", z::binary-size(len), _::binary>> = png
+    raw = :zlib.uncompress(z)
+    stride = 1 + w * 3
+    <<r, g, b>> = binary_part(raw, y * stride + 1 + x * 3, 3)
+    {w, h, {r, g, b}}
+  end
+
+  test "screenshots: the desktop, the focused window, a region; the keys save one and say where; picking a region" do
+    me = self()
+    save = fn png -> send(me, {:saved, png}); {:ok, "~/Pictures/shot.png"} end
+    {ph, _out, env} = start_photon(screenshot: save)
+    win = window(env, 100, 60, Render.px(255, 0, 0))
+    [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    {fw, fh} = Render.frame_size(100, 60)
+
+    # The pointer, over the window, is left out.
+    Photon.input(ph, {:abs_px, cx + 5, cy + 5, 0})
+    Photon.sync(ph)
+    assert {:ok, png, {0, 0, 640, 400}} = Photon.capture(ph)
+    assert {640, 400, {255, 0, 0}} = png_info(png, cx + 5, cy + 5)
+    assert {640, 400, {255, 0, 0}} = png_info(png, cx + 6, cy + 7)
+    assert {:ok, png, {^x, ^y, ^fw, ^fh}} = Photon.capture(ph, :window)
+    assert {^fw, ^fh, {255, 0, 0}} = png_info(png, cx - x + 1, cy - y + 1)
+    # Cut to the desktop.
+    assert {:ok, png, {600, 380, 40, 20}} = Photon.capture(ph, {:rect, 600, 380, 100, 100})
+    assert {40, 20, _} = png_info(png, 0, 0)
+    assert {:error, _} = Photon.capture(ph, {:rect, 700, 0, 10, 10})
+    assert {:error, "no display 3"} = Photon.capture(ph, {:display, 3})
+
+    keys = fn codes -> for {k, d} <- codes, do: Photon.input(ph, {:key, k, d}) end
+    # Print: the desktop, saved by the session's function; a notice says where.
+    keys.([{99, true}, {99, false}])
+    assert_receive {:saved, png}, 2000
+    assert {640, 400, _} = png_info(png, 0, 0)
+    Process.sleep(100)
+    Photon.sync(ph)
+    # The notice is on screen, top right, but not in the next screenshot.
+    {:ok, png, _} = Photon.capture(ph)
+    assert {_, _, {r, _, _}} = png_info(png, 630, 20)
+    assert r < 40
+
+    # Alt+Print: the focused window.
+    keys.([{56, true}, {99, true}, {99, false}, {56, false}])
+    assert_receive {:saved, png}, 2000
+    assert {^fw, ^fh, _} = png_info(png, 0, 0)
+
+    # Super+Shift+4: a region, dragged.
+    keys.([{125, true}, {42, true}, {5, true}, {5, false}, {42, false}, {125, false}])
+    Photon.input(ph, {:abs_px, cx, cy, 0})
+    Photon.input(ph, {:button, 0x110, true})
+    Photon.input(ph, {:abs_px, cx + 19, cy + 9, 0})
+    Photon.input(ph, {:button, 0x110, false})
+    assert_receive {:saved, png}, 2000
+    assert {20, 10, {255, 0, 0}} = png_info(png, 10, 5)
+
+    # The window got none of those clicks.
+    {evs, c} = events(win.c)
+    refute Enum.any?(evs, &match?({_, "wl_pointer", :button, _}, &1))
+
+    # select/1 (screenshot -s): a click takes the window under the pointer; Esc cancels.
+    task = Task.async(fn -> Photon.select(ph) end)
+    Process.sleep(100)
+    Photon.input(ph, {:button, 0x110, true})
+    Photon.input(ph, {:button, 0x110, false})
+    assert {:ok, {^x, ^y, ^fw, ^fh}} = Task.await(task)
+    task = Task.async(fn -> Photon.select(ph) end)
+    Process.sleep(100)
+    keys.([{1, true}, {1, false}])
+    assert :cancel = Task.await(task)
+    {evs, _c} = events(c)
+    refute Enum.any?(evs, &match?({_, "wl_keyboard", :key, [_, _, 1, _]}, &1))
+  end
+
+  test "the screenshot command: needs the desktop; options; saves in ~/Pictures or FILE" do
+    assert {out, 1} = sh("screenshot 2>&1")
+    assert out =~ "the desktop isn't running"
+    assert {out, 2} = sh("screenshot -g nonsense 2>&1")
+    assert out =~ "X,Y,WxH"
+    assert {_, 2} = sh("screenshot --frob")
+    assert {_, 2} = sh("screenshot a.png b.png")
+
+    {ph, _out, _env} = start_photon(name: Photon)
+    home = tmp_dir("shothome")
+    assert {out, 0} = sh("screenshot", env: %{"HOME" => home})
+    assert [name] = File.ls!(Path.join(home, "Pictures"))
+    assert name =~ ~r/^Screenshot-\d{4}-\d\d-\d\d-\d{6}\.png$/
+    assert out == "Saved ~/Pictures/#{name} (640x400)\n"
+    # Another in the same second gets its own name.
+    assert {_, 0} = sh("screenshot", env: %{"HOME" => home})
+    assert length(File.ls!(Path.join(home, "Pictures"))) == 2
+
+    file = Path.join(home, "part")
+    assert {out, 0} = sh("screenshot -g 10,20,30x40 -d 0.1 #{file}")
+    assert out =~ "(30x40)"
+    assert {30, 40, _} = png_info(File.read!(file <> ".png"), 0, 0)
+    assert {out, 1} = sh("screenshot -w #{file}.png 2>&1")
+    assert out =~ "no window has the focus"
+    assert {_, 0} = sh("photon screenshot #{home}/old.png")
+    assert File.exists?(Path.join(home, "old.png"))
+    Photon.stop(ph)
+  end
+
   test "16-bit displays (USB display adapters): RGB565, converted as rows are written" do
     assert Output.to_rgb565(Render.px(255, 0, 0)) == <<0x00, 0xF8>>
     assert Output.to_rgb565(Render.px(0, 255, 0)) == <<0xE0, 0x07>>

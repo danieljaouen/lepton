@@ -36,6 +36,7 @@ defmodule Lepton.Photon do
 
   alias Lepton.Photon.{Output, Render, Screen, WM}
   alias Lepton.Wayland.{Conn, Keymap, Protocol, Wire}
+  alias Lepton.Photon.Shot
 
   import Bitwise
 
@@ -139,7 +140,14 @@ defmodule Lepton.Photon do
     kb: %{sources: ["us"], current: "us", hangul: true, accents: true, caps: :lock},
     compose: [],
     accent: nil,
-    consumed: MapSet.new()
+    consumed: MapSet.new(),
+    # screenshots: the function that saves one taken with the keys
+    # (`:screenshot`), the region being picked (%{to, start, rect}) and
+    # the notice shown at the top right ({layer, timer})
+    shot_save: nil,
+    selecting: nil,
+    notice: nil,
+    hide_cursor: false
   ]
 
   # -- API ---------------------------------------------------------------------------------
@@ -162,6 +170,10 @@ defmodule Lepton.Photon do
       drawing and mute `/dev/tty1` while Photon runs
     * `:session` - stop when this process exits (the `photon` command;
       C-c kills it)
+    * `:screenshot` - a function of a PNG that saves a screenshot taken
+      with the keys (`Lepton.Photon.Shot`), returning `{:ok, where}` or
+      `{:error, message}` (shown as a notice); without it they say where
+      to set one up
   """
   def start_link(opts), do: GenServer.start_link(__MODULE__, Keyword.put(opts, :owner, self()), name: opts[:name])
   def start(opts), do: GenServer.start(__MODULE__, Keyword.put(opts, :owner, self()), name: opts[:name])
@@ -176,6 +188,23 @@ defmodule Lepton.Photon do
 
   @doc "The composed screen as a PNG."
   def screenshot(server), do: GenServer.call(server, :screenshot, 30_000)
+
+  @doc """
+  A screenshot of `target` as a PNG: `:screen` (the whole desktop),
+  `:window` (the focused window, with its frame), `{:display, n}` or
+  `{:rect, x, y, w, h}` (cut to the desktop). Returns `{:ok, png, {x, y,
+  w, h}}` or `{:error, message}`.
+  """
+  def capture(server, target \\ :screen), do: GenServer.call(server, {:capture, target}, 30_000)
+
+  @doc """
+  Let the user pick a region with the pointer (drag; a click takes the
+  window under it). Returns `{:ok, {x, y, w, h}}`, or `:cancel` (Esc).
+  """
+  def select(server), do: GenServer.call(server, :select, :infinity)
+
+  @doc "Show `text` at the top right of the desktop for a few seconds."
+  def notice(server, text), do: send(server, {:notice, text})
 
   @doc "The displays: `%{mode, displays: [%{path, driver, width, height, x, y}]}`."
   def displays(server), do: GenServer.call(server, :displays)
@@ -233,7 +262,8 @@ defmodule Lepton.Photon do
           pointer: {out.width / 2, out.height / 2},
           started: System.monotonic_time(:millisecond),
           owner: opts[:owner],
-          console: opts[:console] == true
+          console: opts[:console] == true,
+          shot_save: opts[:screenshot]
         }
 
         st = %{st | background: st.wm.background(st.wm_state)}
@@ -286,6 +316,17 @@ defmodule Lepton.Photon do
     {:reply, Output.png(Screen.read(st.output, 0, 0, w, h), w, h), st}
   end
 
+  def handle_call({:capture, target}, _from, st) do
+    {reply, st} = capture_shot(st, target)
+    {:reply, reply, st}
+  end
+
+  def handle_call(:select, from, st) do
+    if st.selecting,
+      do: {:reply, {:error, "a region is already being picked"}, st},
+      else: {:noreply, start_selecting(st, from)}
+  end
+
   def handle_call(:displays, _from, st), do: {:reply, displays_info(st.output), st}
 
   def handle_call({:display_mode, mode}, _from, st) do
@@ -319,6 +360,15 @@ defmodule Lepton.Photon do
   def handle_info({:input, event}, st), do: {:noreply, handle_input(event, st)}
 
   def handle_info(:repaint, st), do: {:noreply, repaint(%{st | repaint: nil})}
+
+  def handle_info({:notice, text}, st), do: {:noreply, show_notice(st, text)}
+
+  def handle_info({:notice_off, timer}, st) do
+    case st.notice do
+      {layer, ^timer} -> {:noreply, %{st | notice: nil} |> damage(rect_of(layer)) |> schedule()}
+      _ -> {:noreply, st}
+    end
+  end
   def handle_info(:quit, st), do: {:stop, :normal, st}
 
   # The window manager's clock.
@@ -1411,8 +1461,8 @@ defmodule Lepton.Photon do
     st = refresh_wm(st)
     if st.repaint, do: Process.cancel_timer(st.repaint)
     {below, above} = st.wm_layers
-    layers = below ++ layers(st) ++ above
-    cursor = cursor(st)
+    layers = below ++ layers(st) ++ above ++ shot_layers(st)
+    cursor = if st.hide_cursor, do: nil, else: cursor(st)
 
     rows = Enum.flat_map(merge(st.damage), &Render.compose(&1, st.background, layers, cursor))
     if rows != [], do: Screen.write(st.output, rows)
@@ -1583,6 +1633,9 @@ defmodule Lepton.Photon do
   defp handle_input({:wheel, steps}, st), do: scroll(st, 0, steps)
   defp handle_input({:hwheel, steps}, st), do: scroll(st, 1, steps)
 
+  # Picking a region: the pointer is the screenshot's, not the windows'.
+  defp handle_input({:button, code, pressed?}, %{selecting: %{}} = st), do: select_button(st, code, pressed?)
+
   defp handle_input({:button, code, pressed?}, st) do
     st = %{st | buttons: if(pressed?, do: MapSet.put(st.buttons, code), else: MapSet.delete(st.buttons, code))}
     # A click (moving the cursor, say) finishes what is being composed.
@@ -1615,6 +1668,9 @@ defmodule Lepton.Photon do
     st = %{st | pointer: {x / 1, y / 1}} |> damage_cursor()
 
     case st.grab do
+      _ when st.selecting != nil ->
+        select_motion(st)
+
       {:move, key, dx, dy} ->
         case window(st, key) do
           nil -> %{st | grab: nil}
@@ -2117,6 +2173,10 @@ defmodule Lepton.Photon do
 
   @key_space 57
   @key_alt_r 100
+  @key_print 99
+  @key_3 4
+  @key_4 5
+  @key_5 6
   @key_hangeul 122
 
   @key_capslock 58
@@ -2125,6 +2185,9 @@ defmodule Lepton.Photon do
   # `keyboard caps ctrl`: Caps Lock is another (left) Ctrl, for Photon's
   # shortcuts and for programs alike.
   defp key(st, @key_capslock, pressed?) when :erlang.map_get(:caps, st.kb) == :ctrl, do: key(st, @key_ctrl_l, pressed?)
+
+  # Esc while picking a region: no screenshot.
+  defp key(%{selecting: %{}} = st, @key_esc, true), do: %{st | consumed: MapSet.put(st.consumed, @key_esc)} |> finish_selecting(:cancel)
 
   defp key(st, code, pressed?) do
     korean? = st.kb.current == "ko"
@@ -2163,6 +2226,12 @@ defmodule Lepton.Photon do
         alt? and code == @key_return -> :terminal
         alt? and code == @key_tab -> :next
         alt? and code == @key_f4 -> :close
+        code == @key_print and alt? -> {:shot, :window}
+        code == @key_print and shift? -> {:shot, :region}
+        code == @key_print -> {:shot, :screen}
+        super_shift?(st) and code == @key_3 -> {:shot, :screen}
+        super_shift?(st) and code == @key_4 -> {:shot, :region}
+        super_shift?(st) and code == @key_5 -> {:shot, :window}
         code == @key_mute -> {:volume, :mute}
         code == @key_volumedown -> {:volume, -5}
         code == @key_volumeup -> {:volume, 5}
@@ -2338,6 +2407,9 @@ defmodule Lepton.Photon do
 
   defp run_binding(st, :terminal), do: launch(st, [])
 
+  defp run_binding(st, {:shot, :region}), do: if(st.selecting, do: st, else: start_selecting(st, :key))
+  defp run_binding(st, {:shot, target}), do: shoot(st, target)
+
   defp run_binding(st, :next_source) do
     {:ok, kb} = Lepton.Keyboard.next()
     set_keyboard(st, kb)
@@ -2471,6 +2543,151 @@ defmodule Lepton.Photon do
           end
 
         if match?({^sock, _}, st.keyboard_focus), do: %{st | keyboard_focus: nil, compose: [], accent: nil}, else: st
+    end
+  end
+
+  # -- screenshots (Lepton.Photon.Shot) ------------------------------------------------------
+
+  defp super_shift?(st), do: band(st.mods, Keymap.super()) != 0 and band(st.mods, Keymap.shift()) != 0
+
+  # The overlays: the region being picked, and the notice. Neither is in a
+  # screenshot: they go before one is read back.
+  defp shot_layers(st) do
+    outline = with(%{rect: r} when r != nil <- st.selecting, do: Shot.outline(r), else: (_ -> []))
+    notice = with({layer, _} <- st.notice, do: [layer], else: (_ -> []))
+    outline ++ notice
+  end
+
+  defp rect_of(l), do: {l.x, l.y, l.w, l.h}
+
+  # Read back from the displays without the overlays or the pointer, which
+  # comes back with the next frame.
+  defp capture_shot(st, target) do
+    st = damage_overlays(st) |> damage_cursor()
+    st = %{st | notice: nil, hide_cursor: true} |> repaint()
+    st = %{st | hide_cursor: false} |> damage_cursor() |> schedule()
+
+    case shot_rect(st, target) do
+      {:ok, {x, y, w, h} = r} -> {{:ok, Output.png(Screen.read(st.output, x, y, w, h), w, h), r}, st}
+      {:error, _} = e -> {e, st}
+    end
+  end
+
+  defp damage_overlays(st) do
+    rects = for l <- shot_layers(st), do: rect_of(l)
+    rects = with({l, _} <- st.notice, do: [rect_of(l) | rects], else: (_ -> rects))
+    Enum.reduce(rects, st, &damage(&2, &1))
+  end
+
+  defp shot_rect(st, :screen), do: {:ok, {0, 0, st.output.width, st.output.height}}
+
+  defp shot_rect(st, {:display, n}) do
+    case Enum.at(Screen.rects(st.output), n) do
+      nil -> {:error, "no display #{n}"}
+      r -> {:ok, r}
+    end
+  end
+
+  defp shot_rect(st, :window) do
+    with key when key != nil <- st.keyboard_focus,
+         %Win{} = w <- window(st, key),
+         %Surface{} = s <- surface(st, key),
+         r when r != nil <- Shot.clip(window_rect(st, w, s), st.output.width, st.output.height) do
+      {:ok, r}
+    else
+      _ -> {:error, "no window has the focus"}
+    end
+  end
+
+  defp shot_rect(st, {:rect, x, y, w, h}) do
+    case Shot.clip({x, y, w, h}, st.output.width, st.output.height) do
+      nil -> {:error, "the region is outside the desktop"}
+      r -> {:ok, r}
+    end
+  end
+
+  # A screenshot from the keys: saved by the session's function, out of
+  # Photon's way, which then says where (a notice).
+  defp shoot(st, target) do
+    case capture_shot(st, target) do
+      {{:ok, png, _}, st} ->
+        me = self()
+
+        case st.shot_save do
+          nil -> show_notice(st, "Screenshots are saved by the photon command")
+          save -> tap(st, fn _ -> spawn(fn -> send(me, {:notice, shot_message(save.(png))}) end) end)
+        end
+
+      {{:error, msg}, st} ->
+        show_notice(st, "Screenshot: " <> msg)
+    end
+  end
+
+  defp shot_message({:ok, where}), do: "Screenshot saved: " <> where
+  defp shot_message({:error, msg}), do: "Screenshot not saved: " <> msg
+
+  defp show_notice(st, text) do
+    st = damage_overlays(st)
+    timer = make_ref()
+    Process.send_after(self(), {:notice_off, timer}, Shot.notice_ms())
+    layer = Shot.notice(text, st.output.width)
+    %{st | notice: {layer, timer}} |> damage(rect_of(layer)) |> schedule()
+  end
+
+  # Picking a region: `to` is a caller of select/1 or :key (then the
+  # screenshot is taken and saved as with Print).
+  defp start_selecting(st, to) do
+    st = damage_overlays(st)
+    %{st | selecting: %{to: to, start: nil, rect: nil}, notice: nil} |> show_notice("Drag to pick a region, or click a window (Esc: cancel)")
+  end
+
+  defp select_motion(%{selecting: %{start: nil}} = st), do: st
+
+  defp select_motion(%{selecting: sel} = st) do
+    st = damage_overlays(st)
+    st = %{st | selecting: %{sel | rect: Shot.rect(sel.start, st.pointer)}}
+    damage_overlays(st) |> schedule()
+  end
+
+  @btn_left 0x110
+
+  defp select_button(st, @btn_left, true) do
+    sel = st.selecting
+    st = damage_overlays(st)
+    %{st | selecting: %{sel | start: st.pointer, rect: Shot.rect(st.pointer, st.pointer)}, notice: nil} |> schedule()
+  end
+
+  defp select_button(%{selecting: %{start: start}} = st, @btn_left, false) when start != nil do
+    {_, _, w, h} = rect = Shot.rect(start, st.pointer)
+
+    # A click, not a drag: the window under the pointer (or the display).
+    rect =
+      if w < 4 and h < 4 do
+        case under_pointer(st) do
+          {win, _, _} -> window_rect(st, win, surface(st, win.key))
+          nil -> Screen.rect_at(st.output, st.pointer)
+        end
+      else
+        rect
+      end
+
+    finish_selecting(st, Shot.clip(rect, st.output.width, st.output.height) || :cancel)
+  end
+
+  # Another button cancels.
+  defp select_button(st, _code, true), do: finish_selecting(st, :cancel)
+  defp select_button(st, _code, false), do: st
+
+  defp finish_selecting(st, result) do
+    to = st.selecting.to
+    st = damage_overlays(st)
+    st = %{st | selecting: nil} |> schedule()
+
+    case {to, result} do
+      {:key, :cancel} -> show_notice(st, "Screenshot canceled")
+      {:key, rect} -> shoot(st, Tuple.insert_at(rect, 0, :rect))
+      {from, :cancel} -> tap(st, fn _ -> GenServer.reply(from, :cancel) end)
+      {from, rect} -> tap(st, fn _ -> GenServer.reply(from, {:ok, rect}) end)
     end
   end
 end

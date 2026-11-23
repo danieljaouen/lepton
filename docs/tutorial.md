@@ -210,8 +210,9 @@ classic                         # Windows 95-style, with a Start menu
   hardware for them, next to the clock.
 
 `photon` starts Photon's own, plainer look. In a terminal window,
-`photon info` lists the windows and `photon screenshot shot.png` saves
-the screen.
+`photon info` lists the windows. **Print** saves a screenshot in
+`~/Pictures` (**Super+Shift+3** on a Mac keyboard), and so does
+`screenshot` in a terminal window.
 
 More: [The desktop](desktop.html).
 

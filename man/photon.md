@@ -17,7 +17,8 @@ For a Windows 95-style desktop with a taskbar and Start menu, run
 - `info`: the display size, window manager, clients and windows.
 - `display extend`, `display mirror`: with two displays, put them side
   by side or show the same picture on both.
-- `screenshot FILE.png`: save the screen as a PNG.
+- `screenshot FILE.png`: save the screen as a PNG (`screenshot`(1) does
+  more: a window, a region, a delay).
 - `stop`: quit the desktop.
 
 ## KEYS
@@ -29,6 +30,10 @@ For a Windows 95-style desktop with a taskbar and Start menu, run
 - `Alt+Shift+Right`, `Alt+Shift+Left`: move the window to the next or
   previous display.
 - `Ctrl+Shift+V`: paste in a terminal window.
+- `Print` (or `Super+Shift+3`): save a screenshot of the desktop in
+  `~/Pictures`; `Alt+Print` (`Super+Shift+5`): the focused window;
+  `Shift+Print` (`Super+Shift+4`): a region you drag, or a window you
+  click (Esc cancels). A notice says where it went.
 - `Ctrl+Alt+Backspace`: quit.
 - Drag a title bar (or Alt+drag anywhere) to move a window; drag the
   bottom-right corner (or Alt+right-drag) to resize it.
@@ -42,4 +47,4 @@ Programs in Photon's windows get `WAYLAND_DISPLAY` and
 
 ## SEE ALSO
 
-classic(1), firefox(1), input(1), https://trylepton.app/docs/desktop.html
+classic(1), firefox(1), input(1), screenshot(1), https://trylepton.app/docs/desktop.html

@@ -10,6 +10,11 @@ defmodule Lepton.Commands.Desktop do
     photon(args, ctx)
   end
 
+  defcmd "screenshot", "save a screenshot of the desktop, a window or a region as a PNG (default: in ~/Pictures)",
+    usage: "screenshot [-w | -s | -g X,Y,WxH | -D N] [-d SECONDS] [FILE.png]" do
+    screenshot(args, ctx)
+  end
+
   defcmd "classic", "the classic desktop: Photon with a Windows 95-style window manager",
     usage: "classic" do
     case args do
@@ -547,24 +552,7 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
-  defp photon(["screenshot", file], ctx) do
-    path = Lepton.Ctx.path(ctx, file)
-
-    cond do
-      Process.whereis(Photon) == nil ->
-        IO.err(ctx, "photon: not running")
-        1
-
-      Users.check_write(ctx, path) != :ok ->
-        IO.err(ctx, "photon: #{file}: permission denied")
-        1
-
-      true ->
-        File.write!(path, Photon.screenshot(Photon))
-        IO.puts(ctx, "Saved #{file}")
-        0
-    end
-  end
+  defp photon(["screenshot", file], ctx), do: screenshot([file], ctx)
 
   defp photon(["stop"], ctx) do
     case Process.whereis(Photon) do
@@ -590,7 +578,9 @@ defmodule Lepton.Commands.Desktop do
       env = Map.merge(ctx.env, %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0"})
       open = fn opts -> open(opts, env, ctx) end
 
-      opts = [output: out, displays: :auto, socket: Path.join(dir, "wayland-0"), input: :evdev, spawn: open, name: Photon, console: true, session: self(), wm: wm]
+      # Print and the other screenshot keys save into ~/Pictures, as you.
+      save = fn png -> save_shot(ctx, png, nil) end
+      opts = [output: out, displays: :auto, socket: Path.join(dir, "wayland-0"), input: :evdev, spawn: open, name: Photon, console: true, session: self(), wm: wm, screenshot: save]
 
       case Photon.start(opts) do
         {:ok, pid} ->
@@ -750,6 +740,100 @@ defmodule Lepton.Commands.Desktop do
 
       _ ->
         :ok
+    end
+  end
+
+  # -- screenshot ------------------------------------------------------------------------------
+
+  @shot_usage "usage: screenshot [-w | -s | -g X,Y,WxH | -D N] [-d SECONDS] [FILE.png]"
+
+  defp screenshot(args, ctx) do
+    with {:ok, opts} <- shot_args(args, %{target: :screen, delay: 0, file: nil}),
+         pid when is_pid(pid) <- Process.whereis(Photon) || {:error, "the desktop isn't running (start it with photon)", 1},
+         {:ok, target} <- shot_target(opts.target),
+         :ok <- if(opts.delay > 0, do: Process.sleep(round(opts.delay * 1000)), else: :ok),
+         {:ok, png, {_, _, w, h}} <- Photon.capture(Photon, target) |> shot_error(),
+         {:ok, where} <- save_shot(ctx, png, opts.file) |> shot_error() do
+      IO.puts(ctx, "Saved #{where} (#{w}x#{h})")
+      0
+    else
+      {:error, msg, code} ->
+        IO.err(ctx, if(code == 2, do: msg, else: "screenshot: " <> msg))
+        code
+
+      :cancel ->
+        IO.err(ctx, "screenshot: canceled")
+        1
+    end
+  end
+
+  defp shot_error({:error, msg}), do: {:error, msg, 1}
+  defp shot_error(other), do: other
+
+  defp shot_args([], opts), do: {:ok, opts}
+  defp shot_args([w | rest], opts) when w in ["-w", "--window"], do: shot_args(rest, %{opts | target: :window})
+  defp shot_args([s | rest], opts) when s in ["-s", "--select"], do: shot_args(rest, %{opts | target: :select})
+
+  defp shot_args([g, geom | rest], opts) when g in ["-g", "--geometry"] do
+    case Regex.run(~r/^(\d+),(\d+),(\d+)x(\d+)$/, geom) do
+      [_ | nums] -> shot_args(rest, %{opts | target: List.to_tuple([:rect | Enum.map(nums, &String.to_integer/1)])})
+      nil -> {:error, "screenshot: -g wants X,Y,WxH (such as 0,0,640x480)", 2}
+    end
+  end
+
+  defp shot_args([d, n | rest], opts) when d in ["-D", "--display"] do
+    case Integer.parse(n) do
+      {i, ""} when i >= 1 -> shot_args(rest, %{opts | target: {:display, i - 1}})
+      _ -> {:error, "screenshot: -D wants a display number (1 is the primary; see photon display)", 2}
+    end
+  end
+
+  defp shot_args([d, n | rest], opts) when d in ["-d", "--delay"] do
+    case Float.parse(n) do
+      {secs, ""} when secs >= 0 and secs <= 3600 -> shot_args(rest, %{opts | delay: secs})
+      _ -> {:error, "screenshot: -d wants seconds", 2}
+    end
+  end
+
+  defp shot_args(["-" <> _ = flag | _], _opts) when flag != "-", do: {:error, "screenshot: unknown option #{flag}\n" <> @shot_usage, 2}
+  defp shot_args([file], %{file: nil} = opts), do: shot_args([], %{opts | file: file})
+  defp shot_args(_, _opts), do: {:error, @shot_usage, 2}
+
+  # -s: the region is picked on the desktop first, then -d waits.
+  defp shot_target(:select) do
+    case Photon.select(Photon) do
+      {:ok, rect} -> {:ok, Tuple.insert_at(rect, 0, :rect)}
+      :cancel -> :cancel
+      {:error, msg} -> {:error, msg, 1}
+    end
+  end
+
+  defp shot_target(target), do: {:ok, target}
+
+  # Save a PNG as the user: FILE, or a new Screenshot-DATE-TIME.png in
+  # ~/Pictures. Returns {:ok, the path as shown} or {:error, message}.
+  defp save_shot(ctx, png, file) do
+    home = Lepton.Ctx.home(ctx)
+
+    path =
+      if file,
+        do: Lepton.Ctx.path(ctx, if(Path.extname(file) == "", do: file <> ".png", else: file)),
+        else: Lepton.Photon.Shot.new_path(Path.join(home, "Pictures"))
+
+    shown = if String.starts_with?(path, home <> "/"), do: "~" <> String.trim_leading(path, home), else: path
+
+    cond do
+      Users.check_write(ctx, path) != :ok ->
+        {:error, "#{shown}: permission denied"}
+
+      true ->
+        result = Users.own_new(ctx, path, fn -> with :ok <- File.mkdir_p(Path.dirname(path)), do: File.write(path, png) end)
+        Users.own(ctx, path)
+
+        case result do
+          :ok -> {:ok, shown}
+          {:error, reason} -> {:error, "#{shown}: #{:file.format_error(reason)}"}
+        end
     end
   end
 

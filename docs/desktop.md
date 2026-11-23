@@ -32,6 +32,9 @@ When you quit, the text console comes back as you left it.
 | Alt+Shift+Right / Left | move the window to the next / previous [display](usb.html) |
 | Super+Space | the next input source: keyboard layout or Korean ([Languages and keyboards](keyboard.html)) |
 | the volume keys | mute, quieter, louder ([Sound](sound.html)) |
+| Print, or Super+Shift+3 | [screenshot](#screenshots) of the whole desktop |
+| Alt+Print, or Super+Shift+5 | screenshot of the focused window |
+| Shift+Print, or Super+Shift+4 | screenshot of a region: drag it, or click a window |
 | Ctrl+Alt+Backspace | quit Photon |
 | click a window | focus it and bring it to the front |
 | drag the title bar (or Alt+drag anywhere) | move the window |
@@ -105,9 +108,37 @@ photon term                 # open another terminal window
 photon term le notes.txt    # a window running a command
 photon info                 # the display, clients and windows
 photon display mirror       # with two displays: mirror them (or extend)
-photon screenshot shot.png  # save the screen as a PNG
 photon stop                 # quit
 ```
+
+## Screenshots
+
+**Print** saves a screenshot of the whole desktop in `~/Pictures`, named
+for the time (`Screenshot-2026-11-23-153005.png`), and a notice at the
+top right says where it went. **Alt+Print** takes just the focused
+window, with its title bar, and **Shift+Print** lets you pick a region:
+drag a rectangle, or click a window to take that window (Esc cancels).
+Without a Print key (a Mac's keyboard), **Super+Shift+3**, **4** and
+**5** do the same, as on a Mac: whole desktop, region, window. In UTM,
+macOS keeps Command+Shift+3 and 4 for itself unless UTM captures the
+keyboard; the `screenshot` command works either way.
+
+From a shell, `screenshot` does the same, with a delay and a file name
+if you want them:
+
+```sh
+screenshot                  # the whole desktop, into ~/Pictures
+screenshot -w               # the focused window
+screenshot -s shot.png      # pick a region (or click a window), save it as shot.png
+screenshot -d 5             # wait five seconds first (to open a menu, say)
+screenshot -g 0,0,800x600   # a rectangle: X,Y,WIDTHxHEIGHT
+screenshot -D 2             # the second display
+```
+
+Screenshots are PNG files, and are yours (not root's), like any file
+you make. The pointer and the screenshot notice are left out.
+
+<!-- commands: screenshot -->
 
 ## The classic desktop
 
