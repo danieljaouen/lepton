@@ -8,7 +8,9 @@ defmodule Lepton.Photon.Term do
   Only rows that changed are redrawn and damaged. Keys arrive as Linux key
   codes and are turned into terminal input through the US keymap
   (`Lepton.Wayland.Keymap`), with key repeat done here as the protocol
-  expects. The window resizes in whole cells. Closing the window ends the
+  expects. Text the desktop types (the emoji picker) comes as
+  text-input v3's commit_string, without a text field turned on. The
+  window resizes in whole cells. Closing the window ends the
   shell; the shell exiting closes the window.
   """
 
@@ -68,6 +70,15 @@ defmodule Lepton.Photon.Term do
     {c, shm} = if Map.has_key?(globals, "lepton_shm"), do: Client.bind(c, "lepton_shm", 1), else: Client.bind(c, "wl_shm", 1)
     {c, wm} = Client.bind(c, "xdg_wm_base", 1)
     {c, seat} = if Map.has_key?(globals, "wl_seat"), do: Client.bind(c, "wl_seat", 5), else: {c, nil}
+    # text-input v3: text from the desktop (emoji), typed as it comes.
+    {c, _text_input} =
+      if seat && Map.has_key?(globals, "zwp_text_input_manager_v3") do
+        {c, tim} = Client.bind(c, "zwp_text_input_manager_v3", 1)
+        Client.create(c, tim, :get_text_input, "zwp_text_input_v3", [:new, seat])
+      else
+        {c, nil}
+      end
+
     {c, surface} = Client.create(c, compositor, :create_surface, "wl_surface")
     {c, xdg} = Client.create(c, wm, :get_xdg_surface, "xdg_surface", [:new, surface])
     {c, top} = Client.create(c, xdg, :get_toplevel, "xdg_toplevel")
@@ -170,6 +181,11 @@ defmodule Lepton.Photon.Term do
   end
 
   defp event({_, "wl_keyboard", :leave, _}, st), do: cancel_repeat(st)
+
+  defp event({_, "zwp_text_input_v3", :commit_string, [text]}, st) when is_binary(text) do
+    TTY.input(st.tty, text)
+    st
+  end
 
   defp event({_, "wl_callback", :done, _}, st), do: %{st | waiting_frame: false}
   defp event({id, "wl_buffer", :release, _}, %{buffer: %{id: id}} = st), do: %{st | busy: false}

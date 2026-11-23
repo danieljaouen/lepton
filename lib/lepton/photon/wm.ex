@@ -20,7 +20,10 @@ defmodule Lepton.Photon.WM do
 
   Window managers return actions for Photon to carry out: `{:focus, key}`
   (also restores a minimized window), `{:minimize, key}`,
-  `{:spawn, opts}` (open a terminal; `opts[:command]`) and `:quit`.
+  `{:spawn, opts}` (open a terminal; `opts[:command]`), `{:type, text}`
+  (type text into the focused window, or copy it when the window can't
+  take it; the optional `typed/3` then hears `:typed` or `:copied`) and
+  `:quit`.
 
   `info` is the toplevel windows in the order they opened:
   `%{key, title, focused, minimized}`.
@@ -42,6 +45,8 @@ defmodule Lepton.Photon.WM do
   @callback desktop_click(term, list, {number, number}, boolean) :: {term, list}
   @callback motion(term, list, {number, number}) :: term
   @callback menu(term, list) :: term
+  @callback typed(term, :typed | :copied, String.t()) :: term
+  @optional_callbacks typed: 3
 
   @doc "The window manager called `name` (`\"photon\"`, `\"classic\"`)."
   def get("classic"), do: Lepton.Photon.WM.Classic

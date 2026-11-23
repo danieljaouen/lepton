@@ -128,12 +128,26 @@ Photon with a different window manager, styled after Windows 95:
   front, click again to minimize it), the Wi-Fi signal (click it to pick
   a network: [Wi-Fi](networking.html#on-the-classic-desktop)), the
   Bluetooth rune (click it for your devices: [Bluetooth](bluetooth.html)), the
-  volume's speaker (click it for the volume control: [Sound](sound.html))
-  and a clock
+  volume's speaker (click it for the volume control: [Sound](sound.html)),
+  the emoji picker (below) and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
   Terminal, Text Editor, System Monitor, [Printers](printing.html) (choose
   your default printer), [Passwords](passwords.html) (the password
   manager), Help and Exit Desktop
+
+### Emoji
+
+Click the yellow smiley beside the clock for the emoji picker: a tab
+for each category (smileys, people, nature, food, activities, travel,
+objects, symbols) and a grid of emoji. Point at one to see its code
+point; click it to type it into the window you were using, as many as
+you like. Clicking the smiley again, or anywhere else, closes it.
+
+Firefox's text fields and Lepton's terminal windows take the emoji as
+typed. When a window can't take text from the desktop, the emoji goes
+to the clipboard instead (the picker says so), to paste with Ctrl+V.
+Firefox draws emoji in colour; terminals in black and white, two cells
+wide.
 
 The keys from the table above work here too. Exit Desktop (or
 Ctrl+Alt+Backspace) returns you to the console. Lepton never starts a

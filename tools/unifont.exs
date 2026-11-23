@@ -1,11 +1,13 @@
 # Generate rootfs/usr/share/consolefonts/unifont.bin.gz: GNU Unifont's
-# glyphs for what Terminus lacks (Chinese, Japanese, Korean, Thai, ...),
-# for Lepton.Wayland.Font.
+# glyphs for what Terminus lacks (Chinese, Japanese, Korean, Thai, ...,
+# and emoji), for Lepton.Wayland.Font.
 #
-#   elixir tools/unifont.exs UNIFONT_PCF_GZ
+#   elixir tools/unifont.exs UNIFONT_PCF_GZ [--hex UNIFONT_ALL_HEX]
 #
 # UNIFONT_PCF_GZ is usr/share/fonts/X11/misc/unifont.pcf.gz from Alpine's
-# font-unifont. Unifont: GPL-2.0-or-later with the font embedding
+# font-unifont (the Basic Multilingual Plane). UNIFONT_ALL_HEX is
+# usr/share/unifont/unifont_all.hex from Alpine's unifont-dev: plane 1's
+# emoji blocks (U+1F000-1FAFF) come from it. Unifont: GPL-2.0-or-later with the font embedding
 # exception, or SIL OFL 1.1 (https://unifoundry.com/unifont/).
 #
 # The output, gzipped: records <<codepoint::24, width::8, rows>>, sorted,
@@ -13,8 +15,10 @@
 
 import Bitwise
 
+{opts, args} = OptionParser.parse!(System.argv(), strict: [hex: :string])
+
 [pcf_gz, terminus] =
-  case System.argv() do
+  case args do
     [p] -> [p, "rootfs/usr/share/consolefonts/ter-v16n.psf.gz"]
     [p, t] -> [p, t]
   end
@@ -99,6 +103,25 @@ records =
     {cp, width, rows}
   end
   |> Enum.sort()
+
+# Plane 1's emoji (and the pictographs around them) from the .hex file:
+# "CODEPOINT:BITS", 32 hex digits for 8 pixels wide, 64 for 16.
+emoji =
+  case opts[:hex] do
+    nil ->
+      []
+
+    hex ->
+      for line <- File.stream!(hex),
+          [cp, bits] = String.split(String.trim(line), ":"),
+          cp = String.to_integer(cp, 16),
+          cp in 0x1F000..0x1FAFF and byte_size(bits) in [32, 64] do
+        {cp, if(byte_size(bits) == 64, do: 16, else: 8), Base.decode16!(bits)}
+      end
+  end
+
+have = MapSet.new(records, &elem(&1, 0))
+records = Enum.sort(records ++ Enum.reject(emoji, &MapSet.member?(have, elem(&1, 0))))
 
 out = for {cp, w, rows} <- records, into: <<>>, do: <<cp::24, w, rows::binary>>
 path = "rootfs/usr/share/consolefonts/unifont.bin.gz"

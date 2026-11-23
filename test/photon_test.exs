@@ -723,6 +723,71 @@ defmodule Lepton.PhotonTest do
     assert_receive {:DOWN, ^ref, _, _, :normal}, 2000
   end
 
+  test "the classic desktop's emoji picker: categories, typed into text fields and terminals, else copied" do
+    alias Lepton.Photon.WM.Classic
+
+    # Beside the speaker, before the clock; it opens and closes the picker.
+    s = Classic.init(640, 400, {640, 400})
+    tray = Classic.tray(s)
+    assert tray.emoji == tray.speaker + 20
+    assert {:handled, %{emoji: %{tab: 0}} = open, []} = Classic.click(s, [], {tray.emoji + 6, 390}, 0x110, false)
+    assert {_below, [_taskbar, _picker]} = Classic.layers(open, [])
+    assert {:handled, %{emoji: nil}, []} = Classic.click(open, [], {tray.emoji + 6, 390}, 0x110, false)
+
+    # Every emoji is one code point the font draws, two cells wide.
+    for {_, list} <- Classic.emoji(), e <- list do
+      assert [cp] = String.to_charlist(e)
+      assert Font.has?(cp) and Font.char_width(cp) == 16 and Lepton.Width.wide?(cp), "U+#{Integer.to_string(cp, 16)}"
+    end
+
+    # Tabs pick the category; the pointer over an emoji shows it; a click types it.
+    {x, y, _, _} = Classic.emoji_rect(open)
+    cell = fn i -> {x + 8 + rem(i, 10) * 24 + 12, y + 56 + div(i, 10) * 24 + 12} end
+    assert {:handled, %{emoji: %{tab: 2}} = nature, []} = Classic.click(open, [], {x + 8 + 2 * 28 + 10, y + 36}, 0x110, false)
+    [first | _] = Classic.emoji() |> Enum.at(2) |> elem(1)
+    assert {:handled, _, [{:type, ^first}]} = Classic.click(nature, [], cell.(0), 0x110, false)
+    assert %{emoji: %{hover: 11}} = Classic.motion(nature, [], cell.(11))
+    assert %{emoji: %{status: "Typed " <> ^first}} = Classic.typed(nature, :typed, first)
+    # Clicking elsewhere closes it.
+    assert {_, %{emoji: nil}, _} = Classic.click(open, [], {100, 100}, 0x110, false)
+
+    # In Photon: a terminal window types the emoji as it comes.
+    {ph, _out, env} = start_photon(wm: "classic")
+    click = fn {px, py} ->
+      Photon.input(ph, {:abs_px, px, py, 0})
+      Photon.input(ph, {:button, 0x110, true})
+      Photon.input(ph, {:button, 0x110, false})
+      Photon.sync(ph)
+    end
+
+    {:ok, term} = Photon.Term.start(env: env, user: "root", size: {10, 40})
+    assert eventually(fn -> match?([%{app_id: "lepton.term", focused: true}], Photon.info(ph).windows) end)
+    click.({tray.emoji + 6, 390})
+    click.(cell.(0))
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ "😀" end)
+    GenServer.stop(term)
+    assert eventually(fn -> Photon.info(ph).windows == [] end)
+
+    # A program with no text field on: the emoji goes to the clipboard.
+    win = window(env, 100, 60, Render.px(0, 0, 255))
+    {c, tim} = Client.bind(win.c, "zwp_text_input_manager_v3", 1)
+    {c, ti} = Client.create(c, tim, :get_text_input, "zwp_text_input_v3", [:new, win.seat])
+    {_, c} = events(c)
+    Lepton.Clipboard.put("before")
+    click.(cell.(1))
+    assert Lepton.Clipboard.get() == "😁"
+    {evs, c} = events(c)
+    refute Enum.any?(evs, &match?({^ti, _, :commit_string, _}, &1))
+
+    # With one on, it is committed there.
+    c = c |> Client.request(ti, :enable, []) |> Client.request(ti, :commit, [])
+    {c, _} = Client.roundtrip(c)
+    click.(cell.(2))
+    {evs, _c} = events(c)
+    assert {ti, "zwp_text_input_v3", :commit_string, ["😂"]} in evs
+    assert Lepton.Clipboard.get() == "😁"
+  end
+
   test "the terminal: a shell in a window, typed into through the compositor" do
     {ph, out, env} = start_photon()
     {:ok, term} = Photon.Term.start(env: env, user: "root", size: {10, 40})

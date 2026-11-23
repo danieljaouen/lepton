@@ -5,8 +5,8 @@ defmodule Lepton.Photon.WM.Classic do
   Grey 3D window frames with a navy title bar and minimize, maximize and
   close buttons; a teal desktop with icons (double-click to open); a
   taskbar with a Start button and menu, a button for each window (click
-  to focus, again to minimize) and a clock. Ctrl+Esc opens the Start
-  menu. Drawn with `Lepton.Photon.Canvas` and Lepton's own pixel art.
+  to focus, again to minimize), a tray (Wi-Fi, Bluetooth, the volume,
+  an emoji picker) and a clock. Ctrl+Esc opens the Start menu. Drawn with `Lepton.Photon.Canvas` and Lepton's own pixel art.
   """
 
   @behaviour Lepton.Photon.WM
@@ -56,7 +56,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   # The taskbar is on the primary display (`bar_w` wide); the desktop may extend past it.
-  def init(w, h, {pw, _ph}), do: %{w: w, h: h, bar_w: pw, menu: false, hover: nil, selected: nil, volume: false, wifi: false, bluetooth: false}
+  def init(w, h, {pw, _ph}), do: %{w: w, h: h, bar_w: pw, menu: false, hover: nil, selected: nil, volume: false, wifi: false, bluetooth: false, emoji: nil}
 
   # -- frames ----------------------------------------------------------------------------------
 
@@ -151,7 +151,7 @@ defmodule Lepton.Photon.WM.Classic do
 
   @impl true
   def signature(s, info) do
-    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.bluetooth, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Lepton.Bluetooth.summary(), Lepton.Keyboard.state(), Lepton.Postgres.installed?(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
+    {s.menu, s.hover, s.selected, s.volume, s.wifi, s.bluetooth, s.emoji, s.w, s.h, s.bar_w, clock(), Lepton.Media.mounted(), sound(), Lepton.Wifi.summary(), Lepton.Bluetooth.summary(), Lepton.Keyboard.state(), Lepton.Postgres.installed?(), Enum.map(info, &{&1.key, &1.title, &1.focused, &1.minimized})}
   end
 
   @impl true
@@ -172,7 +172,8 @@ defmodule Lepton.Photon.WM.Classic do
 
     above =
       [taskbar(s, info)] ++
-        if(s.menu, do: [menu(s)], else: []) ++ if(s.volume, do: [volume_popup(s)], else: []) ++ if(s.wifi, do: [wifi_popup(s)], else: []) ++ if(s.bluetooth, do: [bt_popup(s)], else: [])
+        if(s.menu, do: [menu(s)], else: []) ++ if(s.volume, do: [volume_popup(s)], else: []) ++ if(s.wifi, do: [wifi_popup(s)], else: []) ++ if(s.bluetooth, do: [bt_popup(s)], else: []) ++
+        if(s.emoji, do: [emoji_popup(s)], else: [])
     {icons, above}
   end
 
@@ -232,7 +233,7 @@ defmodule Lepton.Photon.WM.Classic do
       end)
 
     # The tray: the input source (with more than one), Wi-Fi (with Wi-Fi
-    # hardware), Bluetooth, the volume's speaker, and the clock.
+    # hardware), Bluetooth, the volume's speaker, the emoji picker and the clock.
     tray = tray(s)
     %{muted: muted} = sound()
     wifi = Lepton.Wifi.summary()
@@ -243,6 +244,7 @@ defmodule Lepton.Photon.WM.Classic do
     |> then(&if(tray.wifi, do: wifi_icon(&1, tray.wifi, 8, if(wifi.ssid, do: Lepton.Wifi.bars(wifi.signal) |> max(1), else: 0)), else: &1))
     |> then(&if(tray.bluetooth, do: bt_icon(&1, tray.bluetooth + 2, 7, bt_on?()), else: &1))
     |> speaker(tray.speaker, 7, muted)
+    |> smiley(tray.emoji, 7, s.emoji != nil)
     |> Canvas.text(w - Canvas.text_width(clock()) - 13, 7, clock(), Render.rgb(@dark), face)
     |> layer(0, s.h - @taskbar)
   end
@@ -257,9 +259,9 @@ defmodule Lepton.Photon.WM.Classic do
         &elem(&1, 1)
       )
 
-    x = s.bar_w - Canvas.text_width(clock()) - 42 - 20 * length(icons)
+    x = s.bar_w - Canvas.text_width(clock()) - 62 - 20 * length(icons)
     at = icons |> Enum.with_index() |> Map.new(fn {{name, _}, i} -> {name, x + 4 + 20 * i} end)
-    %{x: x, keyboard: at[:keyboard], wifi: at[:wifi], bluetooth: at[:bluetooth], speaker: x + 4 + 20 * length(icons)}
+    %{x: x, keyboard: at[:keyboard], wifi: at[:wifi], bluetooth: at[:bluetooth], speaker: x + 4 + 20 * length(icons), emoji: x + 24 + 20 * length(icons)}
   end
 
   # The input source: EN, KO (Hangul; "A" when Korean types English), TH, ...
@@ -575,6 +577,153 @@ defmodule Lepton.Photon.WM.Classic do
     end
   end
 
+  # -- emoji (click the smiley) -------------------------------------------------------------------------
+
+
+  # Single code points with emoji presentation (no variation selectors or
+  # joiners, so every program takes them as typed), drawn with Unifont's
+  # glyphs (Lepton.Wayland.Font): {category, emoji}.
+  @emoji (
+           cps = fn ranges -> Enum.flat_map(ranges, fn %Range{} = r -> Enum.to_list(r); cp -> [cp] end) end
+
+           [
+             {"Smileys", cps.([0x1F600..0x1F637, 0x1F641..0x1F644])},
+             {"People", cps.([0x1F44A..0x1F450, 0x1F446..0x1F449, 0x1F64B..0x1F64F, 0x1F466..0x1F478, 0x1F47B..0x1F480, 0x1F4AA, 0x1F440, 0x1F442..0x1F445, 0x1F919..0x1F91F])},
+             {"Nature", cps.([0x1F40C..0x1F43C, 0x1F331..0x1F335, 0x1F337..0x1F33C])},
+             {"Food", cps.([0x1F345..0x1F37C, 0x1F950..0x1F953])},
+             {"Activities", cps.([0x1F380..0x1F393, 0x1F3A0..0x1F3C7])},
+             {"Travel", cps.([0x1F680..0x1F68E, 0x1F690..0x1F6A4, 0x1F3E0..0x1F3F0, 0x1F30D..0x1F30F, 0x1F319, 0x1F31F, 0x1F308, 0x1F30B])},
+             {"Objects", cps.([0x1F4BB..0x1F4F6])},
+             {"Symbols", cps.([0x1F493..0x1F4AF, 0x1F534..0x1F53D, 0x1F7E0..0x1F7EA, 0x1F191..0x1F19A])}
+           ]
+           |> Enum.map(fn {name, list} -> {name, Enum.map(list, &<<&1::utf8>>)} end)
+         )
+
+  @doc false
+  def emoji, do: @emoji
+
+  # each category's tab shows one of its own
+  @tab_icons ["😀", "👋", "🐶", "🍕", "🎉", "🚀", "💡", "💯"]
+
+  @emoji_cols 10
+  @emoji_rows 6
+  @cell 24
+  @tab_w 28
+  @emoji_w 2 * 8 + @emoji_cols * @cell
+  @grid_top 54
+  @emoji_h @grid_top + @emoji_rows * @cell + 4 + 6 + 20 + 6
+
+  @doc false
+  def emoji_rect(s) do
+    x = min(tray(s).emoji - div(@emoji_w, 2) + 8, s.bar_w - @emoji_w - 2)
+    {x, s.h - @taskbar - @emoji_h, @emoji_w, @emoji_h}
+  end
+
+  @doc false
+  # What a point of the picker is: `{:tab, i}`, `{:cell, i, emoji}`,
+  # `:inside` or `:outside` (screen coordinates).
+  def emoji_hit(s, {px, py}) do
+    {x, y, w, h} = emoji_rect(s)
+    {rx, ry} = {trunc(px - x), trunc(py - y)}
+    {_, list} = Enum.at(@emoji, s.emoji.tab)
+
+    cond do
+      rx < 0 or ry < 0 or rx >= w or ry >= h ->
+        :outside
+
+      ry >= 26 and ry < 50 and rx >= 8 and rx < 8 + length(@emoji) * @tab_w ->
+        {:tab, div(rx - 8, @tab_w)}
+
+      ry >= @grid_top + 2 and ry < @grid_top + 2 + @emoji_rows * @cell and rx >= 8 and rx < 8 + @emoji_cols * @cell ->
+        i = div(ry - @grid_top - 2, @cell) * @emoji_cols + div(rx - 8, @cell)
+        if e = Enum.at(list, i), do: {:cell, i, e}, else: :inside
+
+      true ->
+        :inside
+    end
+  end
+
+  # A click in the picker: a tab shows its category, an emoji is typed.
+  defp emoji_click(s, pos) do
+    case emoji_hit(s, pos) do
+      {:cell, _, e} -> {:type, e}
+      other -> other
+    end
+  end
+
+  defp emoji_popup(s) do
+    {x, y, w, h} = emoji_rect(s)
+    %{tab: tab, hover: hover, status: status} = s.emoji
+    {name, list} = Enum.at(@emoji, tab)
+    face = Render.rgb(@face)
+    dark = Render.rgb(@dark)
+    white = Render.rgb(@white)
+    navy = Render.rgb(@navy)
+
+    c =
+      Canvas.new(w, h, face)
+      |> Canvas.bevel(0, 0, w, h, :raised)
+      |> Canvas.text(8, 6, "Emoji: #{name}", dark, face, bold: true)
+
+    c =
+      @tab_icons
+      |> Enum.with_index()
+      |> Enum.reduce(c, fn {icon, i}, c ->
+        tx = 8 + i * @tab_w
+
+        c
+        |> Canvas.bevel(tx, 26, @tab_w - 2, 24, if(i == tab, do: :pressed, else: :raised))
+        |> Canvas.text(tx + 5, 30, icon, dark, face)
+      end)
+      |> Canvas.bevel(6, @grid_top, w - 12, @emoji_rows * @cell + 4, :sunken, @white)
+
+    c =
+      list
+      |> Enum.take(@emoji_cols * @emoji_rows)
+      |> Enum.with_index()
+      |> Enum.reduce(c, fn {e, i}, c ->
+        {cx, cy} = {8 + rem(i, @emoji_cols) * @cell, @grid_top + 2 + div(i, @emoji_cols) * @cell}
+        {fg, bg} = if i == hover, do: {white, navy}, else: {dark, white}
+
+        c
+        |> Canvas.fill(cx, cy, @cell, @cell, bg)
+        |> Canvas.text(cx + 4, cy + 4, e, fg, bg)
+      end)
+
+    line =
+      cond do
+        e = hover && Enum.at(list, hover) -> "#{e}  U+#{e |> String.to_charlist() |> hd() |> Integer.to_string(16)}"
+        status -> status
+        true -> "Click one to type it."
+      end
+
+    c
+    |> Canvas.text(8, @grid_top + @emoji_rows * @cell + 4 + 6, line, dark, face, max_w: w - 16)
+    |> layer(x, y)
+  end
+
+  @smiley [
+    "    kkkkkk    ",
+    "  kkyyyyyykk  ",
+    " kyyyyyyyyyyk ",
+    " kyyyyyyyyyyk ",
+    "kyyykyyyykyyyk",
+    "kyyykyyyykyyyk",
+    "kyyyyyyyyyyyyk",
+    "kyykyyyyyykyyk",
+    "kyyykyyyykyyyk",
+    " kyyykkkkyyyk ",
+    " kyyyyyyyyyyk ",
+    "  kkyyyyyykk  ",
+    "    kkkkkk    "
+  ]
+
+  # The picker's smiley: yellow, sunk in while the picker is open.
+  defp smiley(c, x, y, open?) do
+    c = if open?, do: Canvas.bevel(c, x - 2, y - 1, 18, 18, :thin_sunken), else: c
+    Canvas.art(c, x, y + 1, @smiley, %{"k" => @dark, "y" => "#ffd800"})
+  end
+
   # Task buttons: `{window, x, width}`.
   defp task_buttons([], _w), do: []
 
@@ -657,21 +806,34 @@ defmodule Lepton.Photon.WM.Classic do
     on_wifi? = on_bar? and tray.wifi != nil and px >= tray.wifi - 2 and px < tray.wifi + 18
     on_bt? = on_bar? and tray.bluetooth != nil and px >= tray.bluetooth - 2 and px < tray.bluetooth + 18
     on_keyboard? = on_bar? and tray.keyboard != nil and px >= tray.keyboard - 2 and px < tray.keyboard + 18
+    on_emoji? = on_bar? and px >= tray.emoji - 2 and px < tray.emoji + 18
 
     cond do
       # The input source: the next one (Photon hears of it and tells the programs).
       on_keyboard? ->
         _ = Lepton.Keyboard.next()
-        {:handled, %{s | volume: false, wifi: false, bluetooth: false, menu: false, hover: nil}, []}
+        {:handled, %{s | volume: false, wifi: false, bluetooth: false, emoji: nil, menu: false, hover: nil}, []}
 
       on_speaker? ->
-        {:handled, %{s | volume: not s.volume, wifi: false, bluetooth: false, menu: false, hover: nil}, []}
+        {:handled, %{s | volume: not s.volume, wifi: false, bluetooth: false, emoji: nil, menu: false, hover: nil}, []}
+
+      on_emoji? ->
+        emoji = if s.emoji, do: nil, else: %{tab: 0, hover: nil, status: nil}
+        {:handled, %{s | emoji: emoji, volume: false, wifi: false, bluetooth: false, menu: false, hover: nil}, []}
+
+      s.emoji ->
+        case emoji_click(s, pos) do
+          :outside -> click(%{s | emoji: nil}, info, pos, 0, double?)
+          {:tab, i} -> {:handled, %{s | emoji: %{s.emoji | tab: i, hover: nil, status: nil}}, []}
+          {:type, e} -> {:handled, s, [{:type, e}]}
+          _ -> {:handled, s, []}
+        end
 
       on_bt? ->
         # Opening the list looks for devices nearby.
         # (from a process of its own: the desktop never waits for Bluetooth)
         if not s.bluetooth, do: spawn(fn -> Lepton.Bluetooth.discover(30) end)
-        {:handled, %{s | bluetooth: not s.bluetooth, wifi: false, volume: false, menu: false, hover: nil}, []}
+        {:handled, %{s | bluetooth: not s.bluetooth, wifi: false, volume: false, emoji: nil, menu: false, hover: nil}, []}
 
       s.bluetooth ->
         case bt_click(s, pos) do
@@ -683,7 +845,7 @@ defmodule Lepton.Photon.WM.Classic do
       on_wifi? ->
         # Opening the list looks for networks again.
         if not s.wifi, do: Lepton.Wifi.scan_async()
-        {:handled, %{s | wifi: not s.wifi, bluetooth: false, volume: false, menu: false, hover: nil}, []}
+        {:handled, %{s | wifi: not s.wifi, bluetooth: false, volume: false, emoji: nil, menu: false, hover: nil}, []}
 
       s.wifi ->
         case wifi_click(s, pos) do
@@ -751,7 +913,21 @@ defmodule Lepton.Photon.WM.Classic do
     end
   end
 
+  def motion(%{emoji: %{} = e} = s, _info, pos) do
+    hover = case emoji_hit(s, pos) do {:cell, i, _} -> i; _ -> nil end
+    if hover == e.hover, do: s, else: %{s | emoji: %{e | hover: hover}}
+  end
+
   def motion(s, _info, _pos), do: s
+
+  @impl true
+  # What became of an emoji clicked in the picker (Photon tells).
+  def typed(%{emoji: %{} = e} = s, how, text) do
+    status = if how == :typed, do: "Typed #{text}", else: "Copied #{text}: paste it."
+    %{s | emoji: %{e | status: status}}
+  end
+
+  def typed(s, _how, _text), do: s
 
   @impl true
   def menu(s, _info), do: %{s | menu: not s.menu, hover: if(s.menu, do: nil, else: 0)}

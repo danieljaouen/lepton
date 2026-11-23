@@ -1777,8 +1777,39 @@ defmodule Lepton.Photon do
       {:focus, key}, st -> st |> restore(key) |> focus(key)
       {:minimize, key}, st -> minimize(st, key)
       {:spawn, opts}, st -> launch(st, opts)
+      {:type, text}, st -> type_text(st, text)
       :quit, st -> run_binding(st, :quit)
     end)
+  end
+
+  # Text from the desktop (the emoji picker) for the focused window: into
+  # its text field (zwp_text_input_v3's commit_string; Lepton's terminals
+  # take it without turning a field on), or else onto the clipboard to
+  # paste. The window manager hears which (`typed/3`).
+  defp type_text(st, text) do
+    st = flush_compose(st)
+
+    inputs =
+      case st.keyboard_focus do
+        {sock, _} ->
+          case enabled_inputs(st, sock) do
+            [] -> if st.clients[sock].lepton, do: Enum.map(text_inputs(st, sock), &{sock, &1}), else: []
+            ids -> Enum.map(ids, &{sock, &1})
+          end
+
+        nil ->
+          []
+      end
+
+    for {sock, id} <- inputs do
+      emit(st, sock, id, "zwp_text_input_v3", :commit_string, [text])
+      emit(st, sock, id, "zwp_text_input_v3", :done, [st.clients[sock].objects[id].data.commits])
+    end
+
+    how = if inputs == [], do: :copied, else: :typed
+    if how == :copied, do: Lepton.Clipboard.put(text)
+
+    if function_exported?(st.wm, :typed, 3), do: %{st | wm_state: st.wm.typed(st.wm_state, how, text)}, else: st
   end
 
   defp minimize(st, key) do
