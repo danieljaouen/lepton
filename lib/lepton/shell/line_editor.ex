@@ -381,7 +381,8 @@ defmodule Lepton.Shell.LineEditor do
       else
         {Path.dirname(expanded), Path.basename(word), case Path.dirname(word) do
           "." -> if String.starts_with?(word, "./"), do: "./", else: ""
-          d -> d <> "/"
+          # "/" (for "/roo"), and "//": already ends with its slash
+          d -> if String.ends_with?(d, "/"), do: d, else: d <> "/"
         end}
       end
 

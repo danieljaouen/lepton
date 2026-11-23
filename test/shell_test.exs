@@ -168,4 +168,31 @@ defmodule Lepton.ShellTest do
       assert hl.("echo 'a | b'") =~ "\e[33m'a | b'\e[0m"
     end
   end
+
+  describe "completion" do
+    # TAB in the line editor; the line it returns.
+    defp complete(typed, cwd) do
+      {:ok, tty} = Lepton.TTY.start(backend: {Lepton.TTY.Capture, nil})
+      shell = Lepton.Shell.new(%Lepton.Ctx{cwd: cwd, env: %{"PATH" => "/nonexistent", "TERM" => "xterm", "NO_COLOR" => "1"}, tty: tty, stdin: tty, stdout: tty, stderr: tty})
+      line = Task.async(fn -> Lepton.Shell.LineEditor.read(shell, "$ ") end)
+      Process.sleep(100)
+      Lepton.TTY.input(tty, typed <> "\t")
+      Process.sleep(100)
+      Lepton.TTY.input(tty, "\r")
+      Task.await(line, 5000)
+    end
+
+    test "paths: in /, in a directory, and relative (a directory gets its slash, a file a space)" do
+      dir = tmp_dir("complete")
+      File.mkdir_p!(Path.join(dir, "sub/inner"))
+      File.write!(Path.join(dir, "sub/notes.txt"), "")
+
+      # The directory part is "/": "/us" was "/ussr/" (one letter too many).
+      assert complete("l /us", "/") == {:ok, "l /usr/"}
+      assert complete("l #{dir}/su", "/") == {:ok, "l #{dir}/sub/"}
+      assert complete("l sub/i", dir) == {:ok, "l sub/inner/"}
+      assert complete("l sub/no", dir) == {:ok, "l sub/notes.txt "}
+      assert complete("l ./su", dir) == {:ok, "l ./sub/"}
+    end
+  end
 end
