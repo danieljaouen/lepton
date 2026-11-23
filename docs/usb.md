@@ -90,8 +90,17 @@ another one for the Mac. Hubs show up as hubs on real hardware and in QEMU
 kernel has a framebuffer for (`/dev/fb0`, `/dev/fb1`, ...):
 
 - **a second display of the VM.** In UTM, add a second **Display**
-  device (virtio-gpu) in the VM's settings, and UTM opens a second
-  window. With QEMU, run `mix lepton.qemu --displays 2`.
+  device in the VM's settings and set its **Emulated Display Card** to
+  `virtio-gpu-pci` (or `virtio-gpu-gl-pci`), not the default
+  `virtio-ramfb`; UTM then opens a second window. With QEMU, run
+  `mix lepton.qemu --displays 2`.
+
+  A VM can have only one ramfb display (the firmware's framebuffer), and
+  `virtio-ramfb` is a virtio GPU plus a ramfb. With two `virtio-ramfb`
+  displays (or two `ramfb`), QEMU refuses to start the VM, before Lepton
+  runs: *duplicate fw_cfg file name: vgaroms/vgabios-ramfb.bin* (or
+  *etc/ramfb*). Keep the first display as it is and change the other
+  one's card to `virtio-gpu-pci`.
 - **a USB display adapter** (passed to the VM like any USB device):
   adapters with DisplayLink's USB 2.0 chips (DL-120, DL-160, DL-165,
   DL-195) through the `udl` driver, and Generic USB Display gadgets (a

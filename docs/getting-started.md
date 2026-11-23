@@ -44,7 +44,8 @@ It is a hybrid image: it boots when attached as a CD or as a disk.
 
 UTM's window shows the console with the default display card
 (`virtio-ramfb`); no serial device is needed. Other cards, such as
-`virtio-gpu-pci` and `ramfb`, work too.
+`virtio-gpu-pci` and `ramfb`, work too. A second display needs
+`virtio-gpu-pci` (see [displays](usb.html#displays)).
 
 You are logged in as `root` on the display console (`tty1`), on the
 serial port (`ttyAMA0`) if present, and on `hvc0` under Apple

@@ -230,8 +230,9 @@ More: [Firefox and other apps](apps.html).
 
 ## 13. More displays
 
-Give the VM a second display (UTM: add a **Display**), then, on the
-desktop:
+Give the VM a second display (UTM: add a **Display** whose card is
+`virtio-gpu-pci`, not `virtio-ramfb`; see
+[displays](usb.html#displays)), then, on the desktop:
 
 ```sh
 photon display              # the displays
