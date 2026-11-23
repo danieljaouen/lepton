@@ -235,8 +235,8 @@ virtual machine of its own. With nested virtualization (`mix lepton.qemu
 about as long as on the Mac; see docs/virtual-machines.md.
 
 Current results: 366 tests, 0 failures inside the VM (run from the live
-ISO; the 19 `:docs` tests, for the docs, site tags and build tasks, are
-host-only), and 362 passing plus 23 excluded (native/network) on the host.
+ISO; the 20 `:docs` tests, for the docs, site tags and build tasks, are
+host-only), and 363 passing plus 23 excluded (native/network) on the host.
 
 ## Version updates
 

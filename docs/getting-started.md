@@ -50,6 +50,26 @@ You are logged in as `root` on the display console (`tty1`), on the
 serial port (`ttyAMA0`) if present, and on `hvc0` under Apple
 Virtualization. The network comes up by DHCP in the background.
 
+## On an iPad
+
+UTM runs on iPads too, but there it can't virtualize: iPadOS doesn't let
+apps use the processor's virtualization, so UTM emulates the CPU, which
+is many times slower. Lepton works, but expect minutes where a Mac takes
+seconds.
+
+1. **Create a New Virtual Machine → Emulate → Linux**, architecture
+   **ARM64 (aarch64)**, system **QEMU virt**; boot `lepton.iso`.
+2. Memory: 2048 MB (the live system runs from RAM; much more than that,
+   and iPadOS may close UTM). Display: the default `virtio-ramfb`.
+3. Use UTM with JIT enabled if you can: UTM SE, which has no JIT, is
+   slower still.
+
+After GRUB's menu, GRUB says what it loads: **Loading Linux**,
+**Loading the RAM disk** and **Starting Lepton**. The screen then stays
+as it is until Lepton starts the display driver: be patient. To watch
+the kernel at work meanwhile, pick the **verbose boot** entry; if
+something goes wrong early, its message shows there too.
+
 ## Run it with QEMU
 
 ```sh

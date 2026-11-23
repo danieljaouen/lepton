@@ -116,7 +116,7 @@ defmodule LeptonBuild.Image do
 
     initrd = Path.join(out_dir, "initrd.img")
     info("writing #{initrd} (#{length(entries)} entries)")
-    Cpio.write_gzip!(entries, initrd)
+    Cpio.write_zstd!(entries, initrd)
 
     kernel_path = Path.join(out_dir, "vmlinuz")
     File.write!(kernel_path, kernel_image)
@@ -164,11 +164,30 @@ defmodule LeptonBuild.Image do
       "-noshell -noinput -boot #{@erlang_root}/releases/#{otp_release}/start_clean " <>
         "+fnu +sbwt none +sbwtdcpu none +sbwtdio none +Bi +C multi_time_warp +SDio 32 -s Elixir.Lepton.Init main"
 
-    "console=ttyAMA0 console=hvc0 console=tty0 quiet loglevel=3 panic=10 rdinit=/init #{extra} #{env} -- #{erl_args}"
+    # earlycon=efifb keep_bootcon: the kernel writes to the firmware's
+    # framebuffer from the start, until a display driver loads (a module,
+    # loaded by Lepton.Init): a panic, or a verbose boot's log, shows on the
+    # screen instead of GRUB's last line. (Once Lepton runs, the console
+    # log level lets only emergencies through.)
+    "console=ttyAMA0 console=hvc0 console=tty0 earlycon=efifb keep_bootcon quiet loglevel=3 panic=10 rdinit=/init #{extra} #{env} -- #{erl_args}"
     |> String.replace(~r/\s+/, " ")
   end
 
-  defp grub_cfg(erts, otp_release) do
+  # GRUB says what it loads and what comes next: under an emulated CPU
+  # (UTM on an iPad) each step takes a while.
+  defp boot_steps(cmdline) do
+    """
+      echo "Loading Linux..."
+      linux /boot/vmlinuz #{cmdline}
+      echo "Loading the RAM disk..."
+      initrd /boot/initrd.img
+      echo "Starting Lepton: a few seconds here (minutes where UTM emulates the CPU, as on an iPad)."
+    """
+    |> String.trim_trailing()
+  end
+
+  @doc false
+  def grub_cfg(erts, otp_release) do
     """
     set timeout=3
     set default=0
@@ -176,23 +195,19 @@ defmodule LeptonBuild.Image do
     insmod gzio
 
     menuentry "Lepton OS #{version()}" {
-      linux /boot/vmlinuz #{kernel_cmdline(erts, otp_release)}
-      initrd /boot/initrd.img
+#{boot_steps(kernel_cmdline(erts, otp_release))}
     }
 
     menuentry "Lepton OS #{version()} (verbose boot)" {
-      linux /boot/vmlinuz #{kernel_cmdline(erts, otp_release) |> String.replace(" quiet loglevel=3", "")} lepton.verbose=1
-      initrd /boot/initrd.img
+#{boot_steps(kernel_cmdline(erts, otp_release, "lepton.verbose=1") |> String.replace(" quiet loglevel=3", ""))}
     }
 
     menuentry "Lepton OS #{version()} (live: leave installed disks alone)" {
-      linux /boot/vmlinuz #{kernel_cmdline(erts, otp_release, "lepton.live=1")}
-      initrd /boot/initrd.img
+#{boot_steps(kernel_cmdline(erts, otp_release, "lepton.live=1"))}
     }
 
     menuentry "Lepton OS #{version()} (run self-tests on boot)" {
-      linux /boot/vmlinuz #{kernel_cmdline(erts, otp_release, "lepton.selftest=1")}
-      initrd /boot/initrd.img
+#{boot_steps(kernel_cmdline(erts, otp_release, "lepton.selftest=1"))}
     }
     """
   end
