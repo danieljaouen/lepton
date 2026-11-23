@@ -19,7 +19,9 @@ The line editor follows oh-my-zsh's emacs bindings (`bindkey -e`):
 - zsh-syntax-highlighting: each command (the first, and each after `|`,
   `&&`, `||` or `;`) turns green when it exists and red when it doesn't;
 - `C-r` searches history, `Tab` completes commands and paths, and
-  `C-x C-e` edits the line in `$EDITOR`.
+  `C-x C-e` edits the line in `$EDITOR`;
+- Alt types accents: Alt+e then `e` is é, Alt+u then `u` is ü (see
+  [Typing accents](accents.html)).
 
 `bindkey` lists every binding; the [key bindings page](keybindings.html)
 shows them too. History is appended after every command

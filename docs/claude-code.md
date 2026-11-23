@@ -61,7 +61,7 @@ logging in, you can set `ANTHROPIC_API_KEY`.
 
 Everything else works as Claude Code's documentation describes: type what
 you want, `/help` for its commands, `Esc` to interrupt it, `C-c` twice to
-quit. Lepton's [accent keys](keyboard.html#accents) type in it too
+quit. Lepton's [accent keys](accents.html) type in it too
 (Alt+e e: é); for Claude Code's own Alt shortcuts (Alt+T, Alt+P), turn
 them off with `keyboard accents off`. For one question without the
 interface, use print mode:

@@ -205,6 +205,7 @@ On the live ISO the console logs straight back in, with a reminder that
 ## Where next
 
 - [The shell](shell.html) and [the commands](commands.html)
+- [Typing accents](accents.html): Alt+e e is é, Alt+u u is ü
 - [Your dotfiles, applied](dotfiles.html) and the
   [key bindings](keybindings.html) they produce
 - [Services](services.html) and [packages](packages.html)

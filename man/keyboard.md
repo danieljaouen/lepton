@@ -59,4 +59,4 @@ capital; Space, or the accent key again, the accent alone. One key: Alt+c
 
 ## SEE ALSO
 
-photon(1), classic(1), firefox(1), https://trylepton.app/docs/keyboard.html
+photon(1), classic(1), firefox(1), https://trylepton.app/docs/accents.html, https://trylepton.app/docs/keyboard.html
