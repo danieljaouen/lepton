@@ -247,8 +247,8 @@ defmodule Lepton.Editor.Magit do
 
     result =
       case op do
-        :push -> Git.Remote.push(repo, "origin", Git.current_branch(repo))
-        :pull -> Git.Remote.pull(repo, "origin", Git.current_branch(repo))
+        :push -> Git.Remote.push(repo, "origin", Git.current_branch(repo), remote_opts(st))
+        :pull -> Git.Remote.pull(repo, "origin", Git.current_branch(repo), remote_opts(st))
       end
 
     case result do
@@ -256,6 +256,10 @@ defmodule Lepton.Editor.Magit do
       {:error, reason} -> Editor.api(st, :error, "#{op} failed: #{reason}")
     end
   end
+
+  # The user's SSH key and GitHub token are in their home, not the
+  # system's (le runs inside Lepton's VM, whose HOME is /root).
+  defp remote_opts(st), do: [home: Lepton.Ctx.home(st.ctx), env: st.ctx.env]
 
   defp checkout(st, branch) do
     repo = Git.Repo.open(Editor.buf(st).meta.root)

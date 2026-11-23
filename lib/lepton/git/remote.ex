@@ -3,9 +3,11 @@ defmodule Lepton.Git.Remote do
   The git protocol (v0) over HTTPS ("smart HTTP") and SSH: clone, fetch,
   pull and push, e.g. against GitHub.
 
-  HTTPS pushes authenticate with a GitHub token, looked up from `GH_TOKEN`
-  / `GITHUB_TOKEN` or from `gh auth login` (`~/.config/gh/hosts.yml`, the
-  same file GitHub's own `gh` uses). SSH remotes (`git@github.com:OWNER/REPO`,
+  HTTPS pushes to GitHub authenticate with a GitHub token, looked up from
+  `GH_TOKEN` / `GITHUB_TOKEN` or from `gh auth login`
+  (`~/.config/gh/hosts.yml` in the user's home, `opts[:home]`: the same
+  file GitHub's own `gh` uses); clones and fetches send it when GitHub
+  asks (a private repository). It goes to github.com only. SSH remotes (`git@github.com:OWNER/REPO`,
   `ssh://[user@]host[:port]/path`) use the user's SSH key (see `Lepton.SSH`).
   `url.<base>.insteadOf` / `pushInsteadOf` rewrite remote URLs, as in git.
   """
@@ -75,8 +77,20 @@ defmodule Lepton.Git.Remote do
   defp auth_header(nil), do: []
   defp auth_header(token), do: [{~c"authorization", String.to_charlist("Basic " <> Base.encode64("x-access-token:" <> token))}]
 
-  def token do
-    System.get_env("GH_TOKEN") || System.get_env("GITHUB_TOKEN") || Lepton.GH.stored_token()
+  @doc "The user's GitHub token: `GH_TOKEN` / `GITHUB_TOKEN` (`opts[:env]`, then the system's), or `gh auth login`'s in `opts[:home]`."
+  def token(opts \\ []) do
+    env = opts[:env] || %{}
+
+    env["GH_TOKEN"] || env["GITHUB_TOKEN"] || System.get_env("GH_TOKEN") || System.get_env("GITHUB_TOKEN") ||
+      Lepton.GH.stored_token(opts[:home])
+  end
+
+  # The token for an HTTPS URL on GitHub (never sent anywhere else).
+  defp github_token(url, opts) do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host} when host in ["github.com", "www.github.com"] -> token(opts)
+      _ -> nil
+    end
   end
 
   defp http_opts(cfg) do
@@ -107,10 +121,21 @@ defmodule Lepton.Git.Remote do
   defp open(url, service, opts) do
     case ssh_url(url) do
       nil ->
-        with {:ok, body} <- http(:get, "#{base(url)}/info/refs?service=#{service}", nil, nil, opts) do
-          # Skip "# service=..." and the flush after it.
-          {refs, caps} = body |> parse_pkts() |> Enum.drop_while(&(&1 != :flush)) |> Enum.drop(1) |> advertisement()
-          {:ok, refs, caps, {:http, url, opts}}
+        case http(:get, "#{base(url)}/info/refs?service=#{service}", nil, nil, opts) do
+          {:ok, body} ->
+            # Skip "# service=..." and the flush after it.
+            {refs, caps} = body |> parse_pkts() |> Enum.drop_while(&(&1 != :flush)) |> Enum.drop(1) |> advertisement()
+            {:ok, refs, caps, {:http, url, opts}}
+
+          # A private repository on GitHub: again, with the user's token.
+          {:error, "authentication required" <> _} = err ->
+            case !opts[:token] && github_token(url, opts) do
+              t when is_binary(t) -> open(url, service, Keyword.put(opts, :token, t))
+              _ -> err
+            end
+
+          err ->
+            err
         end
 
       {target, port, path} ->
@@ -438,7 +463,7 @@ defmodule Lepton.Git.Remote do
     url = remote_url!(repo, cfg, remote, :push)
     local = Git.resolve_ref(repo, "refs/heads/" <> branch) || throw({:error, "src refspec #{branch} does not match any"})
     # The token is for HTTPS only; SSH remotes use the SSH key.
-    hopts = http_opts(cfg) ++ opts ++ [token: opts[:token] || if(ssh_url(url), do: nil, else: token())]
+    hopts = http_opts(cfg) ++ Keyword.delete(opts, :token) ++ [token: opts[:token] || github_token(url, opts)]
 
     with {:ok, refs, _caps, conn} <- open(url, "git-receive-pack", hopts) do
       try do

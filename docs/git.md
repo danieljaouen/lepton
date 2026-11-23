@@ -57,8 +57,11 @@ HOST` to check and accept their key (git can't ask).
 ## gh
 
 `gh auth login` stores a token in the same `~/.config/gh/hosts.yml`
-format GitHub's own `gh` uses (or set `GH_TOKEN`), and `git push` over
-HTTPS uses it. Scopes: `repo` and `read:org`, plus `admin:public_key` for
+format GitHub's own `gh` uses (or set `GH_TOKEN`), and git over HTTPS
+uses it with GitHub: `git push`, and `git clone`, `fetch` and `pull` of
+private repositories (only when GitHub asks for it; it is never sent to
+other hosts). Each user's token and SSH key are their own, in their home
+directory, from the shell and from `le`'s magit (`P p`, `F p`) alike. Scopes: `repo` and `read:org`, plus `admin:public_key` for
 `gh ssh-key`.
 
 ```sh

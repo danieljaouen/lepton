@@ -403,6 +403,18 @@ defmodule Lepton.SSHTest do
     assert {_, _, 0} = run("git pull", home, c1)
     assert File.read!(Path.join(c1, "SERVER.md")) == "from the server\n"
 
+    # le's magit (P p, F p) pushes and pulls with the user's key, in the
+    # user's home, not the system's (/root on Lepton).
+    File.write!(Path.join(c1, "LE.md"), "from le\n")
+    {_, _, 0} = run("git add LE.md && git commit -m 'from le'", home, c1)
+    ctx = %Lepton.Ctx{cwd: c1, env: %{"HOME" => home}, tty: nil}
+    st = Lepton.Editor.init([Path.join(c1, "README.md")], ctx)
+    st = Enum.reduce(Lepton.Keys.parse("SPC g s P p"), st, &Lepton.Editor.handle_key(&2, &1))
+    refute st.message_error, st.message
+    assert Git.resolve_ref(repo, "refs/heads/main") == Git.head_sha(Repo.open(c1))
+    st = Enum.reduce(Lepton.Keys.parse("F p"), st, &Lepton.Editor.handle_key(&2, &1))
+    refute st.message_error, st.message
+
     assert {_, err, 128} = run("git clone srv:missing c2", home, work)
     assert err =~ "Repository not found."
 

@@ -201,7 +201,7 @@ defmodule Lepton.GH do
 
     url = if git_protocol(ctx) == "ssh", do: "git@github.com:#{nwo}.git", else: "https://github.com/#{nwo}.git"
 
-    case Lepton.Git.Remote.clone(url, dest, home: Ctx.home(ctx)) do
+    case Lepton.Git.Remote.clone(url, dest, home: Ctx.home(ctx), env: ctx.env) do
       {:ok, msg} -> IO.puts(ctx, msg); 0
       {:error, e} -> IO.err(ctx, "gh: #{e}"); 1
     end

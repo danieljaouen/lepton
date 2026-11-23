@@ -161,4 +161,17 @@ defmodule Lepton.GitTest do
     assert File.exists?(Path.join(dir, "README"))
     assert Git.log(Repo.open(dir), 1) != []
   end
+
+  test "the GitHub token comes from the user's environment, or gh's hosts.yml in the user's home" do
+    home = tmp_dir("ghhome")
+    File.mkdir_p!(Path.join(home, ".config/gh"))
+    File.write!(Path.join(home, ".config/gh/hosts.yml"), "github.com:\n    oauth_token: from-hosts\n    user: me\n")
+
+    unless System.get_env("GH_TOKEN") || System.get_env("GITHUB_TOKEN") do
+      assert Lepton.Git.Remote.token(home: home) == "from-hosts"
+      assert Lepton.Git.Remote.token(home: tmp_dir("ghempty")) == nil
+    end
+
+    assert Lepton.Git.Remote.token(home: home, env: %{"GH_TOKEN" => "from-env"}) == "from-env"
+  end
 end
