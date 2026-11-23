@@ -35,6 +35,10 @@ editor and `pbcopy`.
 Closing a pane (`kill-pane`) ends its shell and everything started in
 it.
 
+With `set -g mouse on`, a click selects the pane under it, and programs
+that ask for the mouse (`le`) get clicks, drags and the wheel in their
+pane.
+
 ## FILES
 
 - `~/.tmux.conf`: configuration.

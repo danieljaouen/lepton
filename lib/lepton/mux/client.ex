@@ -4,6 +4,10 @@ defmodule Lepton.Mux.Client do
   through the tmux key tables (prefix, root, copy-mode-vi) with `-r`
   repeat, runs UI commands (prompts, confirmations, copy mode, pickers)
   and renders panes, borders and the status line.
+
+  With `mouse on` (as in tmux), the terminal reports the mouse: a click
+  selects the pane under it, and what a pane's program asked for (`le`
+  does) reaches it, at the pane's own cells.
   """
 
   alias Lepton.{Clipboard, Keys, Screen, TTY}
@@ -16,6 +20,7 @@ defmodule Lepton.Mux.Client do
     TTY.set_mode(tty, :raw)
     TTY.write(tty, "\e[?1049h\e[?25l\e[H\e[2J")
     {:ok, name} = Server.attach(server, self(), TTY.size(tty))
+    if mouse?(cfg), do: TTY.write(tty, "\e[?1002h\e[?1006h")
     me = self()
     reader = spawn_link(fn -> read_loop(tty, me) end)
     st = %__MODULE__{server: server, name: name, cfg: cfg, tty: tty, ctx: ctx, size: TTY.size(tty)}
@@ -26,7 +31,7 @@ defmodule Lepton.Mux.Client do
       after
         Process.unlink(reader)
         Process.exit(reader, :kill)
-        TTY.write(tty, "\e[0m\e[?25h\e[2 q\e[?1049l")
+        TTY.write(tty, "\e[?1002l\e[?1006l\e[0m\e[?25h\e[2 q\e[?1049l")
         TTY.set_mode(tty, :cooked)
       end
 
@@ -99,6 +104,7 @@ defmodule Lepton.Mux.Client do
 
   defp handle_key(st, {:cpr, _, _}), do: st
   defp handle_key(st, {:resize, _, _}), do: check_size(st)
+  defp handle_key(st, {:mouse, _, _, _, _, _} = m), do: mouse(st, m)
 
   defp handle_key(st, key) do
     case st.mode do
@@ -151,6 +157,35 @@ defmodule Lepton.Mux.Client do
     ms = st.cfg.options["repeat-time"] |> to_string() |> Integer.parse() |> then(fn {n, _} -> n; :error -> 500 end)
     System.monotonic_time(:millisecond) + ms
   end
+
+  # -- the mouse -------------------------------------------------------------------------------
+
+  defp mouse?(cfg), do: cfg.options["mouse"] == "on"
+
+  # A press selects the pane under the pointer; the pane's program gets
+  # the report if it asked (relative to the pane), as long as the pointer
+  # is over the active pane. Only in the normal mode.
+  defp mouse(%{mode: :normal, snapshot: %{panes: panes}} = st, {:mouse, action, button, x, y, mods}) do
+    hit = Enum.find(panes, fn {_id, %{rect: {px, py, w, h}}} -> x >= px and x < px + w and y >= py and y < py + h end)
+
+    case hit do
+      nil ->
+        st
+
+      {id, %{rect: {px, py, _, _}, screen: scr}} ->
+        st =
+          if action == :press and id != st.snapshot.active_pane,
+            do: exec(st, ["select-pane", "-t", "%#{id}"]) |> then(&%{&1 | snapshot: safe_snapshot(&1) || &1.snapshot}),
+            else: st
+
+        if id == st.snapshot.active_pane and Keys.wants_mouse?(scr.mouse, action),
+          do: Server.input(st.server, Keys.mouse_report({:mouse, action, button, x - px, y - py, mods}, scr.mouse_sgr))
+
+        st
+    end
+  end
+
+  defp mouse(st, _), do: st
 
   # -- running commands -----------------------------------------------------------------------
 

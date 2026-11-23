@@ -26,6 +26,57 @@ defmodule Lepton.EditorTest do
     assert st.mode == :normal
   end
 
+  # The terminal reports clicks at cells from 0; the line numbers take 4
+  # columns here (relative, in the user's editing.el) and the size is 24x80.
+  test "the mouse: a click moves the cursor, a drag selects, the wheel scrolls, a click picks the window" do
+    {st, _} = editor(Enum.map_join(1..60, "\n", &"line #{&1}\tx 한글 end") <> "\n")
+    gutter = Lepton.Editor.Render.gutter(st, Editor.buf(st))
+    click = fn st, x, y, action -> Editor.handle_key(st, {:mouse, action, :left, x, y, ""}) end
+
+    # On line 3, at "n" of "line": column 2 of the text.
+    st = click.(st, gutter + 2, 2, :press)
+    assert cursor(st) == {2, 2}
+    # Past the tab (to column 8), the wide characters take two columns each: "글" is at 12 and 13.
+    st = click.(st, gutter + 13, 4, :press)
+    assert cursor(st) == {4, 10}
+    # Left of the text (the line numbers): column 0; past the end: the last character.
+    assert cursor(click.(st, 0, 5, :press)) == {5, 0}
+    assert cursor(click.(st, 70, 6, :press)) == {6, 14}
+
+    # A drag selects from the press, as v: d deletes "ne 2\tx", up to the pointer.
+    st = click.(st, gutter + 2, 1, :press)
+    st = click.(st, gutter + 8, 1, :drag)
+    assert st.mode == :visual and cursor(st) == {1, 7}
+    st = click.(st, gutter + 8, 1, :release)
+    st = keys(st, "d")
+    assert Buffer.line(Editor.buf(st), 1) == "li 한글 end"
+    # A click leaves visual mode; in insert mode it moves the cursor and stays inserting.
+    st = keys(click.(st, gutter, 3, :press) |> click.(gutter + 3, 3, :drag), "ESC")
+    st = keys(st, "i") |> click.(gutter + 4, 7, :press)
+    assert st.mode == :insert and cursor(st) == {7, 4}
+    st = keys(st, "ESC")
+
+    # The wheel scrolls the window under the pointer three lines; the cursor stays on screen.
+    st = Editor.handle_key(st, {:mouse, :press, :wheel_down, 10, 10, ""})
+    assert Editor.win(st).top == 3
+    st = Enum.reduce(1..5, st, fn _, st -> Editor.handle_key(st, {:mouse, :press, :wheel_down, 10, 10, ""}) end)
+    assert Editor.win(st).top == 18 and elem(cursor(st), 0) == 18
+    st = Editor.handle_key(st, {:mouse, :press, :wheel_up, 10, 10, ""})
+    assert Editor.win(st).top == 15
+    # A click under the scrolled window's top line is that line.
+    assert cursor(click.(st, gutter, 0, :press)) == {15, 0}
+
+    # Two windows side by side: a click in the left one selects it, there.
+    st = keys(st, "SPC w /")
+    right = st.active
+    st = click.(st, gutter + 1, 2, :press)
+    assert st.active != right and cursor(st) == {17, 1}
+    # Its mode line just selects the window; the bottom line (the echo area) does nothing.
+    st = click.(st, 60, 22, :press)
+    assert st.active == right
+    assert click.(st, 5, 23, :press) == st
+  end
+
   test "evil-escape with jk (editing.el)" do
     {st, _} = editor("\n")
     st = keys(st, "i a b c j k")

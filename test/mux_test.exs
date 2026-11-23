@@ -5,6 +5,14 @@ defmodule Lepton.MuxTest do
   alias Lepton.{Keys, Screen}
   alias Lepton.Mux.{Config, Layout}
 
+  defp eventually(fun, tries \\ 50) do
+    cond do
+      fun.() -> true
+      tries == 0 -> false
+      true -> Process.sleep(100); eventually(fun, tries - 1)
+    end
+  end
+
   describe "layout" do
     test "splits and rectangles" do
       tree = {:pane, 0} |> Layout.split(0, :h, 1) |> Layout.split(1, :v, 2)
@@ -162,6 +170,51 @@ defmodule Lepton.MuxTest do
       Process.sleep(200)
       refute Enum.any?(procs, &Process.alive?(&1.beam))
       assert sleeping.() == []
+      Lepton.Mux.Server.stop(pid)
+    end
+
+    # A client on a terminal of our own (its output comes here) with
+    # `mouse on`; le in one of two panes.
+    defmodule TestTerm do
+      @moduledoc false
+      def open({pid, size}, _tty), do: {:ok, {pid, size}}
+      def size({_, size}), do: size
+      def write({pid, _}, data), do: send(pid, {:client_out, data})
+    end
+
+    test "mouse on: a click selects the pane under it, and reaches le there, at the pane's cells" do
+      dir = tmp_dir("muxmouse")
+      File.write!(Path.join(dir, "f.txt"), Enum.map_join(1..30, "\n", &"line #{&1} of text") <> "\n")
+      ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home(), "NO_COLOR" => "1"}}
+      {:ok, pid} = DynamicSupervisor.start_child(Lepton.SessionSupervisor, {Lepton.Mux.Server, name: "m#{System.unique_integer([:positive])}", ctx: ctx, size: {24, 80}, command: "le f.txt"})
+      :ok = Lepton.Mux.Server.exec(pid, ["split-window", "-h", "read"])
+      {:ok, tty} = Lepton.TTY.start(backend: {TestTerm, {self(), {24, 80}}}, name: "mux test")
+      cfg = %{Config.defaults() | options: Map.put(Config.defaults().options, "mouse", "on")}
+      me = self()
+      client = spawn(fn -> Lepton.Mux.Client.run(%{ctx | tty: tty, stdout: tty}, pid, cfg); send(me, :client_done) end)
+      # The client turns the terminal's mouse reports on.
+      assert_receive {:client_out, "\e[?1002h\e[?1006h"}, 5000
+
+      snap = fn -> Lepton.Mux.Server.snapshot(pid) end
+      [{le_id, _}] = Enum.filter(snap.().panes, fn {_, p} -> elem(p.rect, 0) == 0 end)
+      assert snap.().active_pane != le_id
+      assert eventually(fn -> le_pane = snap.().panes[le_id]; le_pane.screen.mouse == :drag and Lepton.Screen.text(le_pane.screen) =~ "line 3 of text" end)
+      # (le draws line numbers in 4 columns: "line 3" starts at column 4.)
+      click = fn x, y -> Lepton.TTY.input(tty, "\e[<0;#{x + 1};#{y + 1}M\e[<0;#{x + 1};#{y + 1}m") end
+
+      # The first click selects le's pane; it gets that click too: its cursor is there.
+      click.(4 + 5, 2)
+      assert eventually(fn -> snap.().active_pane == le_id end)
+      assert eventually(fn -> s = snap.().panes[le_id].screen; {s.x, s.y} == {9, 2} end)
+      click.(4 + 2, 6)
+      assert eventually(fn -> s = snap.().panes[le_id].screen; {s.x, s.y} == {6, 6} end)
+
+      # A click in the other pane selects it; `read` didn't ask for the mouse, so it gets nothing.
+      {px, _, _, _} = elem(Enum.find(snap.().panes, fn {id, _} -> id != le_id end), 1).rect
+      click.(px + 3, 3)
+      assert eventually(fn -> snap.().active_pane != le_id end)
+
+      Process.exit(client, :kill)
       Lepton.Mux.Server.stop(pid)
     end
 

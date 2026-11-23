@@ -38,6 +38,13 @@ subtree) and `S-TAB` cycles the whole buffer; `zm` folds every heading,
 `zr` reveals everything, and `za`, `zc` and `zo` toggle, fold and open
 the heading under the cursor.
 
+The mouse: a click puts the cursor where you click (and selects that
+window; a click on a mode line just selects the window), dragging
+selects text as `v` does, and the wheel scrolls the window under the
+pointer three lines. It works in Lepton's terminal windows, in `tmux`
+with `mouse on`, and over SSH from a terminal that reports the mouse
+(most do).
+
 With the Spacemacs tmux layer, `C-h`, `C-j`, `C-k` and `C-l` move
 between windows and on into neighbouring tmux panes.
 

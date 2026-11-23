@@ -55,6 +55,15 @@ defmodule Lepton.Keys do
   # Escape sequences
   defp decode(<<27>> = rest, acc), do: {Enum.reverse(acc), rest}
 
+  # A mouse report in the old form (no 1006): ESC [ M, then button, column
+  # and row, each plus 32; button 3 is a release.
+  defp decode(<<27, ?[, ?M, b, x, y, rest::binary>>, acc) when b >= 32 and x > 32 and y > 32 do
+    key = if Bitwise.band(b - 32, 0b1100011) == 3, do: mouse(b - 32, x - 33, y - 33, true), else: mouse(b - 32, x - 33, y - 33, false)
+    decode(rest, [key | acc])
+  end
+
+  defp decode(<<27, ?[, ?M, rest::binary>> = all, acc) when byte_size(rest) < 3, do: {Enum.reverse(acc), all}
+
   defp decode(<<27, ?[, rest::binary>> = all, acc) do
     case csi(rest) do
       {:ok, key, rest} -> decode(rest, [key | acc])
@@ -133,6 +142,15 @@ defmodule Lepton.Keys do
     end
   end
 
+  # Mouse reports in SGR form (mode 1006): ESC [ < button ; col ; row M
+  # (pressed, dragged) or m (released).
+  defp csi_key("<" <> params, final) when final in ["M", "m"] do
+    case params |> String.split(";") |> Enum.map(&Integer.parse/1) do
+      [{b, ""}, {x, ""}, {y, ""}] -> mouse(b, x - 1, y - 1, final == "m")
+      _ -> "<unknown>"
+    end
+  end
+
   defp csi_key(params, "R") do
     case String.split(params, ";") do
       [r, c] -> {:cpr, String.to_integer(r), String.to_integer(c)}
@@ -154,6 +172,32 @@ defmodule Lepton.Keys do
       [_, mods] -> modifiers(mods) <> base
       _ -> base
     end
+  end
+
+  @doc """
+  A mouse report as a key: `{:mouse, action, button, col, row, mods}`,
+  `action` :press, :release or :drag (:move with no button held), `button`
+  :left, :middle, :right, :wheel_up, :wheel_down or :none, `col` and `row`
+  counted from 0, `mods` "C-", "M-" and "S-" as for keys.
+  """
+  def mouse(b, x, y, release?) do
+    import Bitwise
+    mods = if((b &&& 16) != 0, do: "C-", else: "") <> if((b &&& 8) != 0, do: "M-", else: "") <> if((b &&& 4) != 0, do: "S-", else: "")
+
+    button =
+      cond do
+        (b &&& 64) != 0 -> if((b &&& 1) == 0, do: :wheel_up, else: :wheel_down)
+        true -> Enum.at([:left, :middle, :right, :none], b &&& 3)
+      end
+
+    action =
+      cond do
+        release? -> :release
+        (b &&& 32) != 0 -> if(button == :none, do: :move, else: :drag)
+        true -> :press
+      end
+
+    {:mouse, action, button, max(x, 0), max(y, 0), mods}
   end
 
   defp modifiers(mods) do
@@ -185,6 +229,14 @@ defmodule Lepton.Keys do
   }
 
   def encode({:cpr, r, c}), do: "\e[#{r};#{c}R"
+
+  # A mouse report, in SGR form (as Lepton's terminals send them).
+  def encode({:mouse, action, button, x, y, mods}) do
+    b = %{left: 0, middle: 1, right: 2, none: 3, wheel_up: 64, wheel_down: 65}[button]
+    b = b + if(action in [:drag, :move], do: 32, else: 0)
+    b = b + if(String.contains?(mods, "S-"), do: 4, else: 0) + if(String.contains?(mods, "M-"), do: 8, else: 0) + if(String.contains?(mods, "C-"), do: 16, else: 0)
+    "\e[<#{b};#{x + 1};#{y + 1}" <> if(action == :release, do: "m", else: "M")
+  end
   def encode(key) when is_map_key(@named, key), do: @named[key]
   def encode("C-\\"), do: <<28>>
   def encode("C-]"), do: <<29>>
@@ -196,6 +248,27 @@ defmodule Lepton.Keys do
   def encode("M-" <> key), do: "\e" <> encode(key)
   def encode("S-<" <> _ = key), do: modified(key, 2)
   def encode(key), do: key
+
+  @doc """
+  A mouse key as a program that asked for reports gets it: SGR form
+  (mode 1006), or the old form, ESC [ M and three bytes (32 added; a
+  release names no button; nothing past column or row 222).
+  """
+  def mouse_report(key, true), do: encode(key)
+
+  def mouse_report({:mouse, action, _button, col, row, mods} = key, false) do
+    key = if action == :release, do: {:mouse, :press, :none, col, row, mods}, else: key
+    # The SGR form's button number is the old form's, less 32.
+    "\e[<" <> rest = encode(key)
+    b = rest |> String.split(";") |> hd() |> String.to_integer()
+    if col < 223 and row < 223, do: <<"\e[M", b + 32, col + 33, row + 33>>, else: ""
+  end
+
+  @doc "Whether a program in mouse mode `mode` (Lepton.Screen's) wants a report of `action`."
+  def wants_mouse?(nil, _action), do: false
+  def wants_mouse?(_mode, action) when action in [:press, :release], do: true
+  def wants_mouse?(mode, :drag), do: mode in [:drag, :any]
+  def wants_mouse?(mode, :move), do: mode == :any
 
   defp modified(key, mod) do
     base = key |> String.replace(~r/^([CMS]-)+/, "")

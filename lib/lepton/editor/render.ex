@@ -123,7 +123,8 @@ defmodule Lepton.Editor.Render do
     {lines ++ [mode_line], {r + cursor_row, c + cursor_col}}
   end
 
-  defp gutter(st, b) do
+  @doc "How many columns the line numbers take in a window showing `b`."
+  def gutter(st, b) do
     if st.vars["line-numbers"] and b.kind in [:file, :scratch, :commit] do
       digits = b |> Buffer.line_count() |> Integer.to_string() |> String.length()
       max(digits, 3) + 1

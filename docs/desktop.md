@@ -57,7 +57,10 @@ The text size changes as in Firefox: **Ctrl+=** (or **Ctrl++**) makes
 it bigger and **Ctrl+-** smaller, through the sizes of the Terminus font
 (14 to 32 pixels high), and **Ctrl+0** goes back to the usual 16. The
 window keeps its size and holds fewer (or more) rows and columns, which
-programs in it are told, as when you resize it. New terminal windows
+programs in it are told, as when you resize it.
+
+Programs that ask for the mouse get it: in `le`, a click moves the
+cursor, a drag selects and the wheel scrolls. New terminal windows
 open at the size you chose last, until Lepton restarts.
 
 ## Opening files

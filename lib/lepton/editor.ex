@@ -86,13 +86,14 @@ defmodule Lepton.Editor do
   def run(files, ctx) do
     st = init(files, ctx)
     TTY.set_mode(ctx.tty, :raw)
-    TTY.write(ctx.tty, "\e[?1049h\e[?25l")
+    # The mouse reports presses, drags and releases (1002), in SGR form (1006).
+    TTY.write(ctx.tty, "\e[?1049h\e[?25l\e[?1002h\e[?1006h")
 
     try do
       st |> redraw(true) |> loop()
       0
     after
-      TTY.write(ctx.tty, "\e[0m\e[?25h\e[?1049l")
+      TTY.write(ctx.tty, "\e[?1002l\e[?1006l\e[0m\e[?25h\e[?1049l")
       TTY.set_mode(ctx.tty, :cooked)
     end
   end
@@ -159,6 +160,8 @@ defmodule Lepton.Editor do
   defp timeout(st), do: %{st | message: {:which_key, st.pending}}
 
   @doc "Feed a key (also used by tests to drive the editor headlessly)."
+  def handle_key(st, {:mouse, _, _, _, _, _} = m), do: mouse(st, m)
+
   def handle_key(st, key) do
     st = %{st | message: if(match?({:which_key, _}, st.message), do: nil, else: st.message)}
     st = if st.recording, do: %{st | recording: st.recording ++ [key]}, else: st
@@ -173,6 +176,72 @@ defmodule Lepton.Editor do
       buf(st).kind in [:magit, :dired, :help, :list, :log] -> special_key(st, key)
       true -> normal_key(st, key)
     end
+  end
+
+  # -- the mouse ---------------------------------------------------------------------------
+
+  # A click puts the cursor where it points (in that window, which it
+  # selects; on a mode line, just the window); a drag from there selects
+  # text, as `v` does; the wheel scrolls the window under the pointer by
+  # three lines. Not while the minibuffer or a popup takes the keys.
+  @wheel_lines 3
+
+  defp mouse(%{minibuffer: mb} = st, _) when mb != nil, do: st
+  defp mouse(%{macro_pending: p} = st, _) when p not in [nil, false], do: st
+
+  defp mouse(st, {:mouse, action, button, x, y, _mods}) do
+    case {action, button, window_at(st, x, y)} do
+      {_, _, nil} -> st
+      {:press, :left, {id, :mode_line}} -> if id == st.active, do: st, else: select_window(st, id)
+      {:press, :left, {id, pos}} -> st |> then(&if(&1.mode in [:visual, :visual_line], do: leave_visual(&1), else: &1)) |> focus(id) |> set_cursor(pos)
+      {:drag, :left, {id, pos}} when id == st.active and st.mode not in [:insert, :replace] ->
+        st = if st.mode in [:visual, :visual_line], do: st, else: do_action(st, :visual, 1)
+        set_cursor(st, pos)
+      {:press, wheel, {id, _}} when wheel in [:wheel_up, :wheel_down] ->
+        active = st.active
+        action = if wheel == :wheel_down, do: :scroll_line_down, else: :scroll_line_up
+        st = %{st | active: id}
+        st = Enum.reduce(1..@wheel_lines, st, fn _, st -> do_action(st, action, 1) end)
+        %{st | active: active}
+      _ -> st
+    end
+  end
+
+  defp focus(st, id), do: if(id == st.active, do: st, else: %{st | active: id, last_window: st.active})
+
+  # The window under screen cell (x, y), and the buffer position there
+  # ({line, column}), or :mode_line.
+  defp window_at(st, x, y) do
+    Enum.find_value(rects(st), fn {id, {r, c, h, w}} ->
+      if y >= r and y < r + h and x >= c and x < c + w do
+        if y == r + h - 1, do: {id, :mode_line}, else: {id, position_at(st, id, y - r, x - c)}
+      end
+    end)
+  end
+
+  defp position_at(st, id, row, col) do
+    win = st.windows[id]
+    b = st.buffers[win.buf]
+    text_h = view_height(st, id)
+
+    line =
+      if MapSet.size(b.folds) == 0,
+        do: win.top + row,
+        else: Enum.at(Fold.visible_lines(b, win.top, text_h), row) || Buffer.line_count(b)
+
+    line = min(line, Buffer.line_count(b) - 1)
+    {line, column_at(Buffer.line(b, line), max(col - Lepton.Editor.Render.gutter(st, b), 0) + win.left)}
+  end
+
+  # The character at display column `dc` of `line` (tabs to 8, wide characters two columns).
+  def column_at(line, dc) do
+    line
+    |> String.graphemes()
+    |> Enum.reduce_while({0, 0}, fn g, {i, col} ->
+      w = if g == "\t", do: 8 - rem(col, 8), else: Lepton.Width.grapheme(g)
+      if dc < col + w, do: {:halt, {i, col}}, else: {:cont, {i + 1, col + w}}
+    end)
+    |> elem(0)
   end
 
   # -- buffers & windows ------------------------------------------------------------------

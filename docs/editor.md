@@ -52,7 +52,13 @@ The full list of what was loaded is on the
   type, `q` stops (the mode line shows `[@q]` meanwhile), `@q` plays it
   back, `@@` plays the last one again, and a count repeats it (`5@q`).
   `qQ` (the capital) adds to macro `q`. Macros last until `le` quits;
-- ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`.
+- ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`;
+- the mouse: a click puts the cursor there (and selects that window; on a
+  mode line, just the window), a drag selects text as `v` does, and the
+  wheel scrolls the window under the pointer three lines. It works in
+  Lepton's terminal windows, in `tmux` with `mouse on` (your tmux.conf
+  has it), and over SSH from terminals that report the mouse (Terminal
+  and iTerm2 on the Mac do).
 
 ## Org mode: folding
 

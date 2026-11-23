@@ -25,6 +25,10 @@ defmodule Lepton.Screen do
             sb_len: 0,
             history_limit: 100_000,
             alt: nil,
+            # Mouse reports a program asked for: nil, :press (1000), :drag (1002)
+            # or :any (1003); in SGR form (1006).
+            mouse: nil,
+            mouse_sgr: false,
             cursor_visible: true,
             pending: "",
             wrap_next: false,
@@ -329,15 +333,23 @@ defmodule Lepton.Screen do
 
       "s" -> %{s | saved: {s.x, s.y, s.sgr}}
       "u" -> (fn {x, y, sgr} -> %{s | x: x, y: y, sgr: sgr} end).(s.saved)
-      "h" -> mode(s, params, true)
-      "l" -> mode(s, params, false)
+      "h" -> modes(s, params, true)
+      "l" -> modes(s, params, false)
       _ -> s
     end
   end
 
   defp clamp(v, n), do: v |> max(0) |> min(n - 1)
 
+  # Several private modes at once: "?1000;1006".
+  defp modes(s, "?" <> ps, on), do: ps |> String.split(";") |> Enum.reduce(s, &mode(&2, "?" <> &1, on))
+  defp modes(s, params, on), do: mode(s, params, on)
+
   defp mode(s, "?25", on), do: %{s | cursor_visible: on}
+  defp mode(s, "?1000", on), do: %{s | mouse: if(on, do: :press)}
+  defp mode(s, "?1002", on), do: %{s | mouse: if(on, do: :drag)}
+  defp mode(s, "?1003", on), do: %{s | mouse: if(on, do: :any)}
+  defp mode(s, "?1006", on), do: %{s | mouse_sgr: on}
 
   defp mode(s, p, true) when p in ["?1049", "?47", "?1047"] do
     if s.alt, do: s, else: %{s | alt: {s.grid, s.x, s.y}, grid: %{}}

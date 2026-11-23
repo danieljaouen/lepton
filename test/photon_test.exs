@@ -906,6 +906,47 @@ defmodule Lepton.PhotonTest do
     assert eventually(fn -> Photon.info(ph).windows == [] end)
   end
 
+  test "the terminal's mouse: reports for a program that asks (SGR, or the old form), at the cell under the pointer" do
+    {ph, _out, env} = start_photon()
+    {:ok, term} = Photon.Term.start(env: env, user: "root", size: {10, 40}, command: "sleep 60")
+    tty = :sys.get_state(term).tty
+    assert eventually(fn -> match?([%{focused: true}], Photon.info(ph).windows) end)
+    [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    # The middle of cell (col, row): 4 pixels of margin, cells 8x16.
+    at = fn col, row -> Photon.input(ph, {:abs, (cx + 4 + col * 8 + 3) / 639, (cy + 4 + row * 16 + 7) / 399}) end
+    keys = fn n -> for _ <- 1..n, do: Lepton.TTY.read_key(tty, 2000) end
+    Lepton.TTY.set_mode(tty, :raw)
+
+    # Nothing until a program asks.
+    at.(1, 1)
+    Photon.input(ph, {:button, 0x110, true})
+    Photon.input(ph, {:button, 0x110, false})
+    assert Lepton.TTY.read_key(tty, 300) == :timeout
+
+    # Presses, drags (1002) and releases, in SGR form (1006); the wheel (down).
+    Lepton.TTY.write(tty, "\e[?1002;1006h")
+    assert eventually(fn -> match?(%{mouse: :drag, mouse_sgr: true}, :sys.get_state(term).screen) end)
+    at.(2, 1)
+    Photon.input(ph, {:button, 0x110, true})
+    at.(3, 1)
+    at.(4, 1)
+    Photon.input(ph, {:button, 0x110, false})
+    Photon.input(ph, {:wheel, 1})
+    assert keys.(5) == [{:mouse, :press, :left, 2, 1, ""}, {:mouse, :drag, :left, 3, 1, ""}, {:mouse, :drag, :left, 4, 1, ""}, {:mouse, :release, :left, 4, 1, ""}, {:mouse, :press, :wheel_down, 4, 1, ""}]
+
+    # Without 1006, the old form (ESC [ M and three bytes); with 1000, no drags.
+    Lepton.TTY.write(tty, "\e[?1006l\e[?1000h")
+    assert eventually(fn -> match?(%{mouse: :press, mouse_sgr: false}, :sys.get_state(term).screen) end)
+    at.(0, 0)
+    Photon.input(ph, {:button, 0x111, true})
+    at.(1, 0)
+    Photon.input(ph, {:button, 0x111, false})
+    assert keys.(2) == [{:mouse, :press, :right, 0, 0, ""}, {:mouse, :release, :none, 1, 0, ""}]
+    Lepton.TTY.write(tty, "\e[?1000l")
+    Process.exit(term, :kill)
+  end
+
   test "the terminal's text size: Ctrl+= and Ctrl++ bigger, Ctrl+- smaller, Ctrl+0 back; the window keeps its size" do
     {ph, out, env} = start_photon()
     on_exit(fn -> :persistent_term.erase({Photon.Term, :text_size}) end)

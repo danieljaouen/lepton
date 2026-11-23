@@ -13,6 +13,10 @@ defmodule Lepton.Photon.Term do
   window resizes in whole cells. Closing the window ends the
   shell; the shell exiting closes the window.
 
+  The mouse reaches a program that asks for it (modes 1000, 1002, 1003;
+  SGR reports with 1006), as `le` and the multiplexer do: presses,
+  releases, drags, motion and the wheel, at the cell under the pointer.
+
   Ctrl+= (or Ctrl++) and Ctrl+- make the text bigger and smaller, through
   Terminus's sizes (`Font.sizes/0`), and Ctrl+0 goes back to 16 pixels,
   as in Firefox. The window keeps its size and holds more or fewer
@@ -40,6 +44,8 @@ defmodule Lepton.Photon.Term do
   @text_size 16
   @repeat_delay 400
   @repeat_rate 33
+  # wl_pointer button codes (Linux's BTN_LEFT, BTN_RIGHT, BTN_MIDDLE)
+  @buttons %{0x110 => :left, 0x111 => :right, 0x112 => :middle}
 
   defmodule Backend do
     @moduledoc false
@@ -112,6 +118,10 @@ defmodule Lepton.Photon.Term do
       ch: ch,
       # the window's size in pixels, as last configured
       px: nil,
+      # the pointer: where it is (pixels), the buttons held, the cell last reported
+      pointer: {0, 0},
+      held: [],
+      mouse_cell: nil,
       pending_size: nil,
       buffer: nil,
       busy: false,
@@ -192,6 +202,31 @@ defmodule Lepton.Photon.Term do
   end
 
   defp event({_, "wl_keyboard", :leave, _}, st), do: cancel_repeat(st)
+
+  defp event({_, "wl_pointer", :enter, [_serial, _surface, x, y]}, st), do: %{st | pointer: {x, y}}
+  defp event({_, "wl_pointer", :leave, _}, st), do: %{st | held: []}
+
+  defp event({_, "wl_pointer", :motion, [_time, x, y]}, st) do
+    st = %{st | pointer: {x, y}}
+
+    case {st.screen.mouse, st.held} do
+      {mode, [button | _]} when mode in [:drag, :any] -> report(st, :drag, button, true)
+      {:any, []} -> report(st, :move, :none, true)
+      _ -> st
+    end
+  end
+
+  defp event({_, "wl_pointer", :button, [_serial, _time, code, state]}, st) do
+    case Map.fetch(@buttons, code) do
+      {:ok, button} when state == 1 -> report(%{st | held: [button | st.held -- [button]]}, :press, button, false)
+      {:ok, button} -> report(%{st | held: st.held -- [button]}, :release, button, false)
+      :error -> st
+    end
+  end
+
+  # Vertical only: down is positive.
+  defp event({_, "wl_pointer", :axis, [_time, 0, value]}, st) when value != 0,
+    do: report(st, :press, if(value > 0, do: :wheel_down, else: :wheel_up), false)
 
   defp event({_, "zwp_text_input_v3", :commit_string, [text]}, st) when is_binary(text) do
     TTY.input(st.tty, text)
@@ -282,6 +317,29 @@ defmodule Lepton.Photon.Term do
 
     %{st | shell: {nil, proc}}
   end
+
+  # -- the mouse -----------------------------------------------------------------------------
+
+  # A mouse report for the program, if it asked for them; drags and motion
+  # only when the pointer reaches another cell.
+  defp report(%{screen: %{mouse: nil}} = st, _action, _button, _moved?), do: st
+
+  defp report(st, action, button, moved?) do
+    {x, y} = st.pointer
+    cell = {clamp(div(trunc(x) - @pad, st.cw), st.cols), clamp(div(trunc(y) - @pad, st.ch), st.rows)}
+
+    if moved? and cell == st.mouse_cell do
+      st
+    else
+      {col, row} = cell
+      mods = if(band(st.mods, 4) != 0, do: "C-", else: "") <> if(band(st.mods, 8) != 0, do: "M-", else: "") <> if(band(st.mods, 1) != 0, do: "S-", else: "")
+      key = {:mouse, action, button, col, row, mods}
+      TTY.input(st.tty, Lepton.Keys.mouse_report(key, st.screen.mouse_sgr))
+      %{st | mouse_cell: cell}
+    end
+  end
+
+  defp clamp(v, n), do: v |> max(0) |> min(n - 1)
 
   # -- text size -----------------------------------------------------------------------------
 

@@ -37,6 +37,12 @@ background jobs too; `kill-session` does that for every pane.
 selection and `y` copies it to the clipboard shared with the editor,
 `pbcopy` and `pbpaste` (and with your computer's clipboard over OSC 52).
 
+## The mouse
+
+With `set -g mouse on` (as in your tmux.conf), a click selects the pane
+under it, and programs that ask for the mouse, such as `le`, get clicks,
+drags and the wheel in their pane.
+
 ## Moving between the editor and panes
 
 With the Spacemacs **tmux layer** enabled, `C-h/j/k/l` in `le` moves
