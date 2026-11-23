@@ -146,6 +146,14 @@ is.
   crashed; reload it). See [When memory runs out](system.html#when-memory-runs-out).
 - Drag a tab along the tab bar to move it (drop it onto another tab to
   group them, or at the far left to pin it).
+- It keeps your tabs: when it starts, it opens the windows and tabs you
+  had open last time, whether you quit it or powered off or rebooted
+  with it open. It saves them every 5 seconds, so only a tab opened in
+  the last moments before a power-off can be missing. `poweroff` and
+  `reboot` (and the power button) stop Firefox before writing
+  everything to disk. To start with your home page instead, turn off
+  **Open previous windows and tabs** in Firefox's Settings, under
+  General.
 
 If Firefox hangs, or its window closes but it doesn't finish quitting,
 starting it again stops what was left behind (it would otherwise say

@@ -295,8 +295,9 @@ defmodule Lepton.Apps do
   def running?(name), do: Enum.any?(Lepton.Proc.list(), &(&1.cmd == name))
 
   @doc """
-  The app's programs running as `uid` (from `/proc`: their executable is
-  in the app's directory). Firefox's content processes are among them.
+  The app's programs running as `uid` (`:any`: anyone's), from `/proc`:
+  their executable is in the app's directory. Firefox's content
+  processes are among them.
   """
   def processes(name, uid) do
     prefix = dir(name) <> "/"
@@ -306,8 +307,49 @@ defmodule Lepton.Apps do
         String.starts_with?(exe, prefix),
         {:ok, status} <- [File.read(Path.join(entry, "status"))],
         [_, owner] <- [Regex.run(~r/^Uid:\s+(\d+)/m, status)],
-        String.to_integer(owner) == uid,
+        uid == :any or String.to_integer(owner) == uid,
         do: String.to_integer(Path.basename(entry))
+  end
+
+  @doc """
+  Stop the apps that are open (Firefox) and wait for them to finish, up
+  to `timeout` ms (then they are killed). Done at power-off and reboot,
+  before the disk is flushed and made read-only, so nothing is cut off
+  halfway through a write. Firefox's tabs aren't lost: it saves its
+  session every few seconds and opens it again when it starts (see
+  `firefox_policies/1`). Firefox takes SIGTERM as a crash, not as Quit:
+  it exits at once, and the session it saved last is the one restored.
+  Each app's main program gets SIGTERM (its helpers end with it).
+  Returns how many main programs were stopped.
+  """
+  def quit_all(timeout \\ 15_000) do
+    names = for {name, %{gtk: true}} <- @apps, do: name
+    running = fn -> Enum.flat_map(names, &processes(&1, :any)) end
+    mains = main_programs(Map.new(running.(), &{&1, parent(&1)}))
+    for pid <- mains, do: Lepton.Sys.shim("kill", ["-TERM", to_string(pid)])
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    Stream.repeatedly(fn -> running.() == [] || (Process.sleep(100) && false) end)
+    |> Enum.find(fn done -> done || System.monotonic_time(:millisecond) > deadline end)
+
+    for pid <- running.(), do: Lepton.Sys.shim("kill", ["-KILL", to_string(pid)])
+    length(mains)
+  end
+
+  @doc """
+  The main programs among an app's processes (`%{pid => parent pid}`):
+  those whose parent isn't one of them. (Firefox's helpers can't be told
+  by their command lines: they write over them.)
+  """
+  def main_programs(parents), do: for({pid, ppid} <- parents, not Map.has_key?(parents, ppid), do: pid) |> Enum.sort()
+
+  defp parent(pid) do
+    with {:ok, status} <- File.read("/proc/#{pid}/status"),
+         [_, ppid] <- Regex.run(~r/^PPid:\s+(\d+)/m, status) do
+      String.to_integer(ppid)
+    else
+      _ -> nil
+    end
   end
 
   @doc """
@@ -402,7 +444,10 @@ defmodule Lepton.Apps do
   is off: Firefox speaks through Speech Dispatcher, which Lepton doesn't
   have, so a page that used it got "You can't use speech synthesis
   because the Speech Dispatcher library is missing". With it off, pages
-  don't see the API and don't try.
+  don't see the API and don't try. And it opens the previous session's
+  windows and tabs when it starts, without asking even after power-off
+  or reboot ended it (`quit_all/1`), from a session it saves every 5
+  seconds.
   """
   def firefox_policies(prefix) do
     dir = Path.join(prefix, "usr/lib/firefox/distribution")
@@ -416,6 +461,16 @@ defmodule Lepton.Apps do
             "media.gmp-gmpopenh264.enabled" => %{"Value" => false, "Status" => "locked"},
             "media.gmp-gmpopenh264.autoupdate" => %{"Value" => false, "Status" => "locked"},
             "media.webspeech.synth.enabled" => %{"Value" => false, "Status" => "locked"},
+            # Open the last session's windows and tabs (Settings > General
+            # > "Open previous windows and tabs" can turn it off).
+            "browser.startup.page" => %{"Value" => 3, "Status" => "default"},
+            # Lepton's power-off ends Firefox (SIGTERM, which it takes as a
+            # crash): restore without asking (-1: not even after several
+            # in a row, or after six hours off), from a session saved
+            # every 5 seconds rather than 15.
+            "browser.sessionstore.resume_from_crash" => %{"Value" => true, "Status" => "default"},
+            "browser.sessionstore.max_resumed_crashes" => %{"Value" => -1, "Status" => "default"},
+            "browser.sessionstore.interval" => %{"Value" => 5000, "Status" => "default"},
             "browser.tabs.unloadOnLowMemory" => %{"Value" => true, "Status" => "default"},
             "browser.low_commit_space_threshold_percent" => %{"Value" => 10, "Status" => "default"}
           }

@@ -16,6 +16,11 @@ once.
 Firefox is not tied to the terminal it was started from: it keeps
 running when that window is closed.
 
+Firefox opens the windows and tabs you had open last time, whether you
+quit it or powered off or rebooted with it open (it saves them every 5
+seconds). Settings > General > "Open previous windows and tabs" turns
+this off.
+
 When Firefox is already running, `firefox URL` opens URL in a new tab
 of it (and so does `open`). The running Firefox receives it over a
 D-Bus session bus that Lepton starts with Firefox and stops when it

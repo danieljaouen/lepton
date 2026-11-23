@@ -188,6 +188,20 @@ defmodule Lepton.AppsTest do
     assert prefs["browser.tabs.unloadOnLowMemory"]["Value"] == true
     # No Speech Dispatcher: no "speech synthesis ... library is missing" bar.
     assert prefs["media.webspeech.synth.enabled"] == %{"Value" => false, "Status" => "locked"}
+    # The last session's windows and tabs come back (a setting you can change).
+    assert prefs["browser.startup.page"] == %{"Value" => 3, "Status" => "default"}
+    assert prefs["browser.sessionstore.resume_from_crash"]["Value"] == true
+    # Power-off ends Firefox like a crash: restore anyway, without asking.
+    assert prefs["browser.sessionstore.max_resumed_crashes"]["Value"] == -1
+    assert prefs["browser.sessionstore.interval"]["Value"] == 5000
+  end
+
+  test "power-off stops Firefox's main program, not its helpers" do
+    # Firefox (1146, started by Lepton's 742), its helpers and theirs.
+    assert Apps.main_programs(%{1146 => 742, 1225 => 1146, 1237 => 1146, 1242 => 1237}) == [1146]
+    assert Apps.main_programs(%{}) == []
+    # Nothing open: nothing to wait for.
+    if Apps.processes("firefox", :any) == [], do: assert(Apps.quit_all(1000) == 0)
   end
 
   test "updates: checks every 10 days, stages a newer build, applies it (or rolls back)" do

@@ -214,6 +214,8 @@ defmodule Lepton.Sys do
   def sync, do: sysrq("s")
 
   def poweroff do
+    # Apps first, so none is cut off by the read-only remount (Firefox's tabs come back).
+    Lepton.Apps.quit_all()
     Lepton.Services.stop_all()
     Lepton.Postgres.await_stopped()
     Lepton.Persist.shutdown()
@@ -222,6 +224,8 @@ defmodule Lepton.Sys do
   end
 
   def reboot do
+    # Apps first, so none is cut off by the read-only remount (Firefox's tabs come back).
+    Lepton.Apps.quit_all()
     Lepton.Services.stop_all()
     Lepton.Postgres.await_stopped()
     Lepton.Persist.shutdown()
