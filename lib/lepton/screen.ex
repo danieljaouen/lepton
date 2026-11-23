@@ -80,6 +80,7 @@ defmodule Lepton.Screen do
       {:incomplete} -> %{s | pending: all}
       {:csi, params, inter, final, rest} -> s |> csi(params, inter, final) |> parse(rest)
       {:osc, body, rest} -> s |> osc(body) |> parse(rest)
+      {:string, body, rest} -> s |> string(body) |> parse(rest)
       {:esc, c, rest} -> s |> esc(c) |> parse(rest)
     end
   end
@@ -107,10 +108,29 @@ defmodule Lepton.Screen do
     end
   end
 
+  # CSI: parameter bytes 0x30-0x3F (digits, ; : and the private markers
+  # < = > ?), intermediates 0x20-0x2F, a final 0x40-0x7E. Anything else
+  # ends it as malformed: it is dropped, and what follows is read as usual.
   defp escape(<<"[", rest::binary>>) do
-    case Regex.run(~r/^([0-9;:?>=!]*)([ -\/]*)([@-~])/, rest) do
-      [whole, params, inter, final] -> {:csi, params, inter, final, binary_part(rest, byte_size(whole), byte_size(rest) - byte_size(whole))}
-      nil -> if byte_size(rest) > 64, do: {:esc, "?", rest}, else: {:incomplete}
+    case Regex.run(~r/^([0-?]*)([ -\/]*)([@-~])/, rest) do
+      [whole, params, inter, final] ->
+        {:csi, params, inter, final, binary_part(rest, byte_size(whole), byte_size(rest) - byte_size(whole))}
+
+      nil ->
+        [prefix] = Regex.run(~r/^[0-?]*[ -\/]*/, rest)
+
+        if prefix == rest and byte_size(rest) <= 64,
+          do: {:incomplete},
+          else: {:esc, "?", binary_part(rest, byte_size(prefix), byte_size(rest) - byte_size(prefix))}
+    end
+  end
+
+  # DCS, SOS, PM and APC: strings up to ST (ESC \). A DCS may be tmux's
+  # passthrough, ESC P tmux; ... with its escapes doubled.
+  defp escape(<<c, rest::binary>>) when c in [?P, ?X, ?^, ?_] do
+    case string_end(rest, 0) do
+      nil -> if byte_size(rest) > 65_536, do: {:esc, "?", ""}, else: {:incomplete}
+      n -> {:string, <<c, binary_part(rest, 0, n)::binary>>, binary_part(rest, n + 2, byte_size(rest) - n - 2)}
     end
   end
 
@@ -217,6 +237,21 @@ defmodule Lepton.Screen do
   defp esc(s, "c"), do: new(s.rows, s.cols, history_limit: s.history_limit)
   defp esc(s, _), do: s
 
+  # Where a string's ST (ESC \) is; ESC ESC is an escaped ESC (tmux).
+  defp string_end(bin, i) do
+    case bin do
+      <<_::binary-size(^i), 27, 27, _::binary>> -> string_end(bin, i + 2)
+      <<_::binary-size(^i), 27, ?\\, _::binary>> -> i
+      <<_::binary-size(^i), _, _::binary>> -> string_end(bin, i + 1)
+      _ -> nil
+    end
+  end
+
+  # tmux's passthrough: what it wraps is output as any other (OSC 52, titles);
+  # other strings (DCS queries, kitty graphics) are ignored.
+  defp string(s, <<"Ptmux;", body::binary>>), do: %{parse(s, String.replace(body, "\e\e", "\e")) | pending: ""}
+  defp string(s, _), do: s
+
   defp osc(s, body) do
     case String.split(body, ";", parts: 2) do
       [n, title] when n in ["0", "2"] -> %{s | title: title}
@@ -247,6 +282,15 @@ defmodule Lepton.Screen do
   end
 
   defp n1(params), do: params |> nums(1) |> hd() |> max(1)
+
+  # Private (< = >) and intermediate forms are other commands than the
+  # plain ones: CSI > 1 u and CSI < u push and pop the kitty keyboard
+  # flags, not restore the cursor; CSI > 4 ; 2 m sets xterm's
+  # modifyOtherKeys, not underline. None draws anything: they are ignored,
+  # and ? is for modes only.
+  defp csi(s, <<m, _::binary>>, _inter, _final) when m in [?<, ?=, ?>], do: s
+  defp csi(s, _params, inter, _final) when inter != "", do: s
+  defp csi(s, "?" <> _, _inter, final) when final not in ["h", "l"], do: s
 
   defp csi(s, params, _inter, final) do
     s = %{s | wrap_next: false}

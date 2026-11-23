@@ -66,6 +66,25 @@ defmodule Lepton.MuxTest do
       s = Screen.new(2, 10) |> Screen.feed("\e[3") |> Screen.feed("1mX")
       assert {"X", "31"} = Screen.cell(s, 0, 0)
     end
+
+    # What Claude Code writes: kitty keyboard flags pushed and popped,
+    # modifyOtherKeys, queries, and tmux passthrough (it sees TMUX).
+    test "private, intermediate and string sequences draw nothing and move nothing" do
+      seqs = ["\e[>1u", "\e[<u", "\e[?u", "\e[=1;1u", "\e[>4;2m", "\e[?2026$p", "\eP>|xterm\e\\", "\e_Gi=1;OK\e\\", "\e[1;2\x01"]
+
+      for q <- seqs do
+        s = Screen.new(2, 20) |> Screen.feed("ab\e[s" <> q <> "X")
+        assert {Screen.text(s) |> String.trim(), s.x, s.sgr, s.pending} == {"abX", 3, "", ""}, inspect(q)
+      end
+
+      # Split across writes, a string waits for its end.
+      s = Screen.new(2, 20) |> Screen.feed("\eP>|xt") |> Screen.feed("erm\e\\Y")
+      assert Screen.text(s) |> String.trim() == "Y"
+
+      # tmux's passthrough: what it wraps takes effect.
+      s = Screen.new(2, 20) |> Screen.feed("\ePtmux;\e\e]2;hello\e\e\\\e\\Z")
+      assert s.title == "hello" and Screen.text(s) |> String.trim() == "Z"
+    end
   end
 
   describe "keys" do
