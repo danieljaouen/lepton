@@ -2,7 +2,7 @@ defmodule Lepton.KeyboardTest do
   use ExUnit.Case
   import Lepton.TestHelpers
 
-  alias Lepton.{Hangul, Keyboard}
+  alias Lepton.{Accents, Hangul, Keyboard, TTY}
   alias Lepton.Wayland.{Keymap, Layouts}
 
   setup do
@@ -100,5 +100,53 @@ defmodule Lepton.KeyboardTest do
     assert out =~ "* us" and not (out =~ "ko ")
     assert {_, 1} = sh("keyboard remove us hi")
     assert {_, 2} = sh("keyboard frobnicate")
+  end
+
+  test "accents: Alt dead keys compose letters (umlauts, háček, cedilla, ...), and one-key characters" do
+    type = fn keys ->
+      {pending, out} = Enum.reduce(keys, {nil, []}, fn k, {p, acc} -> {p, ks} = Accents.feed(p, k); {p, acc ++ ks} end)
+      assert pending == nil
+      Enum.join(out)
+    end
+
+    assert type.(~w(J o s M-e e)) == "José"
+    assert type.(~w(M-u u b e r M-u A)) == "überÄ"
+    assert type.(~w(M-` e M-i o M-n n M-n N M-e E)) == "èôñÑÉ"
+    assert type.(["M-h", "c", "M-h", "S", "M-,", "c", "M-,", "a", "M-k", "u", "M-m", "e", "M-g", "a", "M-z", "z", "M-=", "o"]) == "čŠçąůēăżő"
+    assert type.(~w(M-s M-c M-l M-$ M-[ M-{ M-_)) == "ßçł€“”—"
+    # Space or the dead key again: the accent alone; a letter without one follows it.
+    assert type.(~w(M-u SPC M-e M-e M-e q)) == "¨´´q"
+    # Keys that aren't text end it; other Alt keys stay themselves.
+    assert Accents.feed("e", "C-c") == {nil, ["C-c"]}
+    assert Accents.feed("e", {:resize, 1, 2}) == {"e", [{:resize, 1, 2}]}
+    assert Accents.feed(nil, "M-x") == {nil, ["M-x"]} and Accents.feed(nil, "M-.") == {nil, ["M-."]}
+    assert Accents.feed(nil, "M-1") == {nil, ["M-1"]} and Accents.feed(nil, "M-b") == {nil, ["M-b"]}
+  end
+
+  test "accents in every terminal (Lepton.TTY): typed lines and full-screen programs, and keyboard accents off" do
+    {:ok, tty} = TTY.start(backend: {TTY.Capture, nil})
+    # Alt+e as a terminal sends it: ESC e.
+    TTY.input(tty, "Jos\ee")
+    TTY.input(tty, "e \euu\ehc\n")
+    assert IO.gets(tty, "") == "José üč\n"
+
+    :ok = TTY.set_mode(tty, :raw)
+    TTY.input(tty, "\eua\ec")
+    assert TTY.read_key(tty, 500) == "ä"
+    assert TTY.read_key(tty, 500) == "ç"
+
+    {:ok, _} = Keyboard.set_accents(false)
+    TTY.input(tty, "\ee")
+    assert TTY.read_key(tty, 500) == "M-e"
+    {:ok, _} = Keyboard.set_accents(true)
+
+    assert {out, 0} = sh("keyboard accents")
+    assert out =~ "Accents are on" and out =~ "Alt+u  umlaut        ä ë ï ö ü" and out =~ "Alt+$ €"
+    assert {out, 0} = sh("keyboard accents off")
+    assert out =~ "Accents off" and Keyboard.accents?() == false
+    # Kept across restarts (the state file).
+    assert File.read!(Path.join(System.get_env("LEPTON_STATE_DIR"), "keyboard")) =~ "accents off"
+    assert {_, 0} = sh("keyboard accents on")
+    assert Keyboard.accents?()
   end
 end

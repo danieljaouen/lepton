@@ -20,7 +20,7 @@ defmodule Lepton.Keyboard do
 
   @max_layouts 3
 
-  defstruct sources: ["us"], current: "us", hangul: true, watchers: []
+  defstruct sources: ["us"], current: "us", hangul: true, accents: true, watchers: []
 
   def start_link(_), do: Agent.start_link(fn -> load() end, name: __MODULE__)
 
@@ -35,10 +35,14 @@ defmodule Lepton.Keyboard do
   def label("us"), do: "EN"
   def label(id), do: String.upcase(id)
 
-  @doc "The state: `%{sources: [id], current: id, hangul: bool}` (`hangul`: Korean types Hangul, not English)."
+  @doc """
+  The state: `%{sources: [id], current: id, hangul: bool, accents: bool}`
+  (`hangul`: Korean types Hangul, not English; `accents`: the Alt keys type
+  accents, `Lepton.Accents`).
+  """
   def state do
     st = if Process.whereis(__MODULE__), do: Agent.get(__MODULE__, & &1), else: load()
-    Map.take(st, [:sources, :current, :hangul])
+    Map.take(st, [:sources, :current, :hangul, :accents])
   end
 
   @doc """
@@ -86,6 +90,12 @@ defmodule Lepton.Keyboard do
     end)
   end
 
+  @doc "Do the Alt keys type accents (`Lepton.Accents`)? On unless turned off."
+  def accents?, do: state().accents
+
+  @doc "Turn the accent keys on or off."
+  def set_accents(on?) when is_boolean(on?), do: change(&%{&1 | accents: on?})
+
   @doc "In Korean: switch between Hangul and English."
   def toggle_hangul, do: change(&%{&1 | hangul: not &1.hangul})
 
@@ -105,17 +115,17 @@ defmodule Lepton.Keyboard do
         end)
 
       save(st)
-      public = Map.take(st, [:sources, :current, :hangul])
+      public = Map.take(st, [:sources, :current, :hangul, :accents])
       for w <- watchers, do: send(w, {:keyboard, public})
       {:ok, public}
     else
       st = fun.(load())
       save(st)
-      {:ok, Map.take(st, [:sources, :current, :hangul])}
+      {:ok, Map.take(st, [:sources, :current, :hangul, :accents])}
     end
   end
 
-  # -- the file: "sources us ko th" and "current ko" ------------------------------------------
+  # -- the file: "sources us ko th", "current ko" (and "accents off") -----------------------
 
   defp path, do: Lepton.Persist.state_path("keyboard")
 
@@ -126,7 +136,7 @@ defmodule Lepton.Keyboard do
         sources = for("sources " <> s <- lines, id <- String.split(s), name(id), do: id) |> Enum.uniq()
         sources = if sources == [], do: ["us"], else: sources
         current = Enum.find_value(lines, fn "current " <> c -> String.trim(c); _ -> nil end)
-        %__MODULE__{sources: sources, current: if(current in sources, do: current, else: hd(sources))}
+        %__MODULE__{sources: sources, current: if(current in sources, do: current, else: hd(sources)), accents: "accents off" not in lines}
 
       _ ->
         %__MODULE__{}
@@ -135,6 +145,7 @@ defmodule Lepton.Keyboard do
 
   defp save(st) do
     File.mkdir_p(Path.dirname(path()))
-    File.write(path(), "sources #{Enum.join(st.sources, " ")}\ncurrent #{st.current}\n")
+    accents = if st.accents, do: "", else: "accents off\n"
+    File.write(path(), "sources #{Enum.join(st.sources, " ")}\ncurrent #{st.current}\n" <> accents)
   end
 end

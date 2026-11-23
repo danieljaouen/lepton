@@ -27,8 +27,8 @@ defmodule Lepton.Commands.Desktop do
     app(args, ctx)
   end
 
-  defcmd "keyboard", "input sources on the desktop: keyboard layouts (Thai, Hindi, Arabic, ...) and Korean",
-    usage: "keyboard [list] | use ID | next | add ID... | remove ID... | set ID..." do
+  defcmd "keyboard", "input sources on the desktop: keyboard layouts (Thai, Hindi, Arabic, ...) and Korean; accents (Alt+e e: é)",
+    usage: "keyboard [list] | use ID | next | add ID... | remove ID... | set ID... | accents [on | off]" do
     keyboard(args, ctx)
   end
 
@@ -789,8 +789,27 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
+  defp keyboard(["accents"], ctx) do
+    {dead, one} = Lepton.Accents.table()
+    key = fn "M-" <> k -> "Alt+" <> k end
+    IO.puts(ctx, "Accents are #{if Lepton.Keyboard.accents?(), do: "on", else: "off (keyboard accents on)"}: Alt+key, then the letter (Shift: capitals).")
+
+    for {k, name, examples} <- dead,
+        do: IO.puts(ctx, "  #{String.pad_trailing(key.(k), 7)}#{String.pad_trailing(name |> to_string() |> String.replace("_", " "), 14)}#{examples}")
+
+    IO.puts(ctx, "Space, or the same Alt key again: the accent alone. One key each:")
+    one |> Enum.map(fn {k, c} -> "#{key.(k)} #{c}" end) |> Enum.chunk_every(8) |> Enum.each(&IO.puts(ctx, "  " <> Enum.join(&1, "  ")))
+    0
+  end
+
+  defp keyboard(["accents", on], ctx) when on in ["on", "off"] do
+    {:ok, _} = Lepton.Keyboard.set_accents(on == "on")
+    IO.puts(ctx, if(on == "on", do: "Accents on: Alt+e e types é (keyboard accents: the list).", else: "Accents off: the Alt keys go to programs as they are."))
+    0
+  end
+
   defp keyboard(_, ctx) do
-    IO.err(ctx, "usage: keyboard [list] | use ID | next | add ID... | remove ID... | set ID...")
+    IO.err(ctx, "usage: keyboard [list] | use ID | next | add ID... | remove ID... | set ID... | accents [on | off]")
     2
   end
 

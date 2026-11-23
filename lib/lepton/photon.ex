@@ -134,9 +134,11 @@ defmodule Lepton.Photon do
     selection_text: nil,
     selection_fetch: nil,
     # input sources (Lepton.Keyboard's state), the Hangul being composed
-    # (Lepton.Hangul) and the keys it took (their releases go nowhere)
-    kb: %{sources: ["us"], current: "us", hangul: true},
+    # (Lepton.Hangul), the accent waiting for its letter (Lepton.Accents)
+    # and the keys they took (their releases go nowhere)
+    kb: %{sources: ["us"], current: "us", hangul: true, accents: true},
     compose: [],
+    accent: nil,
     consumed: MapSet.new()
   ]
 
@@ -1170,7 +1172,7 @@ defmodule Lepton.Photon do
     # What is being composed goes to the program losing focus.
     st = flush_compose(st)
     old = st.keyboard_focus
-    st = %{st | keyboard_focus: key}
+    st = %{st | keyboard_focus: key, accent: nil}
 
     st =
       case old && surface(st, old) do
@@ -2173,10 +2175,46 @@ defmodule Lepton.Photon do
         %{st | bound_keys: MapSet.delete(st.bound_keys, code)}
 
       true ->
-        case pressed? && composing?(st) && compose(st, code) do
+        case pressed? && ((composing?(st) && compose(st, code)) || accent(st, code)) do
           %__MODULE__{} = st -> st
           _ -> send_key(st, code, pressed?)
         end
+    end
+  end
+
+  # An evdev code the keymap doesn't have: no character, no shortcut.
+  @key_unknown 240
+
+  # Accents (Alt+e e: é; Lepton.Accents) in a program with a text field on:
+  # the accent waits as preedit and the letter is committed with it.
+  # Lepton's own windows get them from their terminal (Lepton.TTY).
+  # nil: the key goes to the program as it is.
+  defp accent(st, code) do
+    with {sock, _} <- st.keyboard_focus,
+         true <- Map.get(st.kb, :accents, true),
+         false <- Keymap.modifier(code) != nil or code == Keymap.capslock(),
+         0 <- band(st.mods, Keymap.ctrl() ||| Keymap.super()),
+         key when key != nil <- Keymap.key_name(code, bor(st.mods, st.locked)),
+         true <- st.accent != nil or Lepton.Accents.accent_key?(key),
+         [_ | _] <- enabled_inputs(st, sock) do
+      {accent, keys} = Lepton.Accents.feed(st.accent, key)
+      texts = Enum.map(keys, &Lepton.Keys.text/1)
+      st = %{st | accent: accent}
+
+      cond do
+        # A key that isn't text ends the accent and goes on.
+        nil in texts ->
+          st |> text_input_send(sock, "", "") |> send_key(code, true)
+
+        true ->
+          preedit = if accent, do: Lepton.Accents.accent(accent), else: ""
+          st = %{st | consumed: MapSet.put(st.consumed, code)} |> text_input_send(sock, Enum.join(texts), preedit)
+          # With Alt held, a key the program sees: a lone Alt press and
+          # release would open Firefox's menu bar.
+          if band(st.mods, Keymap.alt()) != 0, do: st |> send_key(@key_unknown, true) |> send_key(@key_unknown, false), else: st
+      end
+    else
+      _ -> nil
     end
   end
 
@@ -2423,7 +2461,7 @@ defmodule Lepton.Photon do
             _ -> st
           end
 
-        if match?({^sock, _}, st.keyboard_focus), do: %{st | keyboard_focus: nil, compose: []}, else: st
+        if match?({^sock, _}, st.keyboard_focus), do: %{st | keyboard_focus: nil, compose: [], accent: nil}, else: st
     end
   end
 end

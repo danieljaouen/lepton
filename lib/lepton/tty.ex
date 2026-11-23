@@ -25,7 +25,7 @@ defmodule Lepton.TTY do
 
   use GenServer
 
-  alias Lepton.Keys
+  alias Lepton.{Accents, Keys}
 
   defstruct backend: nil,
             mode: :cooked,
@@ -47,7 +47,8 @@ defmodule Lepton.TTY do
             auto_probe: false,
             probe_interval: 1500,
             probe_sent: nil,
-            muted: nil
+            muted: nil,
+            accent: nil
 
   # -- API -----------------------------------------------------------------------
 
@@ -198,8 +199,7 @@ defmodule Lepton.TTY do
   def handle_info({:tty_input, bytes}, state) do
     if state.esc_timer, do: Process.cancel_timer(state.esc_timer)
     {keys, rest} = Keys.decode(state.pending <> bytes)
-    state = %{state | pending: rest, esc_timer: nil}
-    state = Enum.reduce(keys, state, &handle_key/2)
+    state = type(keys, %{state | pending: rest, esc_timer: nil})
 
     state =
       if rest != <<>>,
@@ -211,7 +211,7 @@ defmodule Lepton.TTY do
 
   def handle_info(:esc_timeout, state) do
     keys = Keys.flush(state.pending)
-    state = Enum.reduce(keys, %{state | pending: <<>>, esc_timer: nil}, &handle_key/2)
+    state = type(keys, %{state | pending: <<>>, esc_timer: nil})
     {:noreply, serve(state)}
   end
 
@@ -256,6 +256,20 @@ defmodule Lepton.TTY do
   def handle_info(_msg, state), do: {:noreply, state}
 
   # -- keys ----------------------------------------------------------------------------
+
+  # Keys as typed, through the accent keys (Alt+e e: é; Lepton.Accents,
+  # unless `keyboard accents off`), for the line discipline or the program
+  # reading them.
+  defp type(keys, state) do
+    Enum.reduce(keys, state, fn key, state ->
+      {accent, keys} =
+        if state.accent != nil or (Accents.accent_key?(key) and Lepton.Keyboard.accents?()),
+          do: Accents.feed(state.accent, key),
+          else: {nil, [key]}
+
+      Enum.reduce(keys, %{state | accent: accent}, &handle_key/2)
+    end)
+  end
 
   defp handle_key({:cpr, rows, cols}, %{cpr_waiter: {from, ref}} = state) do
     Process.cancel_timer(ref)

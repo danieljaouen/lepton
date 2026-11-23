@@ -436,6 +436,57 @@ defmodule Lepton.PhotonTest do
     assert text =~ ~s(name[Group2] = "Arabic";)
   end
 
+  test "accents over text-input v3: Alt+e then e commits é, Alt+u u ü; without a text field the keys go on" do
+    System.put_env("LEPTON_STATE_DIR", tmp_dir("kbstate"))
+    on_exit(fn -> System.delete_env("LEPTON_STATE_DIR") end)
+    {ph, _out, env} = start_photon()
+    win = window(env, 100, 60, Render.px(0, 0, 255))
+    {c, kbd} = Client.create(win.c, win.seat, :get_keyboard, "wl_keyboard")
+    {c, tim} = Client.bind(c, "zwp_text_input_manager_v3", 1)
+    {c, ti} = Client.create(c, tim, :get_text_input, "zwp_text_input_v3", [:new, win.seat])
+    {_, c} = events(c)
+
+    tap = fn code -> Photon.input(ph, {:key, code, true}); Photon.input(ph, {:key, code, false}) end
+    alt = fn code -> Photon.input(ph, {:key, 56, true}); tap.(code); Photon.input(ph, {:key, 56, false}) end
+    ti_events = fn evs -> for {^ti, _, ev, args} <- evs, ev != :done, do: {ev, args} end
+    key_events = fn evs -> for {^kbd, _, :key, [_, _, code, state]} <- evs, do: {code, state} end
+
+    # No text field: Alt+e is the program's.
+    alt.(18)
+    {evs, c} = events(c)
+    assert key_events.(evs) == [{56, 1}, {18, 1}, {18, 0}, {56, 0}] and ti_events.(evs) == []
+
+    c = c |> Client.request(ti, :enable, []) |> Client.request(ti, :commit, [])
+    {c, _} = Client.roundtrip(c)
+
+    # Alt+e: ´ waits as preedit; the program sees a key without a symbol
+    # between Alt's press and release (no menu bar), not the e.
+    alt.(18)
+    {evs, c} = events(c)
+    assert ti_events.(evs) == [{:preedit_string, ["´", 2, 2]}]
+    assert key_events.(evs) == [{56, 1}, {240, 1}, {240, 0}, {56, 0}]
+    tap.(18)
+    {evs, c} = events(c)
+    assert ti_events.(evs) == [{:commit_string, ["é"]}, {:preedit_string, [nil, 0, 0]}]
+    assert key_events.(evs) == []
+
+    # Alt+u, Shift+u: Ü.
+    alt.(22)
+    Photon.input(ph, {:key, 42, true})
+    tap.(22)
+    Photon.input(ph, {:key, 42, false})
+    {evs, c} = events(c)
+    assert {:commit_string, ["Ü"]} in ti_events.(evs)
+    refute {22, 1} in key_events.(evs)
+
+    # Alt+n, then Return: the accent is dropped and Return goes on.
+    alt.(49)
+    tap.(28)
+    {evs, _c} = events(c)
+    assert List.last(ti_events.(evs)) == {:preedit_string, [nil, 0, 0]}
+    assert {28, 1} in key_events.(evs) and not Enum.any?(ti_events.(evs), &match?({:commit_string, _}, &1))
+  end
+
   test "input: pointer focus and coordinates, buttons, keyboard focus, keys and modifiers" do
     {ph, _out, env} = start_photon()
     win = window(env, 100, 60, Render.px(0, 0, 255))
