@@ -15,7 +15,11 @@ it does not support.
 ## KEYS
 
 The vi keys work as in Vim: motions, operators and text objects with
-counts, `.`, visual modes, `u` and `C-r`, registers, splits, and
+counts, `.`, visual modes (`v`, `V` and `C-v`, visual block), marks (`ma`
+sets mark a, `'a` goes to its line and `` `a `` to the very place; `A`-`Z`
+work across files, `''` goes back, `:marks` lists them), registers (`"ayy` yanks into register a and `"ap`
+pastes it; `"A` appends, `"_` discards, `"0` is the last yank, `"+` the
+clipboard, `:reg` lists them), `u` and `C-r`, registers, splits, and
 keyboard macros (`qq` ... `q` records into register q, `@q` plays it,
 `@@` again, `5@q` five times, `qQ` appends; as in Vim, a motion that
 can't move, such as `j` on the last line, stops the macro, so `100@q`

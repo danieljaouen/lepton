@@ -18,7 +18,9 @@ defmodule Lepton.Editor.Buffer do
             trailing_newline: true,
             read_only: false,
             folds: MapSet.new(),
-            revealed: MapSet.new()
+            revealed: MapSet.new(),
+            # marks (m): %{"a" => {line, column}}, moved with the lines as they're edited
+            marks: %{}
 
   @undo_limit 200
 

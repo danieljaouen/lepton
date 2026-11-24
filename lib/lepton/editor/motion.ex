@@ -18,6 +18,9 @@ defmodule Lepton.Editor.Motion do
   def parse(["g"]), do: :more
   def parse(["g", k]) when k in ["g", "e", "_", "0", "$", "E"], do: {:motion, "g" <> k}
   def parse([k]) when k in ["f", "F", "t", "T"], do: :more
+  # A mark: ' to its line (first non-blank), ` to the very place.
+  def parse([k]) when k in ["'", "`"], do: :more
+  def parse([k, m]) when k in ["'", "`"], do: {:motion, {k, m}}
   def parse([k, c]) when k in ["f", "F", "t", "T"], do: {:motion, {k, char(c)}}
   def parse([k]) when k in ["i", "a"], do: :more
   def parse([k, o]) when k in ["i", "a"], do: {:object, {k, o}}
@@ -67,6 +70,7 @@ defmodule Lepton.Editor.Motion do
       "{" -> repeat(n, {l, c}, &paragraph(buf, &1, -1)) |> excl()
       "%" -> match_pair(buf, {l, c})
       {k, ch} when k in ["f", "F", "t", "T"] -> find_char(buf, {l, c}, k, ch, n)
+      {k, m} when k in ["'", "`"] -> mark_target(buf, {l, c}, k, (ctx[:marks] || %{})[m])
       ";" -> repeat_find(buf, {l, c}, ctx[:last_find], n, false)
       "," -> repeat_find(buf, {l, c}, ctx[:last_find], n, true)
       "n" -> search(buf, {l, c}, ctx[:search], n, false)
@@ -461,4 +465,19 @@ defmodule Lepton.Editor.Motion do
     e = if ia == "a", do: Enum.reduce_while((e + 1)..last//1, e, fn i, acc -> if blank?.(i), do: {:cont, i}, else: {:halt, acc} end), else: e
     {:range, {s, 0}, {e, 0}, :linewise}
   end
+
+  # Where a mark is: line-wise to its line's first non-blank ('), or exactly (`).
+  # An unset mark goes nowhere.
+  defp mark_target(_buf, pos, _k, nil), do: {pos, :exclusive}
+
+  defp mark_target(buf, _pos, "'", {ml, _}) do
+    ml = min(ml, Buffer.line_count(buf) - 1)
+    {{ml, first_non_blank(buf, ml)}, :linewise}
+  end
+
+  defp mark_target(buf, _pos, "`", {ml, mc}) do
+    ml = min(ml, Buffer.line_count(buf) - 1)
+    {{ml, min(mc, max(Buffer.line_length(buf, ml) - 1, 0))}, :exclusive}
+  end
+
 end

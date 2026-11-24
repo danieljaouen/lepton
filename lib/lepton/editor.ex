@@ -28,12 +28,18 @@ defmodule Lepton.Editor do
             operator: nil,
             op_count: nil,
             register: {:char, ""},
+            # named registers ("a ... "z, "0 the last yank), and the one " chose for the next yank, delete or paste
+            registers: %{},
+            use_register: nil,
             message: nil,
             message_error: false,
             minibuffer: nil,
             search: nil,
             last_find: nil,
             visual_start: nil,
+            # visual block: `$` (every line to its end); an I, A or c being typed, for the block's other lines
+            block_eol: false,
+            block_insert: nil,
             last_visual: nil,
             km: nil,
             vars: %{},
@@ -62,7 +68,9 @@ defmodule Lepton.Editor do
             # a motion that couldn't move (j on the last line): ends the macro playing
             motion_failed: false,
             # r and C-q: the next key is their character ({:replace_char, count} or :quoted_insert)
-            awaiting: nil
+            awaiting: nil,
+            # uppercase marks, which name a file too: %{"A" => buffer id}
+            global_marks: %{}
 
   defmodule Win do
     @moduledoc false
@@ -177,7 +185,7 @@ defmodule Lepton.Editor do
       st.macro_pending -> macro_key(st, key)
       st.minibuffer -> minibuffer_key(st, key)
       st.mode in [:insert, :replace] -> insert_key(st, key)
-      st.mode in [:visual, :visual_line] -> visual_key(st, key)
+      st.mode in [:visual, :visual_line, :visual_block] -> visual_key(st, key)
       buf(st).kind in [:magit, :dired, :help, :list, :log] -> special_key(st, key)
       true -> normal_key(st, key)
     end
@@ -198,9 +206,9 @@ defmodule Lepton.Editor do
     case {action, button, window_at(st, x, y)} do
       {_, _, nil} -> st
       {:press, :left, {id, :mode_line}} -> if id == st.active, do: st, else: select_window(st, id)
-      {:press, :left, {id, pos}} -> st |> then(&if(&1.mode in [:visual, :visual_line], do: leave_visual(&1), else: &1)) |> focus(id) |> set_cursor(pos)
+      {:press, :left, {id, pos}} -> st |> then(&if(&1.mode in [:visual, :visual_line, :visual_block], do: leave_visual(&1), else: &1)) |> focus(id) |> set_cursor(pos)
       {:drag, :left, {id, pos}} when id == st.active and st.mode not in [:insert, :replace] ->
-        st = if st.mode in [:visual, :visual_line], do: st, else: do_action(st, :visual, 1)
+        st = if st.mode in [:visual, :visual_line, :visual_block], do: st, else: do_action(st, :visual, 1)
         set_cursor(st, pos)
       {:press, wheel, {id, _}} when wheel in [:wheel_up, :wheel_down] ->
         active = st.active
@@ -258,7 +266,7 @@ defmodule Lepton.Editor do
     b =
       case st.buffers[b.id] do
         %{lines: old} when old != b.lines ->
-          %{b | folds: Fold.remap(b.folds, old, b.lines), revealed: Fold.remap_revealed(b.revealed, b.folds, old, b.lines)}
+          %{b | folds: Fold.remap(b.folds, old, b.lines), revealed: Fold.remap_revealed(b.revealed, b.folds, old, b.lines), marks: Fold.remap_marks(b.marks, old, b.lines)}
         _ -> b
       end
 
@@ -520,6 +528,43 @@ defmodule Lepton.Editor do
     end
   end
 
+  defp awaited_key(st, {:block_replace, blk}, key) when is_binary(key) do
+    case Keys.text(key) do
+      nil ->
+        st
+
+      ch ->
+        {st, _} = map_block(st, blk, fn line, {a, z} -> {String.slice(line, 0, a) <> String.duplicate(ch, z - a) <> String.slice(line, z..-1//1), nil} end)
+        block_top_left(st, blk)
+    end
+  end
+
+  defp awaited_key(st, :select_register, key) when is_binary(key) do
+    if key =~ ~r/^[a-zA-Z0-9"_+*]$/, do: %{st | use_register: key}, else: st
+  end
+
+  defp awaited_key(st, :set_mark, key) when is_binary(key) do
+    cond do
+      key =~ ~r/^[a-z]$/ ->
+        b = buf(st)
+        put_buf(st, %{b | marks: Map.put(b.marks, key, cursor(st))})
+
+      key =~ ~r/^[A-Z]$/ ->
+        b = buf(st)
+        st = put_buf(st, %{b | marks: Map.put(b.marks, key, cursor(st))})
+        # (one file holds each uppercase mark)
+        st = Enum.reduce(st.buffers, st, fn {id, ob}, st -> if id != b.id and Map.has_key?(ob.marks, key), do: %{st | buffers: Map.put(st.buffers, id, %{ob | marks: Map.delete(ob.marks, key)})}, else: st end)
+        %{st | global_marks: Map.put(st.global_marks, key, b.id)}
+
+      # m' (or m`): set the place '' returns to.
+      key in ["'", "`"] ->
+        push_jump(st)
+
+      true ->
+        st
+    end
+  end
+
   defp awaited_key(st, _, _), do: st
 
   # -- keyboard macros (evil: q, @, @@) -----------------------------------------------------
@@ -610,6 +655,21 @@ defmodule Lepton.Editor do
   # line, l at the end of one, f without the character): that ends a macro.
   @relative_motions ~w[j k h l <up> <down> <left> <right> + - w W b B e E ge gE { } ( ) n N ; ,]
 
+  # An uppercase mark set in another file: that file, at the mark.
+  defp move(st, {k, name} = m) when k in ["'", "`"] and name in ~w(A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do
+    id = st.global_marks[name]
+
+    cond do
+      id == nil or not Map.has_key?(st.buffers, id) -> msg(st, "Mark not set: #{name}", true)
+      id == buf(st).id -> move_to(st, m)
+      true -> st |> push_jump() |> show_buffer(id) |> move_to(m)
+    end
+  end
+
+  defp move(st, {k, name} = m) when k in ["'", "`"] do
+    if Map.has_key?(marks(st), name), do: move_to(st, m), else: msg(st, "Mark not set: #{name}", true)
+  end
+
   defp move(st, m) do
     from = cursor(st)
     st = move_to(st, m)
@@ -632,7 +692,7 @@ defmodule Lepton.Editor do
         set_cursor(st, {l, w.want_col}, keep_want: true)
 
       _ ->
-        st = if m in ["G", "gg", "n", "N", "%", "{", "}"], do: push_jump(st), else: st
+        st = if m in ["G", "gg", "n", "N", "%", "{", "}"] or match?({k, _} when k in ["'", "`"], m), do: push_jump(st), else: st
         set_cursor(st, target, reveal: m in ["n", "N"])
     end
   end
@@ -642,7 +702,23 @@ defmodule Lepton.Editor do
 
   defp motion_ctx(st) do
     w = win(st)
-    %{view: {w.top, view_height(st)}, last_find: st.last_find, search: st.search}
+    %{view: {w.top, view_height(st)}, last_find: st.last_find, search: st.search, marks: marks(st)}
+  end
+
+  # The marks ' and ` go to: the buffer's, the uppercase ones that are in it,
+  # '' (where the last jump left from) and '< '> (the last visual selection).
+  defp marks(st) do
+    b = buf(st)
+    w = win(st)
+    special = if w.jumps != [], do: %{"'" => hd(w.jumps), "`" => hd(w.jumps)}, else: %{}
+
+    special =
+      case st.last_visual do
+        {_, a, z} -> Map.merge(special, %{"<" => min(a, z), ">" => max(a, z)})
+        _ -> special
+      end
+
+    Map.merge(b.marks, special)
   end
 
   defp push_jump(st) do
@@ -691,6 +767,7 @@ defmodule Lepton.Editor do
               reset_op(st)
             else
               {from, to} = order(cursor(st), target)
+              {to, kind} = exclusive_adjust(buf(st), from, to, kind, m)
               apply_operator(st, from, to, kind)
             end
 
@@ -705,6 +782,19 @@ defmodule Lepton.Editor do
         end
     end
   end
+
+  # Vim's rules for an exclusive motion that ends at the start of a later
+  # line (dw on a line's last word, d}): it ends at the end of the line
+  # before instead (dw doesn't take the newline), and if it began at or
+  # before its line's first non-blank it's line-wise, except for w and W
+  # (:help word), which just stop at the end of the word.
+  defp exclusive_adjust(b, {fl, fc}, {tl, 0}, :exclusive, m) when tl > fl do
+    if m not in ["w", "W"] and fc <= Motion.first_non_blank(b, fl),
+      do: {{tl - 1, 0}, :linewise},
+      else: {{tl - 1, Buffer.line_length(b, tl - 1)}, :exclusive}
+  end
+
+  defp exclusive_adjust(_b, _from, to, kind, _m), do: {to, kind}
 
   defp operator_keys(:delete), do: ["d"]
   defp operator_keys(:change), do: ["c"]
@@ -733,7 +823,7 @@ defmodule Lepton.Editor do
         :linewise ->
           case op do
             :yank ->
-              st = set_register(st, {:line, Buffer.get_lines(b, fl, tl)})
+              st = set_register(st, {:line, Buffer.get_lines(b, fl, tl)}, :yank)
               msg(st, if(tl > fl, do: "#{tl - fl + 1} lines yanked", else: nil))
 
             :delete ->
@@ -775,7 +865,7 @@ defmodule Lepton.Editor do
 
           case op do
             :yank ->
-              st |> set_register({:char, text}) |> set_cursor(from)
+              st |> set_register({:char, text}, :yank) |> set_cursor(from)
 
             :delete ->
               {b, _} = Buffer.delete_range(b, from, to_excl)
@@ -813,15 +903,64 @@ defmodule Lepton.Editor do
     text |> String.graphemes() |> Enum.map_join(fn g -> if g == String.upcase(g), do: String.downcase(g), else: String.upcase(g) end)
   end
 
-  defp set_register(st, reg) do
-    text = case reg do
-      {:line, lines} -> Enum.join(lines, "\n") <> "\n"
-      {:char, t} -> t
-    end
+  defp set_register(st, reg, how \\ :delete) do
+    name = st.use_register
+    st = %{st | use_register: nil}
 
-    if text != "", do: Lepton.Clipboard.put(text)
-    %{st | register: reg}
+    if name == "_" do
+      # the black hole: nothing kept, the unnamed register as it was
+      st
+    else
+      {st, reg} =
+        cond do
+          name != nil and name =~ ~r/^[A-Z]$/ ->
+            key = String.downcase(name)
+            all = append_register(st.registers[key], reg)
+            {%{st | registers: Map.put(st.registers, key, all)}, all}
+
+          name != nil and name =~ ~r/^[a-z0-9]$/ ->
+            {%{st | registers: Map.put(st.registers, name, reg)}, reg}
+
+          true ->
+            {st, reg}
+        end
+
+      st = if how == :yank, do: %{st | registers: Map.put(st.registers, "0", reg)}, else: st
+      text = register_text(reg)
+      if text != "", do: Lepton.Clipboard.put(text)
+      %{st | register: reg}
+    end
   end
+
+  defp register_text({:line, lines}), do: Enum.join(lines, "\n") <> "\n"
+  defp register_text({:char, t}), do: t
+  defp register_text({:block, rows}), do: Enum.join(rows, "\n")
+
+  # "A: appended to a; mixed kinds become lines (blocks: rows).
+  defp append_register(nil, reg), do: reg
+  defp append_register({:char, a}, {:char, b}), do: {:char, a <> b}
+  defp append_register({:block, a}, {:block, b}), do: {:block, a ++ b}
+  defp append_register({:block, a}, other), do: {:block, a ++ register_lines(other)}
+  defp append_register(a, b), do: {:line, register_lines(a) ++ register_lines(b)}
+
+  defp register_lines({:line, lines}), do: lines
+  defp register_lines({:char, t}), do: String.split(t, "\n")
+  defp register_lines({:block, rows}), do: rows
+
+  # What a paste takes: the register " chose (the clipboard for "+ and "*),
+  # else the unnamed one. nil for an empty one.
+  defp register_for(%{use_register: nil} = st), do: st.register
+  defp register_for(%{use_register: "_"}), do: nil
+
+  defp register_for(%{use_register: name}) when name in ["+", "*"] do
+    case Lepton.Clipboard.get() do
+      "" -> nil
+      text -> if String.ends_with?(text, "\n"), do: {:line, String.split(String.trim_trailing(text, "\n"), "\n")}, else: {:char, text}
+    end
+  end
+
+  defp register_for(%{use_register: "\""} = st), do: st.register
+  defp register_for(st), do: st.registers[String.downcase(st.use_register)]
 
   # -- change recording (for `.`) ------------------------------------------------------------
 
@@ -933,6 +1072,23 @@ defmodule Lepton.Editor do
 
   # The character comes as the next key (so macros record and play it).
   def do_action(st, :replace_char, n), do: %{st | awaiting: {:replace_char, n}}
+  # m and a letter: a mark here (the next key is its name).
+  def do_action(st, :set_mark, _), do: %{st | awaiting: :set_mark}
+  # " and a name: the register the next yank, delete or paste uses (the count stays).
+  def do_action(st, :select_register, n), do: %{st | awaiting: :select_register, count: n}
+
+  def do_action(st, :list_registers, _) do
+    show = fn reg -> reg |> register_text() |> String.replace("\n", "^J") |> String.slice(0, 30) end
+    named = for {k, reg} <- Enum.sort(st.registers), do: "\"#{k} #{show.(reg)}"
+    msg(st, Enum.join(["\"\" #{show.(st.register)}" | named], "  "))
+  end
+
+  def do_action(st, :list_marks, _) do
+    b = buf(st)
+    here = for {k, {l, c}} <- Enum.sort(b.marks), k =~ ~r/^[a-z]$/, do: "#{k} #{l + 1}:#{c}"
+    there = for {k, id} <- Enum.sort(st.global_marks), mb = st.buffers[id], {l, c} = mb.marks[k] || {0, 0}, do: "#{k} #{mb.name}:#{l + 1}:#{c}"
+    msg(st, if(here ++ there == [], do: "No marks set", else: "Marks: " <> Enum.join(here ++ there, "  ")))
+  end
 
   def do_action(st, :replace_mode, _), do: enter_insert(%{st | mode: :replace}, true) |> Map.put(:mode, :replace)
 
@@ -954,6 +1110,7 @@ defmodule Lepton.Editor do
 
   def do_action(st, :visual, _), do: %{st | mode: :visual, visual_start: cursor(st)}
   def do_action(st, :visual_line, _), do: %{st | mode: :visual_line, visual_start: cursor(st)}
+  def do_action(st, :visual_block, _), do: %{st | mode: :visual_block, visual_start: cursor(st), block_eol: false}
 
   def do_action(st, :reselect_visual, _) do
     case st.last_visual do
@@ -1009,7 +1166,7 @@ defmodule Lepton.Editor do
     end
   end
 
-  def do_action(st, :keyboard_quit, _), do: %{st | pending: [], count: nil, operator: nil} |> msg("Quit")
+  def do_action(st, :keyboard_quit, _), do: %{st | pending: [], count: nil, operator: nil, use_register: nil} |> msg("Quit")
   def do_action(st, :redraw, _), do: %{st | frame: []}
 
   def do_action(st, :org_cycle, _) do
@@ -1122,7 +1279,7 @@ defmodule Lepton.Editor do
   end
 
   def do_action(st, :comment_line, n) do
-    {fl, tl} = if st.mode in [:visual, :visual_line], do: region_lines(st), else: {elem(cursor(st), 0), elem(cursor(st), 0) + (n || 1) - 1}
+    {fl, tl} = if st.mode in [:visual, :visual_line, :visual_block], do: region_lines(st), else: {elem(cursor(st), 0), elem(cursor(st), 0) + (n || 1) - 1}
     st = snapshot(st)
     b = buf(st)
     prefix = Buffer.comment_prefix(b)
@@ -1211,11 +1368,18 @@ defmodule Lepton.Editor do
   end
 
   defp paste(st, where, n) do
+    case register_for(st) do
+      nil -> msg(%{st | use_register: nil}, "Register #{st.use_register} is empty", st.use_register != "_")
+      reg -> paste_register(%{st | use_register: nil}, where, n, reg)
+    end
+  end
+
+  defp paste_register(st, where, n, reg) do
     st = snapshot(st)
     {l, c} = cursor(st)
     b = buf(st)
 
-    case st.register do
+    case reg do
       {:line, lines} ->
         lines = List.duplicate(lines, n) |> List.flatten()
         at = if where == :after, do: l + 1, else: l
@@ -1226,6 +1390,17 @@ defmodule Lepton.Editor do
         pos = if where == :after and Buffer.line_length(b, l) > 0, do: {l, c + 1}, else: {l, c}
         {b, {el, ec}} = Buffer.insert(b, pos, text)
         st |> put_buf(b) |> set_cursor({el, max(ec - 1, 0)})
+
+      # A block: each row at the same column of the next lines (padded, and
+      # lines added below the end, as needed).
+      {:block, rows} ->
+        line = Buffer.line(b, l)
+        col = display_col(line, c) + if(where == :after and line != "", do: block_char_width(line, c), else: 0)
+        rows = Enum.map(rows, &String.duplicate(&1, n))
+        missing = l + length(rows) - Buffer.line_count(b)
+        b = if missing > 0, do: Buffer.insert_lines(b, Buffer.line_count(b), List.duplicate("", missing)), else: b
+        lines = for {row, i} <- Enum.with_index(rows), do: insert_at_col(Buffer.line(b, l + i), col, row)
+        st |> put_buf(Buffer.replace_lines(b, l, l + length(rows) - 1, lines)) |> set_cursor({l, column_at(hd(lines), col)})
     end
   end
 
@@ -1560,7 +1735,7 @@ defmodule Lepton.Editor do
             st = %{st | pending: []}
 
             case Motion.parse(seq) do
-              {:motion, m} -> move(st, m) |> Map.put(:count, nil)
+              {:motion, m} -> st |> block_eol_for(m) |> move(m) |> Map.put(:count, nil)
               {:object, obj} ->
                 case Motion.object(buf(st), cursor(st), obj) do
                   {:range, from, {tl, tc}, _} -> %{st | visual_start: from} |> set_cursor({tl, max(tc - 1, 0)})
@@ -1578,13 +1753,13 @@ defmodule Lepton.Editor do
     {a, b} = order(st.visual_start, cursor(st))
 
     case st.mode do
-      :visual_line -> {{elem(a, 0), 0}, {elem(b, 0), 0}, :linewise}
+      m when m in [:visual_line, :visual_block] -> {{elem(a, 0), 0}, {elem(b, 0), 0}, :linewise}
       _ -> {a, b, :inclusive}
     end
   end
 
   defp region_lines(st) do
-    if st.mode in [:visual, :visual_line] do
+    if st.mode in [:visual, :visual_line, :visual_block] do
       {{fl, _}, {tl, _}, _} = region(st)
       {fl, tl}
     else
@@ -1592,13 +1767,32 @@ defmodule Lepton.Editor do
     end
   end
 
-  defp leave_visual(st), do: %{st | last_visual: {st.mode, st.visual_start, cursor(st)}, mode: :normal, visual_start: nil}
+  defp leave_visual(st), do: %{st | last_visual: {st.mode, st.visual_start, cursor(st)}, mode: :normal, visual_start: nil, block_eol: false}
+
+  defp visual_action(%{mode: :visual_block} = st, action, count) do
+    case action do
+      a when a in [:visual_delete, :visual_yank, :visual_change, :visual_upcase, :visual_downcase, :visual_toggle_case,
+                   :visual_insert, :visual_append, :visual_paste, :visual_other_side, :replace_char, :visual_toggle_block] ->
+        block_action(st, a)
+
+      :visual_toggle_char -> %{st | mode: :visual}
+      :visual_toggle_line -> %{st | mode: :visual_line}
+      :normal_state -> leave_visual(st) |> then(&set_cursor(&1, cursor(&1)))
+
+      # The rest act on the block's lines (>, <, J, :, sorting, commenting).
+      a ->
+        st = visual_action(%{st | mode: :visual_line}, a, count)
+        if st.mode == :visual_line, do: %{st | mode: :visual_block}, else: st
+    end
+  end
 
   defp visual_action(st, action, count) do
     {from, to, kind} = region(st)
 
     case action do
       :normal_state -> leave_visual(st) |> then(&set_cursor(&1, cursor(&1)))
+      :visual_toggle_block -> %{st | mode: :visual_block, block_eol: false}
+      :visual_other_side -> %{st | visual_start: cursor(st)} |> set_cursor(st.visual_start)
       :visual_toggle_char -> if st.mode == :visual, do: leave_visual(st), else: %{st | mode: :visual}
       :visual_toggle_line -> if st.mode == :visual_line, do: leave_visual(st), else: %{st | mode: :visual_line}
       :visual_other_end -> %{st | visual_start: cursor(st)} |> set_cursor(st.visual_start)
@@ -1613,15 +1807,205 @@ defmodule Lepton.Editor do
       :visual_join -> leave_visual(st) |> set_cursor(from) |> join(elem(to, 0) - elem(from, 0) + 1, true)
 
       :visual_paste ->
-        reg = st.register
+        reg = register_for(st)
+        st = %{st | use_register: nil}
         st = leave_visual(st) |> Map.put(:operator, :delete) |> apply_operator(from, to, kind)
-        %{st | register: reg} |> paste(:before, 1)
+        # (a selection that reached the end of its line, or of the buffer: put after what's left)
+        {fl, fc} = from
+        b = buf(st)
+
+        where =
+          cond do
+            kind == :linewise -> if fl >= Buffer.line_count(b), do: :after, else: :before
+            fc > 0 and fc >= Buffer.line_length(b, fl) -> :after
+            true -> :before
+          end
+
+        if reg, do: paste_register(st, where, 1, reg), else: st
+
+      # ": the register for the next yank, delete or paste (staying in visual).
+      :select_register -> %{st | awaiting: :select_register}
 
       :visual_insert -> leave_visual(st) |> set_cursor(from) |> enter_insert()
       :visual_append -> leave_visual(st) |> set_cursor({elem(to, 0), elem(to, 1) + 1}) |> enter_insert()
       a when a in [:sort_lines, :align_repeat, :comment_line, :delete_trailing_whitespace] -> do_action(st, a, count) |> then(&if(&1.mode in [:visual, :visual_line], do: leave_visual(&1), else: &1))
       :ex -> prompt(st, :ex, ":", "'<,'>")
       other -> do_action(leave_visual(st), other, count)
+    end
+  end
+
+  # -- visual block -------------------------------------------------------------------------
+
+  # `$` makes the block reach every line's end; a motion across lines keeps that.
+  defp block_eol_for(%{mode: :visual_block} = st, m) do
+    cond do
+      m == "$" -> %{st | block_eol: true}
+      m in ["j", "k", "<up>", "<down>", "G", "gg", "C-d", "C-u"] -> st
+      true -> %{st | block_eol: false}
+    end
+  end
+
+  defp block_eol_for(st, _m), do: st
+
+  # The block: its lines, and its columns (display columns: tabs and wide
+  # characters as they show), from the corners' characters.
+  @doc false
+  def block_columns(st), do: block(st)
+
+  defp block(st) do
+    b = buf(st)
+    {sl, _} = st.visual_start
+    {cl, _} = cursor(st)
+    span = fn {l, c} -> line = Buffer.line(b, l); d = display_col(line, c); {d, d + block_char_width(line, c)} end
+    {s0, s1} = span.(st.visual_start)
+    {c0, c1} = span.(cursor(st))
+    # On a line too short for it, the cursor keeps the column it was going
+    # to (as Vim): the block stays as wide.
+    want = win(st).want_col
+    {c0, c1} = if want > elem(cursor(st), 1), do: {max(c0, want), max(c0, want) + 1}, else: {c0, c1}
+    %{fl: min(sl, cl), tl: max(sl, cl), left: min(s0, c0), right: max(s1, c1), eol: st.block_eol}
+  end
+
+  defp block_char_width(line, c) do
+    case String.at(line, c) do
+      nil -> 1
+      "\t" -> 8 - rem(display_col(line, c), 8)
+      g -> max(Lepton.Width.grapheme(g), 1)
+    end
+  end
+
+  # The characters of `line` in the block: {from, to} (to exclusive); none
+  # for a line that ends before the block starts.
+  defp block_range(line, blk) do
+    len = String.length(line)
+
+    if display_col(line, len) <= blk.left do
+      {len, len}
+    else
+      to = if blk.eol, do: len, else: min(column_at(line, blk.right - 1) + 1, len)
+      {column_at(line, blk.left), to}
+    end
+  end
+
+  # `line` with `text` put at display column `col` (spaces up to it if the line is shorter).
+  defp insert_at_col(line, col, text) do
+    width = display_col(line, String.length(line))
+
+    if width < col,
+      do: line <> String.duplicate(" ", col - width) <> text,
+      else: String.slice(line, 0, column_at(line, col)) <> text <> String.slice(line, column_at(line, col)..-1//1)
+  end
+
+  # Each line of the block through `fun.(line, {from, to})`, which returns {new_line, taken}.
+  defp map_block(st, blk, fun) do
+    # (the snapshot first: the buffer carries its undo history)
+    st = snapshot(st)
+    b = buf(st)
+    {lines, taken} = for l <- blk.fl..blk.tl, reduce: {[], []} do
+      {lines, taken} ->
+        line = Buffer.line(b, l)
+        {new, t} = fun.(line, block_range(line, blk))
+        {[new | lines], [t | taken]}
+    end
+
+    {put_buf(st, Buffer.replace_lines(b, blk.fl, blk.tl, Enum.reverse(lines))), Enum.reverse(taken)}
+  end
+
+  defp block_top_left(st, blk), do: set_cursor(st, {blk.fl, elem(block_range(Buffer.line(buf(st), blk.fl), blk), 0)})
+
+  defp block_action(st, action) do
+    blk = block(st)
+
+    case action do
+      :visual_toggle_block -> leave_visual(st)
+
+      # O: the other corner on the same line.
+      :visual_other_side ->
+        {sl, sc} = st.visual_start
+        {cl, cc} = cursor(st)
+        %{st | visual_start: {sl, cc}} |> set_cursor({cl, sc})
+
+      :visual_yank ->
+        rows = for l <- blk.fl..blk.tl, line = Buffer.line(buf(st), l), {a, z} = block_range(line, blk), do: String.slice(line, a, z - a)
+        st |> leave_visual() |> set_register({:block, rows}, :yank) |> block_top_left(blk)
+
+      :visual_delete ->
+        {st, rows} = map_block(leave_visual(st), blk, fn line, {a, z} -> {String.slice(line, 0, a) <> String.slice(line, z..-1//1), String.slice(line, a, z - a)} end)
+        st |> set_register({:block, rows}) |> block_top_left(blk)
+
+      op when op in [:visual_upcase, :visual_downcase, :visual_toggle_case] ->
+        how = %{visual_upcase: :upcase, visual_downcase: :downcase, visual_toggle_case: :toggle_case}[op]
+        {st, _} = map_block(leave_visual(st), blk, fn line, {a, z} -> {String.slice(line, 0, a) <> recase(String.slice(line, a, z - a), how) <> String.slice(line, z..-1//1), nil} end)
+        block_top_left(st, blk)
+
+      # r: the next key is the character every one of the block's becomes.
+      :replace_char ->
+        %{leave_visual(st) | awaiting: {:block_replace, blk}}
+
+      # I and c type on the first line, at the block's left; A after its
+      # right (or each line's end, after $). Escape puts what was typed on
+      # the block's other lines too (I and c: those that reach the block).
+      :visual_insert ->
+        block_insert(leave_visual(st), blk, :insert)
+
+      :visual_change ->
+        {st, rows} = map_block(leave_visual(st), blk, fn line, {a, z} -> {String.slice(line, 0, a) <> String.slice(line, z..-1//1), String.slice(line, a, z - a)} end)
+        st |> set_register({:block, rows}) |> block_insert(blk, :change)
+
+      :visual_append ->
+        block_insert(leave_visual(st), blk, :append)
+
+      # p: the block replaced by what the register holds.
+      :visual_paste ->
+        reg = register_for(st)
+        {st, _} = map_block(leave_visual(%{st | use_register: nil}), blk, fn line, {a, z} -> {String.slice(line, 0, a) <> String.slice(line, z..-1//1), nil} end)
+        st = block_top_left(st, blk)
+        if reg, do: paste_register(st, :before, 1, reg), else: st
+    end
+  end
+
+  defp block_insert(st, blk, how) do
+    # (c took its snapshot when it deleted the block)
+    st = if how == :change, do: st, else: snapshot(st)
+    b = buf(st)
+    first = Buffer.line(b, blk.fl)
+    width = fn line -> display_col(line, String.length(line)) end
+
+    {first, col} =
+      case how do
+        :append when blk.eol -> {first, width.(first)}
+        :append -> {if(width.(first) < blk.right, do: first <> String.duplicate(" ", blk.right - width.(first)), else: first), blk.right}
+        _ -> {first, blk.left}
+      end
+
+    others = for l <- (blk.fl + 1)..blk.tl//1, how == :append or width.(Buffer.line(b, l)) >= blk.left, do: l
+    st = put_buf(st, Buffer.replace_lines(b, blk.fl, blk.fl, [first]))
+    start = {blk.fl, column_at(first, col)}
+    st = set_cursor(%{st | mode: :insert}, start)
+    %{enter_insert(st, false) | block_insert: %{start: start, lines: others, col: col, eol: how == :append and blk.eol, count: Buffer.line_count(b)}}
+  end
+
+  # Escape after I, A or c on a block: what was typed on the first line goes
+  # on the others (if it stayed on that one line).
+  defp finish_block_insert(%{block_insert: nil} = st), do: st
+
+  defp finish_block_insert(%{block_insert: bi} = st) do
+    st = %{st | block_insert: nil}
+    {sl, sc} = bi.start
+    {l, c} = cursor(st)
+    b = buf(st)
+
+    if l == sl and c > sc and Buffer.line_count(b) == bi.count do
+      text = String.slice(Buffer.line(b, sl), sc, c - sc)
+
+      Enum.reduce(bi.lines, st, fn n, st ->
+        b = buf(st)
+        line = Buffer.line(b, n)
+        new = if bi.eol, do: line <> text, else: insert_at_col(line, bi.col, text)
+        put_buf(st, Buffer.replace_lines(b, n, n, [new]))
+      end)
+    else
+      st
     end
   end
 
@@ -1692,6 +2076,7 @@ defmodule Lepton.Editor do
   end
 
   defp exit_insert(st) do
+    st = finish_block_insert(st)
     {l, c} = cursor(st)
     st = %{st | mode: :normal, completion: nil, insert_snapshot: false}
     st = set_cursor(st, {l, max(c - 1, 0)})

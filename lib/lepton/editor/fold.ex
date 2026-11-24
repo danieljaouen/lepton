@@ -231,6 +231,20 @@ defmodule Lepton.Editor.Fold do
     end
   end
 
+  @doc """
+  Marks (`%{name => {line, column}}`) across the same edit: lines added or
+  removed above one move it; on a line that changed it stays where it was
+  (on the last line, if the buffer got shorter than that).
+  """
+  def remap_marks(marks, old, new) do
+    if map_size(marks) == 0 or old == new do
+      marks
+    else
+      {prefix, suffix, os, ns} = diff(old, new)
+      for {k, {l, c}} <- marks, into: %{}, do: {k, {moved(l, prefix, suffix, os, ns) || min(l, ns - 1), c}}
+    end
+  end
+
   # The lines two versions share at the start and at the end.
   defp diff(old, new) do
     {os, ns} = {tuple_size(old), tuple_size(new)}

@@ -69,6 +69,8 @@ defmodule Lepton.Editor.Ex do
       b when b in ["bd", "bdelete"] -> Editor.api(st, :kill_buffer, Editor.buf(st).id)
       l when l in ["ls", "buffers"] -> Editor.do_action(st, :switch_buffer)
       n when n in ["noh", "nohlsearch"] -> %{st | search: nil}
+      "marks" -> Editor.do_action(st, :list_marks)
+      r when r in ["reg", "registers", "di", "display"] -> Editor.do_action(st, :list_registers)
       "sort" <> _ -> sort(st, range)
       "s" <> rest -> substitute(st, range, rest)
       "set " <> opt -> set(st, opt)

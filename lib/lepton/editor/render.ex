@@ -9,7 +9,7 @@ defmodule Lepton.Editor.Render do
   alias Lepton.Editor
   alias Lepton.Editor.{Buffer, Fold, Keymap, Syntax}
 
-  @state_colors %{normal: "48;5;214", insert: "48;5;112", visual: "48;5;248", visual_line: "48;5;248", replace: "48;5;167", special: "48;5;141"}
+  @state_colors %{normal: "48;5;214", insert: "48;5;112", visual: "48;5;248", visual_line: "48;5;248", visual_block: "48;5;248", replace: "48;5;167", special: "48;5;141"}
 
   def frame(st) do
     {rows, cols} = st.size
@@ -170,6 +170,15 @@ defmodule Lepton.Editor.Render do
   # Visual selection and search-in-progress highlights per line: %{line => [{from, to}]}
   defp highlight_spans(st, b, id) do
     cond do
+      # A block: the same display columns on each of its lines (to each one's end after $).
+      id == st.active and st.mode == :visual_block and st.visual_start ->
+        blk = Editor.block_columns(st)
+
+        for l <- blk.fl..blk.tl, into: %{} do
+          width = Editor.display_col(Buffer.line(b, l), Buffer.line_length(b, l))
+          {l, [if(blk.eol, do: {blk.left, max(width, blk.left + 1)}, else: {blk.left, blk.right})]}
+        end
+
       id == st.active and st.mode in [:visual, :visual_line] and st.visual_start ->
         {a, z} = Enum.min_max([st.visual_start, st.windows[id].cursor])
         {al, ac} = a
@@ -325,7 +334,7 @@ defmodule Lepton.Editor.Render do
     end
 
     table = cond do
-      st.mode in [:visual, :visual_line] -> st.km.visual
+      st.mode in [:visual, :visual_line, :visual_block] -> st.km.visual
       true -> st.km.normal
     end
 

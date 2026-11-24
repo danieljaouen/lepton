@@ -57,6 +57,26 @@ The full list of what was loaded is on the
   move (`j` on the last line, `f` without its character) stops the
   macro and its count, so `100@q` with a `j` in it ends at the last
   line. Macros last until `le` quits;
+- visual block (`C-v`), as in Vim: a rectangle of text, its columns as
+  they show (tabs and wide characters too). `d`/`x` delete it, `y` copies
+  it (and `p`/`P` put it back as a block), `c` changes it, `I` inserts
+  before it and `A` appends after it on every line (`$` first: at each
+  line's end), `r` replaces each character, `~`/`u`/`U` change the case,
+  `o`/`O` move to another corner, and `>`, `<` and `:` work on its lines;
+- marks, as in Vim: `m` and a letter marks the place, `'` and the letter
+  goes back to its line (`` ` `` and the letter: to the very place), and
+  both work after an operator (`d'a` deletes down to mark a). Marks move
+  with their text as lines are added or removed above them. Lowercase
+  marks belong to their file, uppercase ones (`mA`) take you back to their
+  file from anywhere; `''` returns to where the last jump left from, `'<`
+  and `'>` are the last visual selection, and `:marks` lists them. They
+  last until `le` quits;
+- registers, as in Vim: `"` and a letter before a yank, delete, change or
+  paste uses that register (`"ayy` yanks the line into a, `"ap` pastes
+  it, in visual mode too); `"A` (the capital) adds to register a, `"_`
+  deletes without keeping the text, `"0` holds the last yank, `"+` and
+  `"*` are the clipboard, and `:reg` lists them. Every yank and delete
+  still goes to the unnamed register and the clipboard, as before;
 - ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`;
 - the mouse: a click puts the cursor there (and selects that window; on a
   mode line, just the window), a drag selects text as `v` does, and the

@@ -190,7 +190,7 @@ defmodule Lepton.Editor.Keymap do
     {"s", :substitute_char}, {"S", :substitute_line}, {"D", :delete_eol}, {"C", :change_eol},
     {"Y", :yank_line}, {"p", :paste_after}, {"P", :paste_before}, {"u", :undo}, {"C-r", :redo},
     {"J", :join_lines}, {"r", :replace_char}, {"R", :replace_mode}, {"~", :toggle_case},
-    {"v", :visual}, {"V", :visual_line}, {".", :repeat}, {":", :ex}, {"/", :search_forward},
+    {"v", :visual}, {"V", :visual_line}, {"C-v", :visual_block}, {"m", :set_mark}, {"\"", :select_register}, {".", :repeat}, {":", :ex}, {"/", :search_forward},
     {"?", :search_backward}, {"n", :search_next}, {"N", :search_previous},
     {"*", :search_word_forward}, {"#", :search_word_backward}, {"z z", :scroll_line_to_center},
     {"z t", :scroll_line_to_top}, {"z b", :scroll_line_to_bottom}, {"TAB", :org_cycle},
@@ -210,7 +210,7 @@ defmodule Lepton.Editor.Keymap do
 
   @visual [
     {"ESC", :normal_state}, {"C-g", :normal_state}, {"v", :visual_toggle_char}, {"V", :visual_toggle_line},
-    {"o", :visual_other_end}, {"d", :visual_delete}, {"x", :visual_delete}, {"y", :visual_yank},
+    {"C-v", :visual_toggle_block}, {"\"", :select_register}, {"o", :visual_other_end}, {"O", :visual_other_side}, {"r", :replace_char}, {"d", :visual_delete}, {"x", :visual_delete}, {"y", :visual_yank},
     {"c", :visual_change}, {"s", :visual_change}, {">", :visual_indent}, {"<", :visual_dedent},
     {"J", :visual_join}, {"u", :visual_downcase}, {"U", :visual_upcase}, {"~", :visual_toggle_case},
     {"p", :visual_paste}, {":", :ex}, {"I", :visual_insert}, {"A", :visual_append}, {"C-l", :redraw}

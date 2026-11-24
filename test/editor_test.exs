@@ -80,6 +80,162 @@ defmodule Lepton.EditorTest do
     assert click.(st, 5, 23, :press) == st
   end
 
+  test "visual block (C-v): yank and paste as a block, delete, change, I, A (and $A), r, case, o and O" do
+    text = "abcdef\nghijkl\nmn\nopqrst\n"
+    {st, _} = editor(text)
+
+    # y: columns 0-2 of every line (the short one gives what it has); p puts them back as a block.
+    st = keys(st, "C-v l l j j j y")
+    assert st.mode == :normal and cursor(st) == {0, 0} and st.register == {:block, ["abc", "ghi", "mn", "opq"]}
+    st = keys(st, "$ p")
+    assert text(st) == "abcdefabc\nghijklghi\nmn    mn\nopqrstopq\n"
+    st = keys(st, "u")
+    assert text(st) == text
+
+    # Across a short line the block keeps its width (the column the cursor was going to).
+    st = keys(st, "g g 0 l C-v l l j j y")
+    assert st.register == {:block, ["bcd", "hij", "n"]}
+
+    # d: the block goes, the rest of each line closes up; u brings it back.
+    st = keys(st, "0 l C-v l j d")
+    assert text(st) == "adef\ngjkl\nmn\nopqrst\n" and cursor(st) == {0, 1}
+    st = keys(st, "u")
+    assert text(st) == text
+
+    # I: typed on the first line, put on every line of the block at Escape.
+    st = keys(st, "g g 0 C-v j j I # SPC ESC")
+    assert text(st) == "# abcdef\n# ghijkl\n# mn\nopqrst\n"
+    st = keys(st, "u")
+    # A: after the block; a line too short for it is padded.
+    st = keys(st, "g g 0 3 l C-v j j A X ESC")
+    assert text(st) == "abcdXef\nghijXkl\nmn  X\nopqrst\n"
+    st = keys(st, "u")
+    # $A: at the end of each line.
+    st = keys(st, "g g C-v j j $ A ; ESC")
+    assert text(st) == "abcdef;\nghijkl;\nmn;\nopqrst\n"
+    st = keys(st, "u")
+
+    # c: the block replaced on every line by what is typed.
+    st = keys(st, "g g 0 l C-v j l c Z Z ESC")
+    assert text(st) == "aZZdef\ngZZjkl\nmn\nopqrst\n"
+    st = keys(st, "u")
+    # r: every character of the block.
+    st = keys(st, "g g 0 C-v j l r x")
+    assert text(st) == "xxcdef\nxxijkl\nmn\nopqrst\n"
+    st = keys(st, "u")
+    # U: the case of the block.
+    st = keys(st, "g g 0 C-v j U")
+    assert text(st) == "Abcdef\nGhijkl\nmn\nopqrst\n"
+    st = keys(st, "u")
+
+    # o: the opposite corner; O: the other corner on the same line.
+    st = keys(st, "g g 0 C-v l l j o")
+    assert cursor(st) == {0, 0} and st.visual_start == {1, 2}
+    st = keys(st, "O")
+    assert cursor(st) == {0, 2} and st.visual_start == {1, 0}
+    # The block is drawn; C-v again (or Escape) leaves it.
+    {rows, _} = Lepton.Editor.Render.frame(st)
+    assert length(rows) == 24
+    st = keys(st, "C-v")
+    assert st.mode == :normal and text(st) == text
+  end
+
+  test "marks: ma sets one, 'a goes to its line, `a to the very place, as motions too; they move with the text" do
+    {st, _} = editor("one\n  two three\nfour\nfive\nsix\n")
+    # ma on "three", away, then back: ' to the line's first non-blank, ` exactly.
+    st = keys(st, "j w w m a G")
+    assert cursor(st) == {4, 0}
+    st = keys(st, "' a")
+    assert cursor(st) == {1, 2}
+    st = keys(st, "G ` a")
+    assert cursor(st) == {1, 6}
+    # '' goes back to the line the jump left from, and again returns (line-wise: its first non-blank).
+    st = keys(st, "' '")
+    assert elem(cursor(st), 0) == 4
+    st = keys(st, "' '")
+    assert cursor(st) == {1, 2}
+
+    # A line added above moves the mark with its text.
+    st = keys(st, "g g O z e r o ESC G ' a")
+    assert cursor(st) == {2, 2} and Lepton.Editor.Buffer.line(Editor.buf(st), 2) == "  two three"
+
+    # As a motion: d'a deletes from here to the mark's line, line-wise.
+    st = keys(st, "G d ' a")
+    assert text(st) == "zero\none\n"
+
+    # Not set: says so and stays.
+    st = keys(st, "g g ' q")
+    assert cursor(st) == {0, 0} and st.message =~ "Mark not set: q"
+
+    # :marks lists them.
+    st = keys(st, "m b : m a r k s RET")
+    assert st.message =~ "b 1:0"
+  end
+
+  test "uppercase marks name the file too: 'A from another buffer goes there" do
+    {st, path} = editor("alpha\nbeta\ngamma\n")
+    other = Path.join(Path.dirname(path), "other.txt")
+    File.write!(other, "x\ny\n")
+    st = keys(st, "j j m A")
+    st = keys(st, ": e SPC") |> keys(String.graphemes(other) |> Enum.map(&if(&1 == " ", do: "SPC", else: &1))) |> keys("RET")
+    assert Editor.buf(st).path == other
+    st = keys(st, "' A")
+    assert Editor.buf(st).path == path and cursor(st) == {2, 0}
+  end
+
+  test "registers: \"ay yanks into a, \"ap pastes it; \"A appends, \"_ forgets, \"0 is the last yank; in visual mode too" do
+    {st, _} = editor("one\ntwo\nthree\n")
+    # "ayy, then a delete into the unnamed register: "ap still pastes a.
+    st = keys(st, "\" a y y j \" b y y j d d")
+    assert text(st) == "one\ntwo\n" and st.register == {:line, ["three"]}
+    st = keys(st, "g g \" a p")
+    assert text(st) == "one\none\ntwo\n"
+    st = keys(st, "\" b P")
+    assert text(st) == "one\ntwo\none\ntwo\n"
+
+    # "A appends to a; a count goes with it.
+    st = keys(st, "G \" A y y \" a p")
+    assert text(st) == "one\ntwo\none\ntwo\none\ntwo\n"
+    st = keys(st, "u \" a 2 p")
+    assert text(st) == "one\ntwo\none\ntwo\none\ntwo\none\ntwo\n"
+    st = keys(st, "u")
+
+    # "_ deletes without touching the unnamed register; "0 holds the last yank after a delete.
+    st = keys(st, "g g y w")
+    assert st.register == {:char, "one"}
+    st = keys(st, "\" _ d d")
+    assert st.register == {:char, "one"}
+    st = keys(st, "d d \" 0 P")
+    assert Lepton.Editor.Buffer.line(Editor.buf(st), 0) == "oneone"
+
+    # An empty register says so.
+    st = keys(st, "\" q p")
+    assert st.message =~ "Register q is empty"
+
+    # Visual: "ay yanks the selection into a; "ap over a selection replaces it with a.
+    {st, _} = editor("alpha beta\n")
+    st = keys(st, "v e \" a y w v e \" a p")
+    assert text(st) == "alpha alpha\n"
+    st = keys(st, ": r e g RET")
+    assert st.message =~ "\"a alpha"
+
+    # "+ is the clipboard.
+    Lepton.Clipboard.put("clip")
+    st = keys(st, "0 \" + P")
+    assert text(st) == "clipalpha alpha\n"
+  end
+
+  test "dw on a line's last word stops at its end (not the newline); d} from a line's start is line-wise; v p at a line's end" do
+    for {keys_, expected} <- [{"d w", "\ntwo\n\nfour\n"}, {"l d w", "o\ntwo\n\nfour\n"}, {"y w P", "oneone\ntwo\n\nfour\n"}, {"c w x ESC", "x\ntwo\n\nfour\n"}, {"d }", "\nfour\n"}] do
+      {st, _} = editor("one\ntwo\n\nfour\n")
+      assert text(keys(st, keys_)) == expected, keys_
+    end
+
+    {st, _} = editor("ab cd\n")
+    st = keys(st, "y w w v $ p")
+    assert text(st) == "ab ab \n"
+  end
+
   test "evil-escape with jk (editing.el)" do
     {st, _} = editor("\n")
     st = keys(st, "i a b c j k")
