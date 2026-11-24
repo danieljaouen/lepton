@@ -58,7 +58,11 @@ defmodule Lepton.Editor do
             macro_rec: nil,
             macro_pending: nil,
             last_macro: nil,
-            macro_depth: 0
+            macro_depth: 0,
+            # a motion that couldn't move (j on the last line): ends the macro playing
+            motion_failed: false,
+            # r and C-q: the next key is their character ({:replace_char, count} or :quoted_insert)
+            awaiting: nil
 
   defmodule Win do
     @moduledoc false
@@ -169,6 +173,7 @@ defmodule Lepton.Editor do
     st = if st.macro_rec && st.macro_depth == 0, do: %{st | macro_rec: {elem(st.macro_rec, 0), [key | elem(st.macro_rec, 1)]}}, else: st
 
     cond do
+      st.awaiting -> awaited(st, key)
       st.macro_pending -> macro_key(st, key)
       st.minibuffer -> minibuffer_key(st, key)
       st.mode in [:insert, :replace] -> insert_key(st, key)
@@ -485,6 +490,38 @@ defmodule Lepton.Editor do
     end
   end
 
+  # The key after r (the character to put in) or C-q (to insert as it is);
+  # `.` repeats r with the same character.
+  defp awaited(st, key) do
+    st = awaited_key(%{st | awaiting: nil}, st.awaiting, key)
+    if st.mode == :normal and st.recording, do: %{st | last_change: st.recording, recording: nil}, else: st
+  end
+
+  defp awaited_key(st, :quoted_insert, key) when is_binary(key), do: self_insert(st, Keys.encode(key))
+
+  defp awaited_key(st, {:replace_char, n}, key) when is_binary(key) do
+    case Keys.text(key) do
+      nil ->
+        st
+
+      ch ->
+        {l, c} = cursor(st)
+        len = Buffer.line_length(buf(st), l)
+        n = min(n || 1, len - c)
+
+        if n <= 0 do
+          st
+        else
+          st = snapshot(st)
+          {b, _} = Buffer.delete_range(buf(st), {l, c}, {l, c + n})
+          {b, _} = Buffer.insert(b, {l, c}, String.duplicate(ch, n))
+          st |> put_buf(b) |> set_cursor({l, c + n - 1})
+        end
+    end
+  end
+
+  defp awaited_key(st, _, _), do: st
+
   # -- keyboard macros (evil: q, @, @@) -----------------------------------------------------
 
   # The key after `q` or `@`: a register (a-z, 0-9; `qA` appends to a),
@@ -531,9 +568,20 @@ defmodule Lepton.Editor do
         msg(st, "Macro @#{reg} calls itself too deeply", true)
 
       keys ->
-        st = %{st | last_macro: reg, macro_depth: st.macro_depth + 1}
-        st = Enum.reduce(1..count, st, fn _, st -> Enum.reduce(keys, st, &handle_key(&2, &1)) end)
-        %{st | macro_depth: st.macro_depth - 1}
+        # As in Vim: a motion that fails (j on the last line, f finding
+        # nothing) stops the macro, the repeats a count asked for, and the
+        # macros that called it.
+        outer? = st.macro_depth == 0
+        st = %{st | last_macro: reg, macro_depth: st.macro_depth + 1, motion_failed: if(outer?, do: false, else: st.motion_failed)}
+
+        st =
+          Enum.reduce_while(1..count, st, fn _, st ->
+            st = Enum.reduce_while(keys, st, fn key, st -> if st.motion_failed, do: {:halt, st}, else: {:cont, handle_key(st, key)} end)
+            if st.motion_failed, do: {:halt, st}, else: {:cont, st}
+          end)
+
+        st = %{st | macro_depth: st.macro_depth - 1}
+        if outer? and st.motion_failed, do: %{st | motion_failed: false} |> msg("Macro @#{reg} stopped: a motion couldn't move"), else: st
     end
   end
 
@@ -558,7 +606,18 @@ defmodule Lepton.Editor do
     end
   end
 
+  # Motions relative to the cursor fail where they can't go (j on the last
+  # line, l at the end of one, f without the character): that ends a macro.
+  @relative_motions ~w[j k h l <up> <down> <left> <right> + - w W b B e E ge gE { } ( ) n N ; ,]
+
   defp move(st, m) do
+    from = cursor(st)
+    st = move_to(st, m)
+    relative? = m in @relative_motions or match?({k, _} when k in ["f", "F", "t", "T"], m)
+    if relative? and cursor(st) == from, do: %{st | motion_failed: true}, else: st
+  end
+
+  defp move_to(st, m) do
     {target, kind} = Motion.apply(buf(st), cursor(st), m, st.count, motion_ctx(st))
     st = remember_find(st, m)
 
@@ -774,6 +833,9 @@ defmodule Lepton.Editor do
   defp start_change_record(st, seq, action) when action in @changing, do: %{st | recording: seq}
   defp start_change_record(st, _seq, _a), do: st
 
+  # (r waits for its character: the change ends with it, in awaited/3)
+  defp finish_change(%{awaiting: a} = st, _action) when a != nil, do: st
+
   defp finish_change(st, action) when action in @changing do
     if st.mode == :normal and st.recording, do: %{st | last_change: st.recording, recording: nil}, else: st
   end
@@ -869,30 +931,8 @@ defmodule Lepton.Editor do
   def do_action(st, :join_lines, n), do: join(st, n || 2, true)
   def do_action(st, :join_lines_raw, n), do: join(st, n || 2, false)
 
-  def do_action(st, :replace_char, n) do
-    case TTY.read_key(st.tty) do
-      key when is_binary(key) ->
-        case Keys.text(key) do
-          nil -> st
-          ch ->
-            {l, c} = cursor(st)
-            len = Buffer.line_length(buf(st), l)
-            n = min(n || 1, len - c)
-
-            if n <= 0 do
-              st
-            else
-              st = snapshot(st)
-              {b, _} = Buffer.delete_range(buf(st), {l, c}, {l, c + n})
-              {b, _} = Buffer.insert(b, {l, c}, String.duplicate(ch, n))
-              st |> put_buf(b) |> set_cursor({l, c + n - 1})
-            end
-        end
-
-      _ ->
-        st
-    end
-  end
+  # The character comes as the next key (so macros record and play it).
+  def do_action(st, :replace_char, n), do: %{st | awaiting: {:replace_char, n}}
 
   def do_action(st, :replace_mode, _), do: enter_insert(%{st | mode: :replace}, true) |> Map.put(:mode, :replace)
 
@@ -1715,10 +1755,7 @@ defmodule Lepton.Editor do
       :eol -> set_cursor(st, {l, Buffer.line_length(b, l)})
       :save -> save(st)
       :normal_one -> st |> exit_insert() |> then(&set_cursor(&1, {l, c}))
-      :quoted_insert -> case TTY.read_key(st.tty) do
-          k when is_binary(k) -> self_insert(st, Keys.encode(k))
-          _ -> st
-        end
+      :quoted_insert -> %{st | awaiting: :quoted_insert}
 
       :insert_eex_statement -> st |> self_insert("<%  %>") |> then(&set_cursor(&1, {l, c + 3}))
       :insert_eex_expression -> st |> self_insert("<%=  %>") |> then(&set_cursor(&1, {l, c + 4}))

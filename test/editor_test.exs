@@ -229,6 +229,40 @@ defmodule Lepton.EditorTest do
     assert st.message =~ "too deeply"
   end
 
+  test "a macro stops where a motion fails: j past the last line ends it, its count and the macros that called it" do
+    # As in Vim: 100@q on a 4-line file wraps each line once, not the last one 97 times.
+    {st, _} = editor("one\ntwo\nthree\nfour\n")
+    st = keys(st, "q q I [ ESC A ] ESC j q")
+    st = keys(st, "1 0 0 @ q")
+    assert text(st) == "[one]\n[two]\n[three]\n[four]\n"
+    assert st.message =~ "Macro @q stopped" and st.motion_failed == false
+    assert elem(cursor(st), 0) == 3
+
+    # The recursive idiom (a macro that ends by calling itself) runs to the last line and stops there.
+    {st, _} = editor("a\nb\nc\n")
+    st = keys(st, "q r A ! ESC j q")
+    st = keys(st, "q R @ r q")
+    st = keys(st, "g g @ r")
+    # (recording qR played it once already, on b)
+    assert text(st) == "a!!\nb!!\nc!\n"
+
+    # r takes its character as the next key: recorded and played by macros, repeated by `.`.
+    {st, _} = editor("abcd\nefgh\n")
+    st = keys(st, "q m r X l q @ m")
+    assert text(st) == "XXcd\nefgh\n"
+    st = keys(st, "j 0 r Y l .")
+    assert text(st) == "XXcd\nYYgh\n"
+
+    # f without the character fails too; typing j on the last line by hand is just a no-op.
+    {st, _} = editor("x,y\nz\n")
+    st = keys(st, "q f f , r ; q j 0 @ f")
+    assert text(st) == "x;y\nz\n"
+    st = keys(st, "j j")
+    assert elem(cursor(st), 0) == 1 and st.motion_failed
+    st = keys(st, "k @ f")
+    assert text(st) == "x;y\nz\n" and st.message =~ "stopped"
+  end
+
   describe "Org folding" do
     @org """
     * One

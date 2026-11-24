@@ -53,7 +53,10 @@ The full list of what was loaded is on the
 - keyboard macros: `q` and a register (`a`–`z`, `0`–`9`) records what you
   type, `q` stops (the mode line shows `[@q]` meanwhile), `@q` plays it
   back, `@@` plays the last one again, and a count repeats it (`5@q`).
-  `qQ` (the capital) adds to macro `q`. Macros last until `le` quits;
+  `qQ` (the capital) adds to macro `q`. As in Vim, a motion that can't
+  move (`j` on the last line, `f` without its character) stops the
+  macro and its count, so `100@q` with a `j` in it ends at the last
+  line. Macros last until `le` quits;
 - ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`;
 - the mouse: a click puts the cursor there (and selects that window; on a
   mode line, just the window), a drag selects text as `v` does, and the
