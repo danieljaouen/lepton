@@ -2,13 +2,26 @@
 title: Languages and keyboards
 order: 13
 section: desktop
-summary: Type Korean, Thai, Hindi, Arabic and other languages on the desktop. Choose input sources with keyboard, switch with Super+Space, compose Hangul in Firefox, and make Caps Lock a Ctrl.
+summary: Type Korean, Thai, Hindi, Arabic and other languages on the desktop. Choose input sources with keyboard, switch with Super+Space, compose Hangul in Firefox, make Caps Lock a Ctrl, and choose natural or traditional scrolling.
 ---
 
 # Languages and keyboards
 
 Accented letters (é ü ñ č) type everywhere with Alt, on the console as
 well as on the desktop: see [Typing accents](accents.html).
+
+## Scrolling
+
+Scrolling is **natural** by default, as on a Mac or an iPad: swipe up (or
+turn the wheel down) and the page moves up with your fingers. For the
+other way, where turning the wheel down shows what is below, as on Linux
+and Windows:
+
+    mouse scroll traditional
+
+`mouse scroll natural` sets it back, and `mouse` says which it is. It
+applies to Firefox, terminal windows and `le` at once, and is kept
+across reboots.
 
 ## Caps Lock as Ctrl
 

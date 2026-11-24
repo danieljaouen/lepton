@@ -1698,8 +1698,10 @@ defmodule Lepton.Photon do
     move_pointer(st, rx + min(px, rw - 1), ry + min(py, rh - 1))
   end
 
-  defp handle_input({:wheel, steps}, st), do: scroll(st, 0, steps)
-  defp handle_input({:hwheel, steps}, st), do: scroll(st, 1, steps)
+  # The wheel arrives as it turns (positive: down, or right); natural
+  # scrolling (Lepton.Keyboard's, the default) turns it around, as a Mac does.
+  defp handle_input({:wheel, steps}, st), do: scroll(st, 0, natural(st, steps))
+  defp handle_input({:hwheel, steps}, st), do: scroll(st, 1, natural(st, steps))
 
   # Picking a region: the pointer is the screenshot's, not the windows'.
   defp handle_input({:button, code, pressed?}, %{selecting: %{}} = st), do: select_button(st, code, pressed?)
@@ -1712,6 +1714,8 @@ defmodule Lepton.Photon do
 
   defp handle_input({:key, code, pressed?}, st), do: key(st, code, pressed?)
   defp handle_input(_event, st), do: st
+
+  defp natural(st, steps), do: if(Map.get(st.kb, :scroll, :natural) == :natural, do: -steps, else: steps)
 
   # wl_pointer.axis: 0 vertical, 1 horizontal.
   defp scroll(st, axis, steps) do

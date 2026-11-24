@@ -427,6 +427,48 @@ defmodule Lepton.PhotonTest do
     assert File.exists?(outside)
   end
 
+  test "scrolling: natural by default (the content follows the fingers, as on a Mac), or traditional; `mouse scroll` sets it" do
+    System.put_env("LEPTON_STATE_DIR", tmp_dir("scrollstate"))
+
+    on_exit(fn ->
+      Lepton.Keyboard.set_scroll(:natural)
+      System.delete_env("LEPTON_STATE_DIR")
+    end)
+
+    {:ok, _} = Lepton.Keyboard.set_scroll(:natural)
+    {ph, _out, env} = start_photon()
+    win = window(env, 200, 100, Render.px(1, 1, 1))
+    {c, seat} = Client.bind(win.c, "wl_seat", 5)
+    {c, pointer} = Client.create(c, seat, :get_pointer, "wl_pointer")
+    [%{x: x, y: y}] = Photon.info(ph).windows
+    {cx, cy} = Render.content_origin(x, y)
+    Photon.input(ph, {:abs_px, cx + 50, cy + 50, 0})
+
+    axes = fn c ->
+      {evs, c} = events(c)
+      {for({^pointer, "wl_pointer", :axis, [_, axis, value]} <- evs, do: {axis, value}), c}
+    end
+
+    {_, c} = axes.(c)
+    # The wheel turned down (and tilted right): natural, the content moves up (left).
+    Photon.input(ph, {:wheel, 1})
+    Photon.input(ph, {:hwheel, 1})
+    assert {[{0, v}, {1, h}], c} = axes.(c)
+    assert v < 0 and h < 0
+
+    # Traditional: down is down, right is right; and it's kept.
+    {"Scrolling is now traditional.\n", 0} = sh("mouse scroll traditional")
+    assert File.read!(Lepton.Persist.state_path("keyboard")) =~ "scroll traditional"
+    Photon.sync(ph)
+    Photon.input(ph, {:wheel, 1})
+    Photon.input(ph, {:hwheel, 1})
+    assert {[{0, v}, {1, h}], _c} = axes.(c)
+    assert v > 0 and h > 0
+    {out, 0} = sh("mouse")
+    assert out =~ "traditional"
+    assert {_, 2} = sh("mouse scroll sideways")
+  end
+
   test "input sources: Korean composes over text-input v3, layouts are XKB groups, Super+Space switches" do
     System.put_env("LEPTON_STATE_DIR", tmp_dir("kbstate"))
 
@@ -989,7 +1031,8 @@ defmodule Lepton.PhotonTest do
     Photon.input(ph, {:button, 0x110, false})
     assert Lepton.TTY.read_key(tty, 300) == :timeout
 
-    # Presses, drags (1002) and releases, in SGR form (1006); the wheel (down).
+    # Presses, drags (1002) and releases, in SGR form (1006); the wheel
+    # (turned down: with natural scrolling, the default, that scrolls up).
     Lepton.TTY.write(tty, "\e[?1002;1006h")
     assert eventually(fn -> match?(%{mouse: :drag, mouse_sgr: true}, :sys.get_state(term).screen) end)
     at.(2, 1)
@@ -998,7 +1041,8 @@ defmodule Lepton.PhotonTest do
     at.(4, 1)
     Photon.input(ph, {:button, 0x110, false})
     Photon.input(ph, {:wheel, 1})
-    assert keys.(5) == [{:mouse, :press, :left, 2, 1, ""}, {:mouse, :drag, :left, 3, 1, ""}, {:mouse, :drag, :left, 4, 1, ""}, {:mouse, :release, :left, 4, 1, ""}, {:mouse, :press, :wheel_down, 4, 1, ""}]
+    wheel = if Lepton.Keyboard.scroll() == :natural, do: :wheel_up, else: :wheel_down
+    assert keys.(5) == [{:mouse, :press, :left, 2, 1, ""}, {:mouse, :drag, :left, 3, 1, ""}, {:mouse, :drag, :left, 4, 1, ""}, {:mouse, :release, :left, 4, 1, ""}, {:mouse, :press, wheel, 4, 1, ""}]
 
     # Without 1006, the old form (ESC [ M and three bytes); with 1000, no drags.
     Lepton.TTY.write(tty, "\e[?1006l\e[?1000h")

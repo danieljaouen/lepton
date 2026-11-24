@@ -9,6 +9,11 @@ defmodule Lepton.Keyboard do
   indicator) moves to the next one; in Korean, the Hangul key, Shift+Space
   or a tap of Right Alt switch between Hangul and English.
 
+  The mouse's scrolling is set here too (`scroll`): `:natural` (the
+  default, as on a Mac or an iPad, where UTM passes the wheel on as it
+  turns: the content follows your fingers) or `:traditional` (the wheel
+  moves the view, as on Linux and Windows).
+
   The setting is the system's, kept in the state directory (`keyboard`)
   across reboots. Photon watches it (`watch/1`, `{:keyboard, state}`) and
   sends programs a keymap with US English as the first XKB group and each
@@ -19,9 +24,9 @@ defmodule Lepton.Keyboard do
   alias Lepton.Wayland.Layouts
 
   @max_layouts 3
-  @public [:sources, :current, :hangul, :accents, :caps]
+  @public [:sources, :current, :hangul, :accents, :caps, :scroll]
 
-  defstruct sources: ["us"], current: "us", hangul: true, accents: true, caps: :lock, watchers: []
+  defstruct sources: ["us"], current: "us", hangul: true, accents: true, caps: :lock, scroll: :natural, watchers: []
 
   def start_link(_), do: Agent.start_link(fn -> load() |> console() end, name: __MODULE__)
 
@@ -126,6 +131,12 @@ defmodule Lepton.Keyboard do
     result
   end
 
+  @doc "Which way the mouse scrolls: `:natural` or `:traditional`."
+  def scroll, do: state().scroll
+
+  @doc "Make scrolling `:natural` (content follows the fingers) or `:traditional`."
+  def set_scroll(how) when how in [:natural, :traditional], do: change(&%{&1 | scroll: how})
+
   @doc "In Korean: switch between Hangul and English."
   def toggle_hangul, do: change(&%{&1 | hangul: not &1.hangul})
 
@@ -155,7 +166,7 @@ defmodule Lepton.Keyboard do
     end
   end
 
-  # -- the file: "sources us ko th", "current ko" (and "accents off", "caps ctrl") -----------------------
+  # -- the file: "sources us ko th", "current ko" (and "accents off", "caps ctrl", "scroll traditional") ---
 
   defp path, do: Lepton.Persist.state_path("keyboard")
 
@@ -166,7 +177,7 @@ defmodule Lepton.Keyboard do
         sources = for("sources " <> s <- lines, id <- String.split(s), name(id), do: id) |> Enum.uniq()
         sources = if sources == [], do: ["us"], else: sources
         current = Enum.find_value(lines, fn "current " <> c -> String.trim(c); _ -> nil end)
-        %__MODULE__{sources: sources, current: if(current in sources, do: current, else: hd(sources)), accents: "accents off" not in lines, caps: if("caps ctrl" in lines, do: :ctrl, else: :lock)}
+        %__MODULE__{sources: sources, current: if(current in sources, do: current, else: hd(sources)), accents: "accents off" not in lines, caps: if("caps ctrl" in lines, do: :ctrl, else: :lock), scroll: if("scroll traditional" in lines, do: :traditional, else: :natural)}
 
       _ ->
         %__MODULE__{}
@@ -177,6 +188,7 @@ defmodule Lepton.Keyboard do
     File.mkdir_p(Path.dirname(path()))
     accents = if st.accents, do: "", else: "accents off\n"
     caps = if st.caps == :ctrl, do: "caps ctrl\n", else: ""
-    File.write(path(), "sources #{Enum.join(st.sources, " ")}\ncurrent #{st.current}\n" <> accents <> caps)
+    scroll = if st.scroll == :traditional, do: "scroll traditional\n", else: ""
+    File.write(path(), "sources #{Enum.join(st.sources, " ")}\ncurrent #{st.current}\n" <> accents <> caps <> scroll)
   end
 end

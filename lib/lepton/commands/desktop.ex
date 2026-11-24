@@ -42,6 +42,24 @@ defmodule Lepton.Commands.Desktop do
     keyboard(args, ctx)
   end
 
+  defcmd "mouse", "the mouse on the desktop: natural or traditional scrolling",
+    usage: "mouse [scroll [natural | traditional]]" do
+    case args do
+      a when a in [[], ["scroll"]] ->
+        IO.puts(ctx, if(Lepton.Keyboard.scroll() == :natural, do: "Scrolling is natural: the content follows your fingers, as on a Mac (mouse scroll traditional: the other way).", else: "Scrolling is traditional: the wheel moves the view (mouse scroll natural: as on a Mac)."))
+        0
+
+      ["scroll", how] when how in ["natural", "traditional"] ->
+        {:ok, _} = Lepton.Keyboard.set_scroll(String.to_existing_atom(how))
+        IO.puts(ctx, if(how == "natural", do: "Scrolling is now natural, as on a Mac.", else: "Scrolling is now traditional."))
+        0
+
+      _ ->
+        IO.err(ctx, "usage: mouse [scroll [natural | traditional]]")
+        2
+    end
+  end
+
   defcmd "firefox", "the Firefox web browser (installs it the first time; needs Photon)",
     usage: "firefox [URL...]" do
     cond do
