@@ -6,11 +6,14 @@ defmodule Lepton.Kmod do
   `finit_module(2)` goes through `Lepton.Sys.insmod/2`.
 
   There is no udev: `load_for_hardware/0` matches the `modalias` of every
-  USB, SDIO, PCI, platform, HID and virtio device against `modules.alias`
-  and loads the drivers, which is how Wi-Fi adapters (including ones
-  plugged in later), SD card slots, card readers, sound cards and
-  keyboards and mice that need their own HID driver (Apple, Logitech
-  receivers, touchpads) get theirs.
+  USB, SDIO, PCI, platform, I2C, SPI, HID and virtio device against
+  `modules.alias` and loads the drivers, which is how Wi-Fi adapters
+  (including ones plugged in later), SD card slots, card readers, sound
+  cards, keyboards and mice that need their own HID driver (Apple,
+  Logitech receivers, touchpads) and laptops' built-in I2C touchpads get
+  theirs. A driver can bring more devices (an I2C controller's driver
+  finds the touchpad on its bus, whose HID device then wants
+  hid-multitouch), so it looks again until nothing new loads.
   """
 
   def modules_dir do
@@ -93,19 +96,40 @@ defmodule Lepton.Kmod do
     end
   end
 
-  @hotplug_buses ~w(usb sdio pci platform hid virtio)
-  # Platform devices' aliases are by name or by device tree compatible string.
-  @alias_prefixes ~w(usb sdio pci platform of hid virtio)
+  @hotplug_buses ~w(usb sdio pci platform i2c spi hid virtio)
+  # Platform, I2C and SPI devices' aliases are by name, by device tree
+  # compatible string (of:) or by ACPI ID (acpi:, as laptops describe
+  # their I2C controllers and HID-over-I2C touchpads: PNP0C50).
+  @alias_prefixes ~w(usb sdio pci platform i2c spi of acpi hid virtio)
 
-  @doc "Load the drivers for USB, SDIO, PCI, platform, HID and virtio devices present now. Returns the modules loaded."
-  def load_for_hardware do
+  @doc """
+  Load the drivers for USB, SDIO, PCI, platform, I2C, SPI, HID and virtio
+  devices present now, again for the devices those drivers bring (up to
+  `rounds` times). Returns the modules loaded.
+  """
+  def load_for_hardware(rounds \\ 4) do
     table = alias_table()
+    load_rounds(table, rounds, [], MapSet.new())
+  end
 
-    device_aliases()
-    |> Enum.flat_map(&modules_for(&1, table))
-    |> Enum.uniq()
-    |> Enum.reject(&loaded?/1)
-    |> Enum.filter(&(modprobe(&1) == :ok))
+  defp load_rounds(_table, 0, loaded, _tried), do: loaded
+
+  defp load_rounds(table, rounds, loaded, tried) do
+    wanted =
+      device_aliases()
+      |> Enum.flat_map(&modules_for(&1, table))
+      |> Enum.uniq()
+      |> Enum.reject(&(MapSet.member?(tried, &1) or loaded?(&1)))
+
+    case Enum.filter(wanted, &(modprobe(&1) == :ok)) do
+      [] ->
+        loaded
+
+      new ->
+        # Devices a driver finds appear as it probes; give them a moment.
+        Process.sleep(200)
+        load_rounds(table, rounds - 1, loaded ++ new, MapSet.union(tried, MapSet.new(wanted)))
+    end
   end
 
   def device_aliases do
@@ -146,7 +170,8 @@ defmodule Lepton.Kmod do
   def parse_aliases(text) do
     for line <- String.split(text, "\n"),
         ["alias", pattern, mod] <- [String.split(line)],
-        String.starts_with?(pattern, Enum.map(@alias_prefixes, &(&1 <> ":"))),
+        # (ACPI's are written acpi*:ID:*)
+        (pattern |> String.split(":", parts: 2) |> hd() |> String.trim_trailing("*")) in @alias_prefixes,
         do: {glob_regex(pattern), normalize(mod)}
   end
 

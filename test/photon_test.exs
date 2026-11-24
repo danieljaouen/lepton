@@ -168,6 +168,58 @@ defmodule Lepton.PhotonTest do
     assert Input.bitmap("1 0") == Bitwise.bsl(1, 64)
   end
 
+  test "touchpad gestures: tap to click (two fingers: right, three: middle), two-finger scrolling and right click" do
+    pad = %{kind: :touchpad, index: 0, x: {0, 1000}, y: {0, 700}, res: {10, 10}}
+    # Events with their times (ms), as the reader gives them.
+    feed = fn events, acc ->
+      Enum.reduce(events, {[], acc}, fn {ms, t, c, v}, {out, acc} ->
+        {evs, acc} = Input.decode(t, c, v, pad, Map.put(acc, :time, ms))
+        {out ++ evs, acc}
+      end)
+    end
+
+    click = fn b -> [{:button, b, true}, {:button, b, false}] end
+    down = fn ms, tool, x, y -> [{ms, 1, 0x14A, 1}, {ms, 1, tool, 1}, {ms, 3, 0, x}, {ms, 3, 1, y}, {ms, 0, 0, 0}] end
+    up = fn ms, tool -> [{ms, 1, 0x14A, 0}, {ms, 1, tool, 0}, {ms, 0, 0, 0}] end
+
+    # One finger, down and up quickly: a left click.
+    {[], acc} = feed.(down.(1000, 0x145, 100, 100), %{})
+    {taps, acc} = feed.(up.(1080, 0x145), acc)
+    assert taps == click.(0x110)
+    # Too slow, or moved: not a tap.
+    {[], acc} = feed.(down.(2000, 0x145, 100, 100), acc)
+    assert {[], acc} = feed.(up.(2500, 0x145), acc)
+    {[], acc} = feed.(down.(3000, 0x145, 100, 100), acc)
+    {[{:motion, _, _}], acc} = feed.([{3050, 3, 0, 300}, {3050, 0, 0, 0}], acc)
+    assert {[], acc} = feed.(up.(3100, 0x145), acc)
+
+    # Two fingers: a tap is a right click; three, a middle click.
+    {[], acc} = feed.(down.(4000, 0x14D, 100, 100), acc)
+    {taps, acc} = feed.(up.(4090, 0x14D), acc)
+    assert taps == click.(0x111)
+    {[], acc} = feed.(down.(5000, 0x145, 100, 100) ++ [{5020, 1, 0x145, 0}, {5020, 1, 0x14E, 1}, {5020, 0, 0, 0}], acc)
+    {taps, acc} = feed.(up.(5100, 0x14E), acc)
+    assert taps == click.(0x112)
+
+    # Two fingers moving scroll instead of pointing: down 10 mm (60 px)
+    # is two wheel steps (24 px each), the rest kept; sideways, hwheel.
+    {[], acc} = feed.(down.(6000, 0x14D, 100, 100), acc)
+    assert {[{:wheel, 2}], acc} = feed.([{6100, 3, 1, 200}, {6100, 0, 0, 0}], acc)
+    assert {[{:wheel, 1}], acc} = feed.([{6200, 3, 1, 220}, {6200, 0, 0, 0}], acc)
+    assert {[{:hwheel, -2}], acc} = feed.([{6300, 3, 0, 20}, {6300, 0, 0, 0}], acc)
+    assert {[], acc} = feed.(up.(6400, 0x14D), acc)
+
+    # Pressing the pad with two fingers on it: the right button, released as such.
+    {[], acc} = feed.(down.(7000, 0x14D, 100, 100), acc)
+    assert {[{:button, 0x111, true}], acc} = feed.([{7100, 1, 0x110, 1}, {7100, 0, 0, 0}], acc)
+    assert {[{:button, 0x111, false}], acc} = feed.([{7150, 1, 0x110, 0}, {7150, 0, 0, 0}], acc)
+    # (a press is not also a tap)
+    assert {[], acc} = feed.(up.(7180, 0x14D), acc)
+    # One finger: the left button.
+    {[], acc} = feed.(down.(8000, 0x145, 100, 100), acc)
+    assert {[{:button, 0x110, true}], _} = feed.([{8100, 1, 0x110, 1}, {8100, 0, 0, 0}], acc)
+  end
+
   test "the font: PSF glyphs, text rows, and PNG screenshots" do
     assert Font.bitmap(?A) |> byte_size() == 16
     assert Font.has?(?é) and Font.has?(0x2500)

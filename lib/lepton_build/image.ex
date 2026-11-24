@@ -43,6 +43,18 @@ defmodule LeptonBuild.Image do
     hid-multitouch hid-lenovo hid-cherry hid-asus hid-elan wacom
   )
 
+  # Built-in touchpads and touchscreens of laptops, which sit on an I2C
+  # (or SPI) bus rather than USB: HID over I2C (described by ACPI or the
+  # device tree), Elan, Cypress, Atmel and Synaptics (RMI4) ones, and the
+  # I2C controllers of ARM laptops and boards (Qualcomm, Rockchip, NVIDIA
+  # Tegra, Raspberry Pi) that this kernel builds as modules. Loaded by
+  # hardware ID; their HID devices then get hid-multitouch.
+  @touchpad_modules ~w(
+    i2c-hid-acpi i2c-hid-of i2c-hid-of-elan
+    elan_i2c cyapatp atmel_mxt_ts synaptics_i2c rmi_i2c rmi_spi hid-rmi
+    i2c-qcom-geni i2c-rk3x i2c-tegra i2c-bcm2835
+  )
+
   # Removable storage (Lepton.Media): SD card slots and USB card readers,
   # and the filesystems USB drives and SD cards come with.
   @storage_modules ~w(
@@ -476,7 +488,7 @@ defmodule LeptonBuild.Image do
     root = modules_root(src, kver)
 
     deps = module_deps(root)
-    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @storage_modules ++ @sound_modules ++ @bluetooth_modules ++ @wifi_modules)
+    wanted = module_closure(root, @kernel_modules ++ @usb_modules ++ @touchpad_modules ++ @storage_modules ++ @sound_modules ++ @bluetooth_modules ++ @wifi_modules)
     shipped = MapSet.new(wanted, &module_name/1)
 
     # Aliases of the shipped modules only, for loading drivers by hardware

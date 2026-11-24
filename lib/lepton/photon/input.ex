@@ -21,6 +21,11 @@ defmodule Lepton.Photon.Input do
   A touchpad moves the pointer like a mouse: the finger's movement, in
   millimetres where the device says how big it is. An absolute device's
   range comes from the device (`EVIOCGABS`, through `Lepton.FD.ioctl/3`).
+  As on a Mac: a tap clicks (two fingers: the right button, three: the
+  middle one), two fingers moving scroll (`{:wheel, _}` and `{:hwheel,
+  _}`, which Photon turns natural or not), and pressing the pad with two
+  fingers on it is a right click. Touchpads on USB, Bluetooth and I2C
+  (laptops' built-in ones) all arrive the same way.
 
   Devices plugged in while Photon runs are picked up within a second.
   The devices are not grabbed: keys also reach the text console, which
@@ -34,8 +39,12 @@ defmodule Lepton.Photon.Input do
   @ev_rel 2
   @ev_abs 3
   @btn_left 0x110
+  @btn_right 0x111
+  @btn_middle 0x112
   @btn_touch 0x14A
   @btn_tool_finger 0x145
+  # How many fingers are down (BTN_TOOL_DOUBLETAP, TRIPLETAP, QUADTAP, QUINTTAP).
+  @btn_tools %{0x145 => 1, 0x14D => 2, 0x14E => 3, 0x14F => 4, 0x148 => 5}
   @key_mute 113
   @key_volumeup 115
   # QEMU's and UTM's tablets report 0..32767 on both axes (the range when
@@ -43,6 +52,12 @@ defmodule Lepton.Photon.Input do
   @abs_range {0, 32767}
   # A touchpad's pointer moves this many pixels per millimetre.
   @touchpad_px_per_mm 6
+  # A tap: the finger(s) down and up within this many milliseconds,
+  # moving no more than this many pixels (of pointer movement).
+  @tap_ms 200
+  @tap_px 18
+  # Two-finger scrolling: one wheel step per this many pixels moved.
+  @scroll_px 24
 
   @doc "Input devices Photon can use: `[{path, :keyboard | :mouse | :tablet | :touchpad}]`."
   def devices do
@@ -187,8 +202,8 @@ defmodule Lepton.Photon.Input do
     after
       0 ->
         case :file.read(f, 24) do
-          {:ok, <<_sec::native-64, _usec::native-64, type::native-16, code::native-16, value::native-signed-32>>} ->
-            {events, acc} = decode(type, code, value, kind, acc)
+          {:ok, <<sec::native-64, usec::native-64, type::native-16, code::native-16, value::native-signed-32>>} ->
+            {events, acc} = decode(type, code, value, kind, Map.put(acc, :time, sec * 1000 + div(usec, 1000)))
             Enum.each(events, &send(target, {:input, tag(&1, kind)}))
             loop(f, kind, target, ref, acc)
 
@@ -212,7 +227,33 @@ defmodule Lepton.Photon.Input do
 
   # A touchpad's finger: where it was is kept from frame to frame.
   # (a finger put down starts from where it lands: no jump)
-  def decode(@ev_key, @btn_touch, value, %{kind: :touchpad}, acc), do: {[], acc |> Map.put(:touch, value != 0) |> Map.delete(:last)}
+  def decode(@ev_key, @btn_touch, value, %{kind: :touchpad}, acc) do
+    acc = acc |> Map.put(:touch, value != 0) |> Map.delete(:last)
+    # A touch starts a possible tap: when, how far it has moved, how many fingers.
+    acc = if value != 0, do: Map.put(acc, :tap, %{t0: acc[:time], moved: 0, fingers: max(acc[:fingers] || 1, 1), pressed: false}), else: Map.put(acc, :lifted, true)
+    {[], acc}
+  end
+
+  # How many fingers: the most down at once counts for a tap. A change
+  # restarts the movement (the pad's one position jumps to another finger).
+  def decode(@ev_key, code, value, %{kind: :touchpad}, acc) when is_map_key(@btn_tools, code) do
+    n = @btn_tools[code]
+
+    acc =
+      cond do
+        value == 1 -> acc |> Map.put(:fingers, n) |> Map.delete(:last) |> update_tap(&%{&1 | fingers: max(&1.fingers, n)})
+        acc[:fingers] == n -> Map.put(acc, :fingers, 0)
+        true -> acc
+      end
+
+    {[], acc}
+  end
+
+  # The pad pressed (a clickpad) or its button: with two fingers on it, the right button.
+  def decode(@ev_key, @btn_left, value, %{kind: :touchpad}, acc) when value in [0, 1] do
+    as = if value == 1, do: (if (acc[:fingers] || 1) >= 2, do: @btn_right, else: @btn_left), else: acc[:pressed_as] || @btn_left
+    {[{:button, as, value == 1}], acc |> Map.put(:pressed_as, as) |> update_tap(&%{&1 | pressed: true})}
+  end
 
   def decode(@ev_key, code, value, _dev, acc) when value in [0, 1] do
     cond do
@@ -236,18 +277,31 @@ defmodule Lepton.Photon.Input do
     {lx, ly} = acc[:last] || {nil, nil}
     x = acc[:ax] || lx
     y = acc[:ay] || ly
-    {events, _} = decode(@ev_syn, 0, 0, %{dev | kind: :mouse}, Map.drop(acc, [:ax, :ay, :last, :touch]))
+    {events, _} = decode(@ev_syn, 0, 0, %{dev | kind: :mouse}, Map.take(acc, [:dx, :dy, :wheel, :hwheel]))
 
     # Movement while the finger is down, scaled to pixels.
-    moved =
+    {dx, dy} =
       if acc[:touch] != false and lx != nil and x != nil and {x, y} != {lx, ly} do
         {sx, sy} = touch_scale(dev)
-        [{:motion, (x - lx) * sx, (y - ly) * sy}]
+        {(x - lx) * sx, (y - ly) * sy}
       else
-        []
+        {0, 0}
       end
 
-    {moved ++ events, %{touch: Map.get(acc, :touch, true), last: if(x, do: {x, y})}}
+    acc = update_tap(acc, &%{&1 | moved: &1.moved + abs(dx) + abs(dy)})
+
+    # One finger points; two scroll, a wheel step per @scroll_px (a finger
+    # moving down is the wheel turning down: Photon makes it natural).
+    {moved, scroll} =
+      cond do
+        {dx, dy} == {0, 0} -> {[], acc[:scroll] || {0, 0}}
+        (acc[:fingers] || 1) >= 2 -> scroll_steps(acc[:scroll] || {0, 0}, dx, dy)
+        true -> {[{:motion, dx, dy}], {0, 0}}
+      end
+
+    {taps, acc} = if acc[:lifted], do: tap(acc), else: {[], acc}
+    keep = Map.take(acc, [:fingers, :tap, :pressed_as, :time])
+    {moved ++ events ++ taps, Map.merge(keep, %{touch: Map.get(acc, :touch, true), last: if(x, do: {x, y}), scroll: scroll})}
   end
 
   def decode(@ev_syn, 0, _v, dev, acc) do
@@ -259,6 +313,35 @@ defmodule Lepton.Photon.Input do
   end
 
   def decode(_type, _code, _value, _dev, acc), do: {[], acc}
+
+  defp update_tap(%{tap: %{} = t} = acc, f), do: %{acc | tap: f.(t)}
+  defp update_tap(acc, _f), do: acc
+
+  # Whole wheel steps out of what two fingers moved; the rest is kept for
+  # the next frame. Mostly vertical scrolls vertically, else sideways.
+  defp scroll_steps({rx, ry}, dx, dy) do
+    {rx, ry} = if abs(dy) >= abs(dx), do: {0, ry + dy}, else: {rx + dx, 0}
+    v = trunc(ry / @scroll_px)
+    h = trunc(rx / @scroll_px)
+    events = if(v != 0, do: [{:wheel, v}], else: []) ++ if(h != 0, do: [{:hwheel, h}], else: [])
+    {events, {rx - h * @scroll_px, ry - v * @scroll_px}}
+  end
+
+  # The fingers lifted: a tap when quick, still and not a press of the pad.
+  defp tap(acc) do
+    acc = Map.drop(acc, [:lifted, :scroll])
+
+    case acc[:tap] do
+      %{t0: t0, moved: moved, fingers: n, pressed: false} when is_integer(t0) ->
+        quick? = is_integer(acc[:time]) and acc[:time] - t0 <= @tap_ms
+        button = Enum.at([@btn_left, @btn_right, @btn_middle], min(n, 3) - 1)
+        events = if quick? and moved <= @tap_px, do: [{:button, button, true}, {:button, button, false}], else: []
+        {events, Map.delete(acc, :tap)}
+
+      _ ->
+        {[], Map.delete(acc, :tap)}
+    end
+  end
 
   defp fraction(nil, _), do: nil
   defp fraction(v, {min, max}), do: min(max((v - min) / (max - min), 0.0), 1.0)

@@ -98,6 +98,8 @@ defmodule Lepton.NcduTest do
     assert Enum.any?(Ncdu.dir(st).children, &(&1.name == "new.txt")) and Ncdu.dir(st).name == "big"
   end
 
+  # Scans / itself: quick on Lepton, minutes on a Mac's disk.
+  @tag :native
   test "-x stays on one file system; the kernel's are left out" do
     t = Ncdu.scan("/", one_fs: true)
     proc = Enum.find(t.children, &(&1.name == "proc"))

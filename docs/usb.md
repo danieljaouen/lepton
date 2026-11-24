@@ -55,9 +55,18 @@ appears.
 - **Mice**: the wheel scrolls, a tilting or second wheel scrolls sideways,
   and every button (side buttons too) reaches the program under the
   pointer.
-- **Touchpads** move the pointer as you slide one finger. Click by
-  pressing the pad (or its buttons). Tap-to-click and two-finger scrolling
-  aren't supported yet.
+- **Touchpads** work as on a Mac: one finger moves the pointer, a tap
+  clicks (a two-finger tap right-clicks, a three-finger tap
+  middle-clicks), two fingers scroll (up and down, and sideways), and
+  pressing the pad clicks (with two fingers on it, a right click).
+  Scrolling follows `mouse scroll` (natural by default). Laptops'
+  built-in touchpads and touchscreens, which sit on an I2C bus rather
+  than USB, work too: HID over I2C (most of them, described by ACPI or
+  the device tree), and Elan, Cypress, Atmel and Synaptics ones. Their
+  drivers, and those of the I2C controllers of Qualcomm, Rockchip,
+  NVIDIA Tegra and Raspberry Pi machines, load at startup when the
+  hardware is there. (A virtual machine has none: UTM and QEMU give a
+  USB pointer.)
 - **Tablets and touchscreens** map their surface onto the display.
 - **Keyboards**: every key, with the US layout. The volume keys set the
   volume (see [Sound](sound.html)).

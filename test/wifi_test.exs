@@ -69,12 +69,34 @@ defmodule Lepton.WifiTest do
       alias acpi:QEMU0002:* fw_cfg
       """)
 
-    assert length(table) == 4
+    assert length(table) == 5
+    assert Kmod.modules_for("acpi:QEMU0002:", table) == ["fw_cfg"]
     assert Kmod.modules_for("pci:v00001B36d00000007sv00001AF4sd00001100bc08sc05i01", table) == ["sdhci_pci"]
     assert Kmod.modules_for("usb:v148Fp7601d0000dc00dsc00dp00icFFiscFFipFFin00", table) == ["mt7601u"]
     assert Kmod.modules_for("usb:v0BDAp8179d0200dc00dsc00dp00icFFiscFFipFFin00", table) == ["rtl8xxxu"]
     assert Kmod.modules_for("usb:v0BDAp1234d0000dc00dsc00dp00icAisc00ip00in00", table) == ["rtw88_8822bu"]
     assert Kmod.modules_for("usb:v0BDAp1234d0000dc00dsc00dp00icBisc00ip00in00", table) == []
+  end
+
+  test "laptops' built-in touchpads: drivers by ACPI ID or device tree, on I2C" do
+    table =
+      Kmod.parse_aliases("""
+      alias acpi*:PNP0C50:* i2c_hid_acpi
+      alias acpi*:ELAN0000:* elan_i2c
+      alias of:N*T*Chid-over-i2c i2c_hid_of
+      alias i2c:hid-over-i2c i2c_hid_of
+      alias acpi*:QCOM0411:* i2c_qcom_geni
+      alias of:N*T*Crockchip,rk3399-i2c i2c_rk3x
+      """)
+
+    assert length(table) == 6
+    # A HID-over-I2C touchpad (an Elan one with the HID ID as its compatible ID).
+    assert Kmod.modules_for("acpi:ELAN0000:PNP0C50:", table) == ["i2c_hid_acpi", "elan_i2c"]
+    assert Kmod.modules_for("of:NtouchpadT(null)Chid-over-i2c", table) == ["i2c_hid_of"]
+    assert Kmod.modules_for("i2c:hid-over-i2c", table) == ["i2c_hid_of"]
+    # The I2C controller it sits on.
+    assert Kmod.modules_for("acpi:QCOM0411:", table) == ["i2c_qcom_geni"]
+    assert Kmod.modules_for("of:Ni2cT(null)Crockchip,rk3399-i2c", table) == ["i2c_rk3x"]
   end
 
   test "choosing a saved network: its id in wpa_supplicant's list" do

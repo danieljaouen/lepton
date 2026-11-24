@@ -24,7 +24,8 @@ summary: What Lepton doesn't do yet.
   [Bluetooth](bluetooth.html)).
 - Sound: no recording, and Lepton's own sounds (`beep`, `play`) don't
   mix with Firefox's (see [Sound](sound.html)).
-- Touchpads: no tap-to-click, two-finger scrolling or gestures yet.
+- Touchpads: tap-to-click and two-finger scrolling work; no tap-and-drag,
+  pinch or swipe gestures, and no palm rejection.
 - USB display adapters: DisplayLink's USB 2.0 chips and Generic USB
   Display gadgets only; newer DisplayLink docks need a closed-source
   driver. A USB-C hub's HDMI port (DisplayPort Alternate Mode) belongs to
