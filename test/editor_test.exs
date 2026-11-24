@@ -354,6 +354,29 @@ defmodule Lepton.EditorTest do
     end
   end
 
+  test "SPC s p: RET opens the result's file at its line; motions such as b move in the results" do
+    dir = tmp_dir("grepres")
+    repo = Lepton.Git.Repo.init(dir)
+    File.write!(Path.join(dir, "words.org"), "* one\n* badinage: light banter\n")
+    Lepton.Git.add(repo, [dir])
+    ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+    st = Editor.init([Path.join(dir, "words.org")], ctx)
+
+    st = keys(st, "SPC s p b a d i n a g e RET")
+    assert Editor.buf(st).name == "*grep*"
+    assert cursor(st) == {2, 0}
+    st = keys(st, "w w w")
+    {_, col} = cursor(st)
+    assert col > 0
+    st = keys(st, "b")
+    refute (st.message || "") =~ "not available"
+    assert {2, back} = cursor(st)
+    assert back < col
+    st = keys(st, "G 0 RET")
+    assert Editor.buf(st).path == Path.join(dir, "words.org")
+    assert cursor(st) == {1, 0}
+  end
+
   test "magit: s saves the file's buffer first and stages it, s on a section heading stages the section; commit with , c / C-c C-c / :wq, cancel with C-c C-k" do
     dir = tmp_dir("magit")
     repo = Lepton.Git.Repo.init(dir)

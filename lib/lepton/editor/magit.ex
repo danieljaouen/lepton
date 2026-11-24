@@ -135,7 +135,6 @@ defmodule Lepton.Editor.Magit do
         :special_refresh -> refresh(st)
         :special_toggle when path != nil -> toggle(st, section, path)
         :special_open when path != nil -> Editor.api(st, :visit, Path.join(root, path))
-        :special_open when b.kind == :list -> Editor.api(st, :grep_result, nil)
         :magit_commit -> commit_buffer(st, repo, false)
         :magit_amend -> commit_buffer(st, repo, true)
         :magit_log -> log(st)

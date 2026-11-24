@@ -25,7 +25,8 @@ include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
 - `SPC b b` switch buffer, `SPC b d` close buffer.
 - `SPC w /` and `SPC w -` split, `SPC w d` close window, `SPC w m`
   maximise.
-- `SPC p f` find a file in the project, `SPC s s` or `SPC /` search.
+- `SPC p f` find a file in the project, `SPC s s` search the buffer,
+  `SPC s p` or `SPC /` search the project (`RET` on a result opens it).
 - `SPC g s` git status (magit-style: `s` stage, `u` unstage, `c c`
   commit, `P p` push, `F p` pull). In the commit message, `, c` or
   `C-c C-c` (or `:wq`) commits and `, k` or `C-c C-k` cancels; both

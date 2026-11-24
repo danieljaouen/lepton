@@ -1824,6 +1824,7 @@ defmodule Lepton.Editor do
       :quit_special -> quit_window(st, true)
       :dired_up when b.kind == :dired -> visit(st, Path.dirname(b.meta.dir))
       :special_open when b.kind == :dired -> dired_open(st)
+      :special_open when b.kind == :list -> goto_grep_result(st)
       :special_refresh when b.kind == :dired -> special_buffer(st, b.name, :dired, Buffer.text(dired_buffer(b.meta.dir)), b.meta)
       a when b.kind in [:magit, :log] -> Magit.action(st, a)
       :special_open when b.kind == :help -> st

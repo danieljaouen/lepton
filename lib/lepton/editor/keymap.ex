@@ -228,11 +228,16 @@ defmodule Lepton.Editor.Keymap do
     {"j", :next_line}, {"k", :previous_line}, {"<down>", :next_line}, {"<up>", :previous_line},
     {"g g", :goto_first}, {"G", :goto_last}, {"q", :quit_special}, {"RET", :special_open},
     {"g r", :special_refresh}, {"TAB", :special_toggle}, {"-", :dired_up},
-    {"s", :magit_stage}, {"u", :magit_unstage}, {"S", :magit_stage_all}, {"U", :magit_unstage_all},
-    {"c c", :magit_commit}, {"c a", :magit_amend}, {"P p", :magit_push}, {"F p", :magit_pull},
-    {"l l", :magit_log}, {"b b", :magit_checkout}, {"b c", :magit_branch_create}, {"x", :magit_discard},
     {"C-d", :scroll_half_down}, {"C-u", :scroll_half_up}, {"?", :describe_bindings}, {":", :ex},
     {"C-l", :redraw}, {"v", :visual}, {"y y", :yank_line}
+  ]
+
+  # Only in magit's status buffer: elsewhere (search results, dired, help,
+  # logs) b, w, e and the rest are motions, as in Vim.
+  @magit [
+    {"s", :magit_stage}, {"u", :magit_unstage}, {"S", :magit_stage_all}, {"U", :magit_unstage_all},
+    {"c c", :magit_commit}, {"c a", :magit_amend}, {"P p", :magit_push}, {"F p", :magit_pull},
+    {"l l", :magit_log}, {"b b", :magit_checkout}, {"b c", :magit_branch_create}, {"x", :magit_discard}
   ]
 
   @minibuffer [
@@ -254,7 +259,7 @@ defmodule Lepton.Editor.Keymap do
       visual: to_map(@visual ++ Enum.map(@leader, fn {k, a, _} -> {k, a} end)),
       insert: to_map(@insert),
       special: to_map(@special ++ Enum.map(@leader, fn {k, a, _} -> {k, a} end)),
-      magit: %{},
+      magit: to_map(@magit),
       minibuffer: to_map(@minibuffer),
       completion: to_map(@completion),
       labels: Map.merge(@labels, Map.new(@leader, fn {k, _, label} -> {Keys.parse(k), label} end))

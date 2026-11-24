@@ -43,7 +43,9 @@ The full list of what was loaded is on the
 
 - the `SPC` leader with which-key popups: `SPC f f/s` files, `SPC b b/d`
   buffers, `SPC w /,-,d,m` windows, `SPC g s` git, `SPC p f` project files,
-  `SPC s s` / `SPC /` search, `SPC t n/r` line numbers, `SPC x a r`
+  `SPC s s` search the buffer, `SPC s p` / `SPC /` search the project
+  (`RET` on a result opens its file at that line; motions such as `w`
+  and `b` move in the results), `SPC t n/r` line numbers, `SPC x a r`
   align, `SPC q q` quit, `SPC SPC` M-x, `SPC ?` bindings;
 - helm-style candidate lists;
 - evil operators, motions and text objects with counts and `.`, visual
