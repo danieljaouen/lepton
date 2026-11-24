@@ -770,18 +770,19 @@ defmodule Lepton.Commands.Core do
   defp fmt_du(bytes, %{"h" => true}), do: human(bytes)
   defp fmt_du(bytes, _), do: to_string(div(bytes + 1023, 1024))
 
-  defcmd "df", "report file system space usage", usage: "df [-h]" do
-    {opts, _} = getopt(args, "h")
-    IO.puts(ctx, "Filesystem      Size  Used Avail Use% Mounted on")
-    mem = Lepton.Sys.meminfo()
-    total = Map.get(mem, "MemTotal", 0)
-    avail = Map.get(mem, "MemAvailable", 0)
+  defcmd "df", "report file system space usage", usage: "df [-h] [FILE...]" do
+    {opts, files} = getopt(args, "h")
+    files = Enum.map(files, &Lepton.Ctx.path(ctx, &1))
+    rows = Lepton.DiskFree.rows(Lepton.Sys.mounts(), files, &Lepton.Sys.statfs/1, Lepton.Sys.meminfo())
+    fmt = fn n -> if opts["h"], do: human(n), else: to_string(div(n, 1024)) end
+    head = ["Filesystem", if(opts["h"], do: "Size", else: "1K-blocks"), "Used", if(opts["h"], do: "Avail", else: "Available"), "Use%", "Mounted on"]
+    body = for row <- rows, do: [row.device, fmt.(row.size), fmt.(row.used), fmt.(row.avail), Lepton.DiskFree.percent(row), row.dir]
+    # Each column as wide as its widest entry: the device left-aligned, numbers right.
+    widths = for i <- 0..4, do: Enum.max(for(line <- [head | body], do: String.length(Enum.at(line, i))))
 
-    for m <- Lepton.Sys.mounts(), m.type in ["rootfs", "tmpfs", "ramfs", "devtmpfs", "iso9660", "ext4", "vfat"] do
-      {size, used} = if m.type in ["rootfs", "ramfs"], do: {total, total - avail}, else: {total, 0}
-      fmt = fn n -> if opts["h"], do: human(n), else: to_string(div(n, 1024)) end
-      pct = if size > 0, do: "#{div(used * 100, size)}%", else: "-"
-      IO.puts(ctx, Enum.join([String.pad_trailing(m.device, 15), String.pad_leading(fmt.(size), 5), String.pad_leading(fmt.(used), 5), String.pad_leading(fmt.(size - used), 5), String.pad_leading(pct, 4), m.dir], " "))
+    for line <- [head | body] do
+      cells = for {{cell, w}, i} <- Enum.with_index(Enum.zip(line, widths)), do: if(i == 0, do: String.pad_trailing(cell, w), else: String.pad_leading(cell, w))
+      IO.puts(ctx, Enum.join(cells ++ [List.last(line)], " "))
     end
 
     0

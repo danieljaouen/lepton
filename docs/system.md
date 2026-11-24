@@ -30,7 +30,7 @@ The live ISO runs entirely from RAM: nothing you do is kept. An
 logs and settings) on its data partition; everything else, including
 `/etc`, resets at boot. It keeps `/var/log` too (see [logs](#logs)).
 
-`df`, `du`, `free` and `mount` show filesystems and memory.
+`df` shows each file system's size and free space (`df -h ~`: the disk your files are on), `du` what files take, `free` the memory and `mount` what is mounted.
 
 ## When memory runs out
 

@@ -93,6 +93,24 @@ defmodule Lepton.Sys do
     end
   end
 
+  @doc """
+  A file system's size, space used and available to users, in bytes
+  (statfs, through the shim's `stat -f`): `{:ok, %{size, used, avail}}`
+  or `:error`.
+  """
+  def statfs(path) do
+    case shim("stat", ["-f", "-c", "%S %b %f %a", path]) do
+      {out, 0} ->
+        case out |> String.split() |> Enum.map(&Integer.parse/1) do
+          [{bs, ""}, {blocks, ""}, {free, ""}, {avail, ""}] -> {:ok, %{size: blocks * bs, used: (blocks - free) * bs, avail: avail * bs}}
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
   def mounts do
     case File.read("/proc/mounts") do
       {:ok, text} ->
