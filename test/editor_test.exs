@@ -92,11 +92,22 @@ defmodule Lepton.EditorTest do
     st = keys(st, "u")
     assert text(st) == text
 
-    # On an empty line (o, Escape) a block's rows become lines of their own.
+    # On an empty line (o, Escape) a block's rows become lines of their own,
+    # and the empty line stays after them, apart from the lines below.
     st = keys(st, "g g o ESC p")
-    assert text(st) == "abcdef\nabc\nghi\nmn\nopq\nghijkl\nmn\nopqrst\n"
+    assert text(st) == "abcdef\nabc\nghi\nmn\nopq\n\nghijkl\nmn\nopqrst\n"
     st = keys(st, "u u")
     assert text(st) == text
+
+    # As typed: "ayy in the block (the second y starts a yank that o cancels;
+    # o still opens the line), then "ap there: the block, then what was below.
+    {st2, _} = editor("abcd\nefgh\nijkl\n")
+    st2 = keys(st2, "C-v j l \" a y y o ESC \" a p")
+    assert text(st2) == "abcd\nab\nef\n\nefgh\nijkl\n"
+    # $ first: whole lines' ends; the same.
+    {st2, _} = editor("abcd\nefgh\nijkl\n")
+    st2 = keys(st2, "C-v j $ y o ESC p")
+    assert text(st2) == "abcd\nabcd\nefgh\n\nefgh\nijkl\n"
 
     # Across a short line the block keeps its width (the column the cursor was going to).
     st = keys(st, "g g 0 l C-v l l j j y")
@@ -240,6 +251,33 @@ defmodule Lepton.EditorTest do
     {st, _} = editor("ab cd\n")
     st = keys(st, "y w w v $ p")
     assert text(st) == "ab ab \n"
+  end
+
+  test "a paste from the terminal (bracketed) goes in as it is: insert, normal and visual modes, prompts; one undo" do
+    paste = fn st, text -> Editor.handle_key(st, {:paste, text}) end
+    # Insert mode: newlines and indentation as pasted (no auto-indent added).
+    {st, _} = editor("def f do\nend\n")
+    st = keys(st, "A RET") |> paste.("  a = 1\r\n    b = 2") |> keys("ESC")
+    assert text(st) == "def f do\n  a = 1\n    b = 2\nend\n"
+
+    # Normal mode: before the cursor, staying normal; u takes it all back.
+    {st, _} = editor("xy\n")
+    st = keys(st, "l") |> paste.("1\n2")
+    assert text(st) == "x1\n2y\n" and st.mode == :normal
+    st = keys(st, "u")
+    assert text(st) == "xy\n"
+
+    # Visual: in place of the selection, even at the line's end.
+    {st, _} = editor("one two\n")
+    st = keys(st, "w v e") |> paste.("2")
+    assert text(st) == "one 2\n" and st.mode == :normal
+
+    # A prompt: on its line.
+    {st, _} = editor("alpha\nbeta gamma\n")
+    st = keys(st, "/") |> paste.("gam\nma")
+    assert st.minibuffer.text == "gam ma"
+    st = keys(st, "C-u") |> paste.("gamma") |> keys("RET")
+    assert cursor(st) == {1, 5}
   end
 
   test "evil-escape with jk (editing.el)" do

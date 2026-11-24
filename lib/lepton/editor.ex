@@ -99,13 +99,14 @@ defmodule Lepton.Editor do
     st = init(files, ctx)
     TTY.set_mode(ctx.tty, :raw)
     # The mouse reports presses, drags and releases (1002), in SGR form (1006).
-    TTY.write(ctx.tty, "\e[?1049h\e[?25l\e[?1002h\e[?1006h")
+    # (and bracketed paste, 2004: a paste comes as one piece of text)
+    TTY.write(ctx.tty, "\e[?1049h\e[?25l\e[?1002h\e[?1006h\e[?2004h")
 
     try do
       st |> redraw(true) |> loop()
       0
     after
-      TTY.write(ctx.tty, "\e[?1002l\e[?1006l\e[0m\e[?25h\e[?1049l")
+      TTY.write(ctx.tty, "\e[?2004l\e[?1002l\e[?1006l\e[0m\e[?25h\e[?1049l")
       TTY.set_mode(ctx.tty, :cooked)
     end
   end
@@ -173,6 +174,7 @@ defmodule Lepton.Editor do
 
   @doc "Feed a key (also used by tests to drive the editor headlessly)."
   def handle_key(st, {:mouse, _, _, _, _, _} = m), do: mouse(st, m)
+  def handle_key(st, {:paste, text}), do: bracketed_paste(st, text)
 
   def handle_key(st, key) do
     st = %{st | message: if(match?({:which_key, _}, st.message), do: nil, else: st.message)}
@@ -255,6 +257,44 @@ defmodule Lepton.Editor do
       if dc < col + w, do: {:halt, {i, col}}, else: {:cont, {i + 1, col + w}}
     end)
     |> elem(0)
+  end
+
+  # -- pasting from the terminal --------------------------------------------------------------
+
+  # A paste from the terminal (Ctrl+Shift+V in a terminal window, Cmd-V over
+  # SSH): the text as it is, newlines included, without auto-indent. In
+  # insert mode at the cursor; in normal mode before it (staying normal);
+  # over a visual selection, in its place; in a prompt, on its one line.
+  # One undo takes it back.
+  defp bracketed_paste(st, text) do
+    text = text |> String.replace("\r\n", "\n") |> String.replace("\r", "\n")
+
+    cond do
+      st.minibuffer ->
+        text |> String.replace("\n", " ") |> String.graphemes() |> Enum.reduce(st, &minibuffer_key(&2, if(&1 == " ", do: "SPC", else: &1)))
+
+      buf(st).read_only or buf(st).kind not in [:file, :scratch, :commit] ->
+        msg(st, "Buffer is read-only", true)
+
+      # (where the selection began: the cursor may have stepped back from the line's end)
+      st.mode in [:visual, :visual_line, :visual_block] ->
+        {{fl, fc}, _, _} = region(st)
+        st = visual_action(st, :visual_delete, nil)
+        l = min(fl, Buffer.line_count(buf(st)) - 1)
+        paste_text_at(st, {l, min(fc, Buffer.line_length(buf(st), l))}, text)
+
+      st.mode in [:insert, :replace] ->
+        {b, pos} = Buffer.insert(buf(st), cursor(st), text)
+        st |> put_buf(b) |> set_cursor(pos)
+
+      true ->
+        paste_text_at(snapshot(st), cursor(st), text)
+    end
+  end
+
+  defp paste_text_at(st, pos, text) do
+    {b, {el, ec}} = Buffer.insert(buf(st), pos, text)
+    st |> put_buf(b) |> set_cursor({el, max(ec - 1, 0)})
   end
 
   # -- buffers & windows ------------------------------------------------------------------
@@ -776,6 +816,11 @@ defmodule Lepton.Editor do
               {:range, from, to, kind} -> apply_operator(st, from, to, if(kind == :exclusive, do: :exclusive_range, else: kind))
               :none -> reset_op(st)
             end
+
+          # Not a motion: the operator is cancelled, and the key does what it
+          # does on its own (y then o opens a line; Vim would drop the o too).
+          :invalid when st.pending == [] ->
+            st |> reset_op() |> normal_key(key)
 
           :invalid ->
             reset_op(st)
@@ -1392,11 +1437,11 @@ defmodule Lepton.Editor do
         st |> put_buf(b) |> set_cursor({el, max(ec - 1, 0)})
 
       # A block on an empty line (after o, say): its rows as lines of their
-      # own there, the first on this one. (Vim would put the second in front
-      # of the next line.)
+      # own there, and the empty line after them, keeping it apart from the
+      # lines below. (Vim would put the second row in front of the next line.)
       {:block, rows} when b.lines |> elem(l) == "" ->
         rows = Enum.map(rows, &String.duplicate(&1, n))
-        st |> put_buf(Buffer.replace_lines(b, l, l, rows)) |> set_cursor({l, 0})
+        st |> put_buf(Buffer.insert_lines(b, l, rows)) |> set_cursor({l, 0})
 
       # A block: each row at the same column of the next lines (padded, and
       # lines added below the end, as needed).

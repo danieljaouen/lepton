@@ -60,7 +60,7 @@ The full list of what was loaded is on the
 - visual block (`C-v`), as in Vim: a rectangle of text, its columns as
   they show (tabs and wide characters too). `d`/`x` delete it, `y` copies
   it (and `p`/`P` put it back as a block beside the lines below, or as
-  lines of their own on an empty line), `c` changes it, `I` inserts
+  lines of their own on an empty line, which stays after them), `c` changes it, `I` inserts
   before it and `A` appends after it on every line (`$` first: at each
   line's end), `r` replaces each character, `~`/`u`/`U` change the case,
   `o`/`O` move to another corner, and `>`, `<` and `:` work on its lines;
@@ -78,6 +78,11 @@ The full list of what was loaded is on the
   deletes without keeping the text, `"0` holds the last yank, `"+` and
   `"*` are the clipboard, and `:reg` lists them. Every yank and delete
   still goes to the unnamed register and the clipboard, as before;
+- pasting from the terminal (Ctrl+Shift+V in a terminal window, Cmd-V
+  over SSH) puts the text in as it is, newlines and indentation included,
+  with no auto-indent added: at the cursor in insert mode, before it in
+  normal mode, in place of a visual selection, and on one line in a
+  prompt. One `u` takes it back;
 - ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`;
 - the mouse: a click puts the cursor there (and selects that window; on a
   mode line, just the window), a drag selects text as `v` does, and the

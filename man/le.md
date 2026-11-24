@@ -55,6 +55,9 @@ with `mouse on`, and over SSH from a terminal that reports the mouse
 With the Spacemacs tmux layer, `C-h`, `C-j`, `C-k` and `C-l` move
 between windows and on into neighbouring tmux panes.
 
+A paste from the terminal (bracketed paste) goes in exactly as copied,
+without auto-indent, in any mode.
+
 Options (`-...`) and `+LINE` arguments are accepted and ignored.
 
 ## FILES
