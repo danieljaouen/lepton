@@ -49,7 +49,10 @@ commas, and `favorite=true` lists an item first.
 - `generate [-n LEN] [-S] [-c]` (also `gen`): print a random password,
   or copy it with `-c`.
 - `audit`: list weak and reused passwords. Exits 1 if it finds any.
-- `passwd`: change the master password.
+- `passwd`: change the master password (an older vault moves to Argon2id).
+- `upgrade`: make the master password's key with Argon2id (64 MiB, 3
+  passes) instead of PBKDF2, for a vault made before Lepton 1.25; the
+  master password stays the same. `vault status` says which a vault uses.
 - `import FILE`: add the items from a CSV export (1Password, Bitwarden,
   Chrome, Firefox, Safari or LastPass) or from `vault export` (JSON).
   With `-` as FILE, it reads standard input.

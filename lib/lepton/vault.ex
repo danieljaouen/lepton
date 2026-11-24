@@ -8,14 +8,19 @@ defmodule Lepton.Vault do
 
   ## The file
 
-      "LPVAULT1" | iterations::32 | salt::16 bytes
+      "LPVAULT2" | memory MiB::16 | passes::8 | lanes::8 | salt::16 bytes
                  | key nonce::12 | wrapped key::32 | key tag::16
                  | body nonce::12 | body tag::16 | body
 
   The vault key is 32 random bytes made when the vault is created. It is
   stored wrapped (AES-256-GCM) with a key derived from the master password
-  (PBKDF2-HMAC-SHA256, 600,000 iterations, a random salt), so changing the
-  master password rewraps the key and leaves the body alone. The body is
+  with Argon2id (`Lepton.Argon2`: 64 MiB, 3 passes, one lane, a random
+  salt), which makes every guess at the password cost 64 MiB of memory as
+  well as time. Vaults made before it, "LPVAULT1" with an iteration count
+  in those four bytes, use PBKDF2-HMAC-SHA256 (600,000 iterations); they
+  still open, and move to Argon2id when the master password is changed
+  (or `vault upgrade`). Changing the master password rewraps the key and
+  leaves the body alone. The body is
   the items as JSON, encrypted with the vault key (AES-256-GCM, a fresh
   nonce every write); everything before it is authenticated with it. A
   wrong password, or any change to the file, fails to decrypt.
@@ -35,8 +40,8 @@ defmodule Lepton.Vault do
   import Bitwise
   alias Lepton.Vault.Agent
 
-  @magic "LPVAULT1"
-  @iterations 600_000
+  @pbkdf2 "LPVAULT1"
+  @argon2 "LPVAULT2"
   @header_size 8 + 4 + 16 + 12 + 32 + 16
 
   @kinds %{
@@ -97,21 +102,41 @@ defmodule Lepton.Vault do
 
   # -- the file --------------------------------------------------------------------------------
 
+  @doc """
+  How master passwords become keys for new vaults (and on a password
+  change): `{:argon2id, mib, passes, lanes}`, or `{:pbkdf2, iterations}`.
+  The `:vault_kdf` setting changes it (tests make it cheap).
+  """
+  def default_kdf, do: Application.get_env(:lepton, :vault_kdf, {:argon2id, 64, 3, 1})
+
+  @doc "How the vault in `bin` turns its master password into a key."
+  def kdf(<<@argon2, mib::16, t::8, p::8, _::binary>>), do: {:argon2id, mib, t, p}
+  def kdf(<<@pbkdf2, iterations::32, _::binary>>), do: {:pbkdf2, iterations}
+  def kdf(_), do: nil
+
+  @doc "A KDF said in words, for `vault status`."
+  def describe_kdf({:argon2id, mib, t, p}), do: "Argon2id, #{mib} MiB, #{t} passes#{if p > 1, do: ", #{p} lanes", else: ""}"
+  def describe_kdf({:pbkdf2, n}), do: "PBKDF2-HMAC-SHA256, #{n} iterations"
+
   @doc false
-  def new_file(password, data, iterations \\ @iterations) do
+  def new_file(password, data, kdf \\ default_kdf()) do
     key = :crypto.strong_rand_bytes(32)
-    header = wrap(key, password, :crypto.strong_rand_bytes(16), iterations)
+    header = wrap(key, password, :crypto.strong_rand_bytes(16), kdf)
     {seal(header, key, data), key}
   end
 
-  defp wrap(key, password, salt, iterations) do
-    head = @magic <> <<iterations::32>> <> salt
+  defp wrap(key, password, salt, kdf) do
+    head = kdf_head(kdf) <> salt
     nonce = :crypto.strong_rand_bytes(12)
-    {ct, tag} = :crypto.crypto_one_time_aead(:aes_256_gcm, kek(password, salt, iterations), nonce, key, head, true)
+    {ct, tag} = :crypto.crypto_one_time_aead(:aes_256_gcm, kek(kdf, password, salt), nonce, key, head, true)
     head <> nonce <> ct <> tag
   end
 
-  defp kek(password, salt, iterations), do: :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, 32)
+  defp kdf_head({:argon2id, mib, t, p}), do: @argon2 <> <<mib::16, t::8, p::8>>
+  defp kdf_head({:pbkdf2, iterations}), do: @pbkdf2 <> <<iterations::32>>
+
+  defp kek({:argon2id, mib, t, p}, password, salt), do: Lepton.Argon2.hash(password, salt, t: t, m: mib * 1024, p: p, length: 32)
+  defp kek({:pbkdf2, iterations}, password, salt), do: :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, 32)
 
   @doc false
   # The header with a new body.
@@ -123,8 +148,8 @@ defmodule Lepton.Vault do
 
   @doc false
   # The vault key, from the master password.
-  def unwrap(<<@magic, iterations::32, salt::binary-16, nonce::binary-12, ct::binary-32, tag::binary-16, _::binary>> = bin, password) do
-    case :crypto.crypto_one_time_aead(:aes_256_gcm, kek(password, salt, iterations), nonce, ct, binary_part(bin, 0, 28), tag, false) do
+  def unwrap(<<magic::binary-8, _::binary-4, salt::binary-16, nonce::binary-12, ct::binary-32, tag::binary-16, _::binary>> = bin, password) when magic in [@pbkdf2, @argon2] do
+    case :crypto.crypto_one_time_aead(:aes_256_gcm, kek(kdf(bin), password, salt), nonce, ct, binary_part(bin, 0, 28), tag, false) do
       key when is_binary(key) -> {:ok, key}
       :error -> {:error, :wrong_password}
     end
@@ -143,9 +168,11 @@ defmodule Lepton.Vault do
   def open(_, _), do: {:error, :damaged}
 
   @doc false
-  # A new master password: the key wrapped again (new salt), and the body sealed again under the new header.
-  def rewrap(<<@magic, iterations::32, _::binary>> = bin, key, password) do
-    with {:ok, data} <- open(bin, key), do: {:ok, seal(wrap(key, password, :crypto.strong_rand_bytes(16), iterations), key, data)}
+  # A new master password: the key wrapped again (new salt; and the KDF new
+  # vaults get, so an old vault moves to Argon2id), and the body sealed again
+  # under the new header.
+  def rewrap(bin, key, password, kdf \\ default_kdf()) do
+    with {:ok, data} <- open(bin, key), do: {:ok, seal(wrap(key, password, :crypto.strong_rand_bytes(16), kdf), key, data)}
   end
 
   @doc false
@@ -446,14 +473,29 @@ defmodule Lepton.Vault.Agent do
 
   def start_link(_ \\ []), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  def create(user, path, password, opts), do: call({:create, user, path, password, opts})
-  def unlock(user, path, password, opts), do: call({:unlock, user, path, password, opts})
+  # (The master password's key is worked out here, in the caller's process:
+  # Argon2id takes seconds, and the agent serves everyone meanwhile.)
+  def create(user, path, password, opts) do
+    kdf = opts[:kdf] || (opts[:iterations] && {:pbkdf2, opts[:iterations]}) || Vault.default_kdf()
+    {bin, key} = Vault.new_file(password, %{"version" => 1, "items" => []}, kdf)
+    call({:create, user, path, bin, key, opts})
+  end
+
+  def unlock(user, path, password, opts) do
+    with {:ok, bin} <- read_file(path), {:ok, key} <- Vault.unwrap(bin, password), do: call({:unlock, user, path, key, opts})
+  end
+
   def lock(user, path), do: call({:lock, {user, path}})
   def lock_all(user), do: call({:lock_all, user})
   def unlocked?(user, path), do: call({:unlocked?, {user, path}})
   def read(user, path), do: call({:read, {user, path}})
   def update(user, path, fun), do: call({:update, {user, path}, fun})
-  def change_password(user, path, old, new), do: call({:change_password, {user, path}, old, new})
+  def change_password(user, path, old, new) do
+    with {:ok, bin} <- read_file(path),
+         {:ok, key} <- Vault.unwrap(bin, old),
+         {:ok, new_bin} <- Vault.rewrap(bin, key, new),
+         do: call({:change_password, {user, path}, bin, new_bin, key})
+  end
   def copy(text, seconds), do: call({:copy, text, seconds})
 
   # Started on demand where the application didn't (mix tasks, scripts).
@@ -474,15 +516,13 @@ defmodule Lepton.Vault.Agent do
   def init(_), do: {:ok, %{sessions: %{}, clip: nil}}
 
   @impl true
-  def handle_call({:create, user, path, password, opts}, _from, st) do
-    {bin, key} = Vault.new_file(password, %{"version" => 1, "items" => []}, opts[:iterations] || 600_000)
+  def handle_call({:create, user, path, bin, key, opts}, _from, st) do
     :ok = Vault.write_file(path, bin, user)
     {:reply, :ok, open_session(st, {user, path}, key, opts)}
   end
 
-  def handle_call({:unlock, user, path, password, opts}, _from, st) do
+  def handle_call({:unlock, user, path, key, opts}, _from, st) do
     with {:ok, bin} <- read_file(path),
-         {:ok, key} <- Vault.unwrap(bin, password),
          {:ok, _} <- Vault.open(bin, key) do
       {:reply, :ok, open_session(st, {user, path}, key, opts)}
     else
@@ -518,14 +558,18 @@ defmodule Lepton.Vault.Agent do
     end
   end
 
-  def handle_call({:change_password, {user, path} = id, old, new}, _from, st) do
-    with {:ok, bin} <- read_file(path),
-         {:ok, key} <- Vault.unwrap(bin, old),
-         {:ok, new_bin} <- Vault.rewrap(bin, key, new) do
-      :ok = Vault.write_file(path, new_bin, user)
-      {:reply, :ok, if(Map.has_key?(st.sessions, id), do: st, else: open_session(st, id, key, []))}
-    else
-      err -> {:reply, err, st}
+  # (only if the file is still the one the new header was made from)
+  def handle_call({:change_password, {user, path} = id, old_bin, new_bin, key}, _from, st) do
+    case read_file(path) do
+      {:ok, ^old_bin} ->
+        :ok = Vault.write_file(path, new_bin, user)
+        {:reply, :ok, if(Map.has_key?(st.sessions, id), do: st, else: open_session(st, id, key, []))}
+
+      {:ok, _} ->
+        {:reply, {:error, "the vault changed meanwhile: try again"}, st}
+
+      err ->
+        {:reply, err, st}
     end
   end
 

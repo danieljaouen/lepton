@@ -3,7 +3,7 @@ defmodule Lepton.Vault.CLI do
 
   alias Lepton.{Ctx, IO, Style, Vault}
 
-  @usage "vault [status] | init | unlock [-t MIN] | lock | list [-t TAG] [QUERY] | show [-r] ITEM | get ITEM [FIELD] | copy ITEM [FIELD] | otp ITEM | add [-k KIND] [-g] [-n LEN] [-p] TITLE [FIELD=VALUE...] | edit [-g] [-p] ITEM [FIELD=VALUE...] | rm ITEM | generate [-n LEN] [-S] [-c] | audit | passwd | import FILE | export [--csv] | gui"
+  @usage "vault [status] | init | unlock [-t MIN] | lock | list [-t TAG] [QUERY] | show [-r] ITEM | get ITEM [FIELD] | copy ITEM [FIELD] | otp ITEM | add [-k KIND] [-g] [-n LEN] [-p] TITLE [FIELD=VALUE...] | edit [-g] [-p] ITEM [FIELD=VALUE...] | rm ITEM | generate [-n LEN] [-S] [-c] | audit | passwd | upgrade | import FILE | export [--csv] | gui"
 
   def usage, do: @usage
 
@@ -29,6 +29,7 @@ defmodule Lepton.Vault.CLI do
       [gen | rest] when gen in ["generate", "gen"] -> generate(ctx, rest)
       ["audit"] -> audit(ctx, path)
       ["passwd"] -> passwd(ctx, path)
+      ["upgrade"] -> upgrade(ctx, path)
       ["import", file] -> import(ctx, path, file)
       ["export" | rest] -> export(ctx, path, rest)
       ["gui"] -> gui(ctx)
@@ -54,11 +55,21 @@ defmodule Lepton.Vault.CLI do
       Vault.unlocked?(ctx.user, path) ->
         {:ok, items} = Vault.items(ctx.user, path)
         IO.puts(ctx, "#{path}: unlocked, #{length(items)} item#{if length(items) == 1, do: "", else: "s"}")
+        kdf_line(ctx, path)
         0
 
       true ->
         IO.puts(ctx, "#{path}: locked (vault unlock)")
+        kdf_line(ctx, path)
         0
+    end
+  end
+
+  # How the master password becomes the key; an older vault can move on.
+  defp kdf_line(ctx, path) do
+    with {:ok, bin} <- File.read(path), kdf when kdf != nil <- Vault.kdf(bin) do
+      hint = if elem(kdf, 0) == :pbkdf2, do: " (`vault upgrade` moves it to Argon2id)", else: ""
+      IO.puts(ctx, "Master password key: #{Vault.describe_kdf(kdf)}#{hint}")
     end
   end
 
@@ -105,7 +116,12 @@ defmodule Lepton.Vault.CLI do
     cond do
       not Vault.exists?(path) -> {:error, :missing}
       Vault.unlocked?(ctx.user, path) and opts == [] -> :ok
-      pw = secret(ctx, "Master password: ") -> Vault.unlock(ctx.user, path, pw, opts)
+      pw = secret(ctx, "Master password: ") ->
+        # (Argon2id takes a few seconds: say so)
+        if ctx.tty, do: IO.write(ctx, "Unlocking...\r")
+        result = Vault.unlock(ctx.user, path, pw, opts)
+        if ctx.tty, do: IO.write(ctx, "\e[2K\r")
+        result
       true -> {:error, :locked}
     end
   end
@@ -363,6 +379,23 @@ defmodule Lepton.Vault.CLI do
       IO.puts(ctx, "The master password is changed.")
       0
     else
+      nil -> 1
+      {:error, reason} -> failed(ctx, reason)
+    end
+  end
+
+  # The key made again with the KDF new vaults get (Argon2id), the master password kept.
+  defp upgrade(ctx, path) do
+    with true <- Vault.exists?(path) || {:error, :missing},
+         {:ok, bin} <- File.read(path),
+         true <- Vault.kdf(bin) != Vault.default_kdf() || :current,
+         pw when is_binary(pw) <- secret(ctx, "Master password: "),
+         _ = IO.puts(ctx, "Upgrading to #{Vault.describe_kdf(Vault.default_kdf())} (this takes a few seconds)..."),
+         :ok <- Vault.change_password(ctx.user, path, pw, pw) do
+      IO.puts(ctx, "Done: the master password's key is now made with #{Vault.describe_kdf(Vault.default_kdf())}.")
+      0
+    else
+      :current -> IO.puts(ctx, "The vault already uses #{Vault.describe_kdf(Vault.default_kdf())}."); 0
       nil -> 1
       {:error, reason} -> failed(ctx, reason)
     end

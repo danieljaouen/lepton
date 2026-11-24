@@ -158,8 +158,22 @@ How it is encrypted:
 
 - A random 256-bit key encrypts your items with AES-256-GCM.
 - That key is itself encrypted with a key made from your master
-  password by PBKDF2-HMAC-SHA256, with 600,000 iterations and a random
-  salt.
+  password by **Argon2id** (64 MiB of memory, 3 passes, a random salt),
+  the memory-hard password hash of RFC 9106. Each guess at your master
+  password costs an attacker 64 MiB as well as time, which makes
+  guessing on graphics cards and custom chips slow and expensive. It
+  takes a few seconds when you unlock (longer where UTM emulates the CPU,
+  as on an iPad); the vault stays unlocked until it locks again.
+
+Vaults made before Lepton 1.25 use PBKDF2-HMAC-SHA256 (600,000
+iterations). They still open; `vault status` says which a vault uses,
+and `vault upgrade` (or changing the master password with `vault
+passwd`) moves it to Argon2id, keeping your items as they are.
+
+Only symmetric cryptography is involved (AES-256, SHA-256, BLAKE2b),
+which quantum computers don't break: the best known quantum attack only
+halves a key's strength, leaving AES-256 with 128 bits. Your master
+password matters more: make it a long passphrase.
 
 With a wrong password, or if the file has been changed in any way, the
 vault doesn't decrypt. `vault passwd` changes the master password.

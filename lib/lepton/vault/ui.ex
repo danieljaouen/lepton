@@ -61,6 +61,8 @@ defmodule Lepton.Vault.UI do
       error: nil,
       gen: %{length: 20, symbols: true, value: Vault.generate()},
       mtime: nil,
+      # an unlock or create for the app to run (the master password's key takes seconds)
+      job: nil,
       regions: []
     }
 
@@ -101,6 +103,15 @@ defmodule Lepton.Vault.UI do
   # -- events ----------------------------------------------------------------------------------
 
   def handle(st, {:resize, w, h}), do: %{st | w: max(w, 480), h: max(h, 320)}
+
+  @doc "An unlock or create the window asked for, done: what to show next."
+  def handle(st, {:job_done, {:create, _}, :ok}),
+    do: load(%{st | job: nil, screen: :main, focus: :search, text: %{st.text | master: "", again: ""}, message: "Your vault is ready. New adds a login."})
+
+  def handle(st, {:job_done, {:unlock, _}, :ok}),
+    do: load(%{st | job: nil, screen: :main, focus: :search, text: %{st.text | master: ""}, message: nil, error: nil})
+
+  def handle(st, {:job_done, _job, {:error, r}}), do: %{st | job: nil, message: nil, error: Vault.describe(r) |> capitalize()}
 
   # Locked meanwhile (idle, `vault lock`), or changed by `vault` in a terminal.
   def handle(%{screen: :main} = st, :tick) do
@@ -218,7 +229,16 @@ defmodule Lepton.Vault.UI do
 
   defp put_text(st, k, v), do: %{st | text: Map.put(st.text, k, v)}
 
+  @doc "Do a job (in the app's task): the result for `{:job_done, job, result}`."
+  def run_job(st, {:unlock, pw}), do: Vault.unlock(st.user, st.path, pw)
+  def run_job(st, {:create, pw}), do: Vault.create(st.user, st.path, pw)
+
   # -- actions ---------------------------------------------------------------------------------
+
+  # (Unlocking and creating are run by the app, `run_job/2`: Argon2id takes
+  # seconds, and the window says what it is doing meanwhile. Until then,
+  # nothing else.)
+  defp act(%{job: job} = st, _) when job != nil, do: st
 
   defp act(st, {:focus, f}), do: %{st | focus: f}
 
@@ -227,20 +247,11 @@ defmodule Lepton.Vault.UI do
 
     cond do
       pw != again -> %{st | error: "The passwords don't match.", text: %{st.text | again: ""}, focus: :again}
-      true ->
-        case Vault.create(st.user, st.path, pw) do
-          :ok -> load(%{st | screen: :main, focus: :search, text: %{st.text | master: "", again: ""}, message: "Your vault is ready. New adds a login."})
-          {:error, r} -> %{st | error: Vault.describe(r) |> capitalize()}
-        end
+      true -> %{st | job: {:create, pw}, message: "Making your vault...", error: nil}
     end
   end
 
-  defp act(st, :unlock) do
-    case Vault.unlock(st.user, st.path, st.text.master) do
-      :ok -> load(%{st | screen: :main, focus: :search, text: %{st.text | master: ""}, message: nil, error: nil})
-      {:error, r} -> %{st | error: Vault.describe(r) |> capitalize(), text: %{st.text | master: ""}}
-    end
-  end
+  defp act(st, :unlock), do: %{st | job: {:unlock, st.text.master}, text: %{st.text | master: ""}, message: "Unlocking...", error: nil}
 
   defp act(st, :lock) do
     Vault.lock(st.user, st.path)

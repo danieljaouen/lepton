@@ -5,13 +5,51 @@ defmodule Lepton.VaultTest do
   alias Lepton.Vault
   alias Lepton.Vault.UI
 
-  # Few PBKDF2 iterations where the test makes the vault itself (the command uses the real count).
+  # A cheap Argon2id for the vaults made here (the real one, 64 MiB and
+  # three passes, takes seconds: test/argon2_test.exs checks the algorithm).
+  setup_all do
+    old = Application.get_env(:lepton, :vault_kdf)
+    Application.put_env(:lepton, :vault_kdf, {:argon2id, 1, 1, 1})
+    on_exit(fn -> if old, do: Application.put_env(:lepton, :vault_kdf, old), else: Application.delete_env(:lepton, :vault_kdf) end)
+    :ok
+  end
+
+  # An older vault (PBKDF2) where the test makes it itself.
   defp vault(items \\ []) do
     path = Path.join(tmp_dir("vault"), ".vault/vault")
     :ok = Vault.create("root", path, "master password", iterations: 1000)
     if items != [], do: {:ok, _} = Vault.update("root", path, &{:ok, Enum.map(items, fn f -> Vault.new_item(f) end) ++ &1, nil})
     on_exit(fn -> Vault.lock("root", path) end)
     path
+  end
+
+  test "Argon2id: new vaults use it (the header says how), vault upgrade moves an older one, status tells" do
+    home = tmp_dir("vaultkdf")
+    path = Path.join(home, ".vault/vault")
+    :ok = Vault.create("root", path, "master password")
+    on_exit(fn -> Vault.lock("root", path) end)
+    assert <<"LPVAULT2", 1::16, 1::8, 1::8, _::binary>> = File.read!(path)
+    Vault.lock("root", path)
+    assert {:error, :wrong_password} = Vault.unlock("root", path, "guess")
+    assert :ok = Vault.unlock("root", path, "master password")
+    assert Vault.describe_kdf({:argon2id, 64, 3, 1}) == "Argon2id, 64 MiB, 3 passes"
+
+    # An older vault: status says so, upgrade moves it (the password kept).
+    old = Path.join(home, "old/vault")
+    :ok = Vault.create("root", old, "master password", iterations: 1000)
+    on_exit(fn -> Vault.lock("root", old) end)
+    run = fn cmd, stdin -> sh(cmd, home: home, env: %{"VAULT_FILE" => old}, stdin: stdin && elem(StringIO.open(stdin), 1)) end
+    {out, 0} = run.("vault status", nil)
+    assert out =~ "PBKDF2-HMAC-SHA256, 1000 iterations (`vault upgrade` moves it to Argon2id)"
+    {out, 0} = run.("vault upgrade", "master password\n")
+    assert out =~ "Done"
+    assert "LPVAULT2" <> _ = File.read!(old)
+    Vault.lock("root", old)
+    assert :ok = Vault.unlock("root", old, "master password")
+    {out, 0} = run.("vault upgrade", nil)
+    assert out =~ "already uses Argon2id"
+    {out, 0} = run.("vault status", nil)
+    assert out =~ "Master password key: Argon2id, 1 MiB, 1 passes"
   end
 
   test "the file: master password, wrong password, tampering, a new master password, the previous version" do
@@ -40,6 +78,9 @@ defmodule Lepton.VaultTest do
     assert {:error, :short} = Vault.change_password("root", path, "master password", "short")
     assert {:error, :wrong_password} = Vault.change_password("root", path, "nope", "a new password")
     assert :ok = Vault.change_password("root", path, "master password", "a new password")
+    # A new master password moves an older vault to Argon2id.
+    assert "LPVAULT2" <> _ = File.read!(path)
+    assert Vault.kdf(File.read!(path)) == {:argon2id, 1, 1, 1}
     Vault.lock("root", path)
     assert {:error, :wrong_password} = Vault.unlock("root", path, "master password")
     assert :ok = Vault.unlock("root", path, "a new password")
@@ -241,6 +282,13 @@ defmodule Lepton.VaultTest do
     defp keys(st, text), do: text |> String.graphemes() |> Enum.reduce(st, &UI.handle(&2, {:key, if(&1 == " ", do: "SPC", else: &1), 0}))
     defp key(st, k, mods \\ 0), do: UI.handle(st, {:key, k, mods})
 
+    # What the app does with an unlock or create the window asks for (it
+    # runs it in a task, the window saying so meanwhile).
+    defp job(st) do
+      assert st.job != nil and st.message in ["Unlocking...", "Making your vault..."]
+      UI.handle(st, {:job_done, st.job, UI.run_job(st, st.job)})
+    end
+
     # Click the region whose action is `action` (as the window last drew it).
     defp click(st, action) do
       {_, st} = UI.render(st)
@@ -259,7 +307,7 @@ defmodule Lepton.VaultTest do
       st = st |> keys("one password") |> key("TAB") |> keys("another one") |> key("RET")
       assert st.error =~ "match" and st.screen == :setup
       assert st.focus == :again and st.text.again == ""
-    st = st |> keys("one password") |> key("RET")
+    st = st |> keys("one password") |> key("RET") |> job()
       assert st.screen == :main and Vault.exists?(path)
 
       # New (Ctrl+N): a login with a generated password.
@@ -323,9 +371,9 @@ defmodule Lepton.VaultTest do
       # Lock, a wrong password, the right one; and locking from the shell.
       st = click(st, :lock)
       assert st.screen == :locked and st.items == []
-      st = st |> keys("wrong password") |> key("RET")
+      st = st |> keys("wrong password") |> key("RET") |> job()
       assert st.error == "Wrong master password" and st.screen == :locked
-      st = st |> keys("one password") |> click(:unlock)
+      st = st |> keys("one password") |> click(:unlock) |> job()
       assert st.screen == :main and length(st.items) == 2
       Vault.lock("root", path)
       st = UI.handle(st, :tick)

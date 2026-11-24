@@ -87,6 +87,8 @@ defmodule Lepton.Vault.App do
 
   def handle_info(:tick, st), do: {:noreply, ui(st, :tick) |> maybe_draw()}
 
+  def handle_info({:job_done, job, result}, st), do: {:noreply, ui(st, {:job_done, job, result}) |> maybe_draw()}
+
   def handle_info({:repeat, code}, %{repeat: {code, _}} = st) do
     st = key(st, code)
     {:noreply, %{st | repeat: {code, Process.send_after(self(), {:repeat, code}, @repeat_rate)}} |> maybe_draw()}
@@ -100,9 +102,20 @@ defmodule Lepton.Vault.App do
     :ok
   end
 
+  # An unlock or create the window asked for (it says "Unlocking..." in the
+  # meantime): in a task, so the window keeps drawing.
+  defp start_job(%{job: nil}, %{job: job} = new) when job != nil do
+    me = self()
+    spawn(fn -> send(me, {:job_done, job, UI.run_job(new, job)}) end)
+    new
+  end
+
+  defp start_job(_old, new), do: new
+
   # Something happened to the window's contents: redraw if it looks different.
   defp ui(st, event) do
     new = UI.handle(st.ui, event)
+    new = start_job(st.ui, new)
     # Each second, only the one-time code's countdown changes.
     counting? = event == :tick and new.screen == :main and new.mode == :view and (UI.selected(new) || %{})["otp"] != nil
     %{st | ui: new, dirty: st.dirty or counting? or Map.drop(new, [:regions]) != Map.drop(st.ui, [:regions])}
