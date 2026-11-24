@@ -27,12 +27,16 @@ ends at the end of the file). Ex commands
 include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
 `:sort`, `:!CMD` and `:r !CMD`. Some Spacemacs leader keys:
 
-- `SPC f f` open a file, `SPC f s` save.
+- `SPC f f` open a file, `SPC f s` save, `SPC f S` (or `C-x s`, `:wa`)
+  save every changed file.
 - `SPC b b` switch buffer, `SPC b d` close buffer.
 - `SPC w /` and `SPC w -` split, `SPC w d` close window, `SPC w m`
   maximise.
 - `SPC p f` find a file in the project, `SPC s s` search the buffer,
   `SPC s p` or `SPC /` search the project (`RET` on a result opens it).
+- `SPC p R` replace in the whole project (`SPC p %`: a regexp): each
+  match asks `y` (replace), `n` (skip), `!` (all the rest), `.` (this one
+  and stop) or `q`; the files changed are saved with `:wa` (`SPC f S`).
 - `SPC g s` git status (magit-style: `s` stage, `u` unstage, `c c`
   commit, `P p` push, `F p` pull). In the commit message, `, c` or
   `C-c C-c` (or `:wq`) commits and `, k` or `C-c C-k` cancels; both

@@ -70,7 +70,9 @@ defmodule Lepton.Editor do
             # r and C-q: the next key is their character ({:replace_char, count} or :quoted_insert)
             awaiting: nil,
             # uppercase marks, which name a file too: %{"A" => buffer id}
-            global_marks: %{}
+            global_marks: %{},
+            # a project replace (SPC p R) asking about each match: see query_key/2
+            query: nil
 
   defmodule Win do
     @moduledoc false
@@ -183,6 +185,7 @@ defmodule Lepton.Editor do
     st = if st.macro_rec && st.macro_depth == 0, do: %{st | macro_rec: {elem(st.macro_rec, 0), [key | elem(st.macro_rec, 1)]}}, else: st
 
     cond do
+      st.query && st.minibuffer == nil -> query_key(st, key)
       st.awaiting -> awaited(st, key)
       st.macro_pending -> macro_key(st, key)
       st.minibuffer -> minibuffer_key(st, key)
@@ -1235,12 +1238,16 @@ defmodule Lepton.Editor do
   # files
   def do_action(st, :save, _), do: save(st)
 
+  # SPC f S, C-x s, :wa: every changed buffer that has a file (after a project replace, say).
   def do_action(st, :save_all, _) do
-    Enum.reduce(st.order, st, fn id, st ->
-      b = st.buffers[id]
-      if b.modified and b.path, do: save_buffer(st, b) |> elem(1), else: st
-    end)
-    |> msg("Saved all buffers")
+    changed = for id <- st.order, b = st.buffers[id], b.modified and b.path, do: b
+    st = Enum.reduce(changed, st, fn b, st -> save_buffer(st, b) |> elem(1) end)
+    n = length(changed)
+
+    case n do
+      0 -> msg(st, "No changed files to save")
+      _ -> msg(st, "Saved #{n} file#{if n == 1, do: "", else: "s"}: #{Enum.map_join(changed, ", ", & &1.name)}")
+    end
   end
 
   def do_action(st, :find_file, _), do: prompt(st, :find_file, "Find file: ", dir_of(st) <> "/") |> refresh_candidates()
@@ -1271,6 +1278,10 @@ defmodule Lepton.Editor do
   # search
   def do_action(st, :swoop, _), do: prompt(st, :swoop, "Swoop: ", "") |> refresh_candidates()
   def do_action(st, :search_project, _), do: prompt(st, :grep, "Search project: ", "")
+  # SPC p R (projectile-replace): text to find, what replaces it, then each match asks.
+  def do_action(st, :project_replace, _), do: prompt(st, {:replace_from, :literal}, "Replace in project: ", "")
+  # SPC p % (projectile-replace-regexp): the same with a regexp (\1 ... in the replacement).
+  def do_action(st, :project_replace_regexp, _), do: prompt(st, {:replace_from, :regexp}, "Replace regexp in project: ", "")
 
   # windows
   def do_action(st, :split_right, _), do: split(st, :right)
@@ -2540,6 +2551,9 @@ defmodule Lepton.Editor do
         end
 
       :grep -> grep_project(st, text)
+      {:replace_from, _} when text == "" -> st
+      {:replace_from, how} -> prompt(st, {:replace_to, how, text}, "Replace #{if how == :regexp, do: "regexp ", else: ""}\"#{text}\" with: ", "")
+      {:replace_to, how, from} -> start_project_replace(st, how, from, text)
 
       {:align, {fl, tl}} -> align(st, fl, tl, text)
 
@@ -2645,6 +2659,138 @@ defmodule Lepton.Editor do
       end
 
     special_buffer(st, "*grep*", :list, Enum.join(["Search \"#{pattern}\" in #{root}", "" | results], "\n"), %{root: root, cursor: {2, 0}})
+  end
+
+  # -- project replace (SPC p R, SPC p %) ---------------------------------------------------------
+
+  # Every file in the project that has a match (an open buffer's text, else
+  # the file's), visited in turn; each match asks: y replaces it, n skips it,
+  # ! replaces it and all the rest, . replaces it and stops, q stops.
+  # Changed buffers are left unsaved (:wa or SPC f S saves them all).
+  defp start_project_replace(st, how, from, to) do
+    flags = if how == :regexp, do: search_flags(st), else: "u"
+
+    case Regex.compile(if(how == :regexp, do: from, else: Regex.escape(from)), flags) do
+      {:ok, re} ->
+        root = Lepton.Git.root(dir_of(st)) || dir_of(st)
+
+        files =
+          for file <- project_files(st),
+              path = Path.join(root, file),
+              text = project_text(st, path),
+              text != nil and Regex.match?(re, text),
+              do: path
+
+        if files == [] do
+          msg(st, "No match for \"#{from}\" in #{root}")
+        else
+          q = %{re: re, to: if(how == :regexp, do: to, else: String.replace(to, "\\", "\\\\")), files: files, replaced: 0, changed: MapSet.new(), at: nil}
+          next_match(%{st | query: q}, :next_file)
+        end
+
+      {:error, {reason, _}} ->
+        msg(st, "Invalid regexp: #{reason}", true)
+    end
+  end
+
+  defp project_text(st, path) do
+    case buffer_for_path(st, path) do
+      %{} = b -> Buffer.text(b)
+      nil -> with {:ok, t} <- File.read(path), true <- String.valid?(t), do: t, else: (_ -> nil)
+    end
+  end
+
+  # The next match from the cursor, in this file or the next ones.
+  defp next_match(%{query: q} = st, :next_file) do
+    case q.files do
+      [] -> finish_query(st)
+      [path | rest] -> st |> Map.put(:query, %{q | files: rest}) |> visit(path) |> set_cursor({0, 0}) |> next_match({0, 0})
+    end
+  end
+
+  defp next_match(%{query: q} = st, from) do
+    case find_match(buf(st), q.re, from) do
+      nil -> next_match(st, :next_file)
+      {l, a, z} -> %{st | query: %{q | at: {l, a, z}}} |> set_cursor({l, a}) |> query_prompt()
+    end
+  end
+
+  defp query_prompt(st), do: msg(st, "Replace with \"#{st.query.to}\"? (y, n, ! all, . this and stop, q quit)")
+
+  # The first match at or after {line, column}: {line, from, to} in characters.
+  defp find_match(b, re, {l, c}) do
+    Enum.find_value(l..(Buffer.line_count(b) - 1)//1, fn n ->
+      line = Buffer.line(b, n)
+      start = if n == l, do: c, else: 0
+      offset = byte_size(String.slice(line, 0, start))
+
+      case Regex.run(re, line, return: :index, offset: offset) do
+        [{bs, bl} | _] when bs <= byte_size(line) ->
+          a = String.length(binary_part(line, 0, bs))
+          {n, a, a + String.length(binary_part(line, bs, bl))}
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  defp query_key(%{query: q} = st, key) do
+    {l, a, z} = q.at
+
+    case key do
+      k when k in ["y", "SPC"] -> st |> replace_match(l, a, z) |> next_after_replace()
+      k when k in ["n", "DEL"] -> next_match(st, past(buf(st), l, a, z))
+      "." -> st |> replace_match(l, a, z) |> finish_query()
+      "!" -> st |> replace_match(l, a, z) |> replace_rest()
+      k when k in ["q", "ESC", "C-g", "RET"] -> finish_query(st)
+      _ -> query_prompt(st)
+    end
+  end
+
+  defp replace_match(%{query: q} = st, l, a, z) do
+    st = snapshot(st)
+    b = buf(st)
+    line = Buffer.line(b, l)
+    matched = String.slice(line, a, z - a)
+    new = Regex.replace(q.re, matched, q.to, global: false)
+    line = String.slice(line, 0, a) <> new <> String.slice(line, z..-1//1)
+    st = put_buf(st, Buffer.replace_lines(b, l, l, [line]))
+    %{st | query: %{q | at: {l, a, a + String.length(new)}, replaced: q.replaced + 1, changed: MapSet.put(q.changed, buf(st).id)}}
+  end
+
+  defp next_after_replace(%{query: %{at: {l, a, z}}} = st), do: next_match(st, past(buf(st), l, a, z))
+
+  # Where to look after a match: its end; after an empty one (^, $), the next
+  # character, or the next line.
+  defp past(b, l, a, z) do
+    cond do
+      z > a -> {l, z}
+      a < Buffer.line_length(b, l) -> {l, a + 1}
+      true -> {l + 1, 0}
+    end
+  end
+
+  # !: every match left, in this buffer and the remaining files.
+  defp replace_rest(%{query: %{at: {l, a, z}}} = st), do: replace_rest(st, past(buf(st), l, a, z))
+
+  defp replace_rest(st, from) do
+    case find_match(buf(st), st.query.re, from) do
+      {l, a, z} ->
+        st |> replace_match(l, a, z) |> replace_rest()
+
+      nil ->
+        case st.query.files do
+          [] -> finish_query(st)
+          [path | rest] -> st |> Map.put(:query, %{st.query | files: rest}) |> visit(path) |> replace_rest({0, 0})
+        end
+    end
+  end
+
+  defp finish_query(%{query: q} = st) do
+    files = MapSet.size(q.changed)
+    text = "Replaced #{q.replaced} occurrence#{if q.replaced == 1, do: "", else: "s"} in #{files} file#{if files == 1, do: "", else: "s"}"
+    msg(%{st | query: nil}, if(files > 0, do: text <> " (not saved: :wa or SPC f S saves them)", else: text))
   end
 
   def goto_grep_result(st) do

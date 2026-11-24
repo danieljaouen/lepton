@@ -170,6 +170,12 @@ defmodule Lepton.Editor.Render do
   # Visual selection and search-in-progress highlights per line: %{line => [{from, to}]}
   defp highlight_spans(st, b, id) do
     cond do
+      # The match a project replace is asking about.
+      id == st.active and match?(%{at: {_, _, _}}, st.query) ->
+        {l, a, z} = st.query.at
+        line = Buffer.line(b, l)
+        %{l => [{Editor.display_col(line, a), max(Editor.display_col(line, z), Editor.display_col(line, a) + 1)}]}
+
       # A block: the same display columns on each of its lines (to each one's end after $).
       id == st.active and st.mode == :visual_block and st.visual_start ->
         blk = Editor.block_columns(st)

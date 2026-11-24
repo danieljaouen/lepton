@@ -280,6 +280,59 @@ defmodule Lepton.EditorTest do
     assert cursor(st) == {1, 5}
   end
 
+  describe "project replace" do
+    # A project of three files with matches (and one without), le on the first.
+    defp project do
+      dir = tmp_dir("projreplace")
+      File.write!(Path.join(dir, "a.ex"), "foo = 1\nfoo + foo\n")
+      File.write!(Path.join(dir, "b.ex"), "no match here\nx = foo\n")
+      File.mkdir_p!(Path.join(dir, "sub"))
+      File.write!(Path.join(dir, "sub/c.txt"), "the foo_id and bar_id\n")
+      File.write!(Path.join(dir, "d.txt"), "nothing\n")
+      ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+      {Editor.init([Path.join(dir, "a.ex")], ctx), dir}
+    end
+
+    defp typed(text), do: text |> String.graphemes() |> Enum.map(&if(&1 == " ", do: "SPC", else: &1))
+
+    test "SPC p R: each match asks (y, n, then ! for the rest), across files; unsaved until :wa" do
+      {st, dir} = project()
+      st = keys(st, ["SPC", "p", "R"] ++ typed("foo") ++ ["RET"] ++ typed("baz") ++ ["RET"])
+      assert st.query.at == {0, 0, 3} and st.message =~ "Replace with \"baz\"?"
+      st = keys(st, "y n")
+      assert text(st) == "baz = 1\nfoo + foo\n" and st.query.at == {1, 6, 9}
+      st = keys(st, "y")
+      # On to b.ex (no match in its first line), then the rest at once.
+      assert Editor.buf(st).name == "b.ex" and st.query.at == {1, 4, 7}
+      st = keys(st, "!")
+      assert st.query == nil and st.message =~ "Replaced 4 occurrences in 3 files" and st.message =~ ":wa"
+      assert File.read!(Path.join(dir, "sub/c.txt")) == "the foo_id and bar_id\n"
+      st = keys(st, "SPC f S")
+      assert st.message =~ "Saved 3 files"
+      assert keys(st, "C-x s").message =~ "No changed files"
+      assert File.read!(Path.join(dir, "a.ex")) == "baz = 1\nfoo + baz\n"
+      assert File.read!(Path.join(dir, "b.ex")) == "no match here\nx = baz\n"
+      assert File.read!(Path.join(dir, "sub/c.txt")) == "the baz_id and bar_id\n"
+      assert File.read!(Path.join(dir, "d.txt")) == "nothing\n"
+      _ = st
+    end
+
+    test ". replaces this one and stops; q stops; SPC p % takes a regexp and \\1" do
+      {st, _dir} = project()
+      st = keys(st, ["SPC", "p", "R"] ++ typed("foo") ++ ["RET", "x", "RET", "."])
+      assert st.query == nil and text(st) == "x = 1\nfoo + foo\n" and st.message =~ "Replaced 1 occurrence in 1 file"
+      st = keys(st, ["SPC", "p", "R"] ++ typed("foo") ++ ["RET", "y", "RET", "q"])
+      assert st.query == nil and text(st) == "x = 1\nfoo + foo\n"
+
+      st = keys(st, ["SPC", "p", "%"] ++ typed("(\\w+)_id") ++ ["RET"] ++ typed("\\1Id") ++ ["RET", "!"])
+      assert Editor.buf(st).name == "c.txt" and text(st) == "the fooId and barId\n"
+
+      # Nothing to replace: says so.
+      st = keys(st, ["SPC", "p", "R"] ++ typed("zzz") ++ ["RET", "a", "RET"])
+      assert st.query == nil and st.message =~ "No match"
+    end
+  end
+
   test "evil-escape with jk (editing.el)" do
     {st, _} = editor("\n")
     st = keys(st, "i a b c j k")

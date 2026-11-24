@@ -130,6 +130,8 @@ defmodule Lepton.Editor.Keymap do
     {"SPC h d v", :describe_variables, "describe variables"},
     {"SPC p f", :project_find_file, "project file"},
     {"SPC p p", :find_file, "switch project"},
+    {"SPC p R", :project_replace, "replace in project"},
+    {"SPC p %", :project_replace_regexp, "replace regexp in project"},
     {"SPC q q", :quit_all, "quit"},
     {"SPC q Q", :quit_all_force, "kill emacs"},
     {"SPC q s", :save_quit, "save & quit"},
@@ -204,7 +206,7 @@ defmodule Lepton.Editor.Keymap do
     {"C-w j", :window_down}, {"C-w k", :window_up}, {"C-w l", :window_right},
     {"C-w v", :split_right}, {"C-w s", :split_below}, {"C-w c", :delete_window},
     {"C-w o", :maximize_window}, {"C-w w", :other_window}, {"C-g", :keyboard_quit},
-    {"ESC", :keyboard_quit}, {"C-x C-s", :save}, {"C-x C-c", :quit_all}, {"M-x", :mx},
+    {"ESC", :keyboard_quit}, {"C-x C-s", :save}, {"C-x s", :save_all}, {"C-x C-c", :quit_all}, {"M-x", :mx},
     {"C-l", :redraw}
   ]
 
@@ -221,7 +223,7 @@ defmodule Lepton.Editor.Keymap do
     {"C-j", :newline}, {"DEL", :backspace}, {"<deletechar>", :delete_forward}, {"TAB", :indent},
     {"<left>", :left}, {"<right>", :right}, {"<up>", :previous_line}, {"<down>", :next_line},
     {"<home>", :bol}, {"<end>", :eol}, {"C-a", :bol}, {"C-e", :eol}, {"C-o", :normal_one},
-    {"C-t", :indent_line}, {"C-v", :quoted_insert}, {"C-x C-s", :save}, {"C-k", :kill_eol}
+    {"C-t", :indent_line}, {"C-v", :quoted_insert}, {"C-x C-s", :save}, {"C-x s", :save_all}, {"C-k", :kill_eol}
   ]
 
   @special [

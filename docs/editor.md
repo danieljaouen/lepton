@@ -41,7 +41,7 @@ The full list of what was loaded is on the
 
 ## Spacemacs defaults
 
-- the `SPC` leader with which-key popups: `SPC f f/s` files, `SPC b b/d`
+- the `SPC` leader with which-key popups: `SPC f f/s` files (`SPC f S` or `C-x s` saves every changed one), `SPC b b/d`
   buffers, `SPC w /,-,d,m` windows, `SPC g s` git, `SPC p f` project files,
   `SPC s s` search the buffer, `SPC s p` / `SPC /` search the project
   (`RET` on a result opens its file at that line; motions such as `w`
@@ -83,6 +83,12 @@ The full list of what was loaded is on the
   with no auto-indent added: at the cursor in insert mode, before it in
   normal mode, in place of a visual selection, and on one line in a
   prompt. One `u` takes it back;
+- replacing across the project, as Spacemacs' projectile: `SPC p R` asks
+  for the text and what replaces it (`SPC p %`: a regexp, with `\1` and so
+  on in the replacement), then goes to each match in the project's files
+  in turn, highlighted, and asks: `y` replaces it, `n` skips it, `!`
+  replaces it and all the rest, `.` replaces it and stops, `q` stops. The
+  files it changed stay open and unsaved: `:wa` (or `SPC f S`) saves them;
 - ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`;
 - the mouse: a click puts the cursor there (and selects that window; on a
   mode line, just the window), a drag selects text as `v` does, and the
