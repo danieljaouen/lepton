@@ -1391,6 +1391,13 @@ defmodule Lepton.Editor do
         {b, {el, ec}} = Buffer.insert(b, pos, text)
         st |> put_buf(b) |> set_cursor({el, max(ec - 1, 0)})
 
+      # A block on an empty line (after o, say): its rows as lines of their
+      # own there, the first on this one. (Vim would put the second in front
+      # of the next line.)
+      {:block, rows} when b.lines |> elem(l) == "" ->
+        rows = Enum.map(rows, &String.duplicate(&1, n))
+        st |> put_buf(Buffer.replace_lines(b, l, l, rows)) |> set_cursor({l, 0})
+
       # A block: each row at the same column of the next lines (padded, and
       # lines added below the end, as needed).
       {:block, rows} ->

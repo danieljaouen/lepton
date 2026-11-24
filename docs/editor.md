@@ -59,7 +59,8 @@ The full list of what was loaded is on the
   line. Macros last until `le` quits;
 - visual block (`C-v`), as in Vim: a rectangle of text, its columns as
   they show (tabs and wide characters too). `d`/`x` delete it, `y` copies
-  it (and `p`/`P` put it back as a block), `c` changes it, `I` inserts
+  it (and `p`/`P` put it back as a block beside the lines below, or as
+  lines of their own on an empty line), `c` changes it, `I` inserts
   before it and `A` appends after it on every line (`$` first: at each
   line's end), `r` replaces each character, `~`/`u`/`U` change the case,
   `o`/`O` move to another corner, and `>`, `<` and `:` work on its lines;

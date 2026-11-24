@@ -92,6 +92,12 @@ defmodule Lepton.EditorTest do
     st = keys(st, "u")
     assert text(st) == text
 
+    # On an empty line (o, Escape) a block's rows become lines of their own.
+    st = keys(st, "g g o ESC p")
+    assert text(st) == "abcdef\nabc\nghi\nmn\nopq\nghijkl\nmn\nopqrst\n"
+    st = keys(st, "u u")
+    assert text(st) == text
+
     # Across a short line the block keeps its width (the column the cursor was going to).
     st = keys(st, "g g 0 l C-v l l j j y")
     assert st.register == {:block, ["bcd", "hij", "n"]}
