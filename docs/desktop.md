@@ -51,7 +51,12 @@ and the colours of your prompt. Resizing a window changes its rows and
 columns. Typing `exit` closes the window. Closing the window ends its
 shell and everything running in it, as closing a terminal does on Unix:
 close the System Monitor and its `top` stops too. Apps such as Firefox
-keep running. **Ctrl+Shift+V** pastes the clipboard.
+keep running. **Ctrl+Shift+V** pastes the clipboard. In the shell, pasted
+lines go into the command line and wait for Return; programs that
+don't ask for pastes (bracketed paste) get each newline as Return, as
+in other terminals. **Shift+Enter** starts a new line in the command
+instead of running it (Return runs them all), as Alt+Enter does; Claude
+Code takes it the same way.
 
 The text size changes as in Firefox: **Ctrl+=** (or **Ctrl++**) makes
 it bigger and **Ctrl+-** smaller, through the sizes of the Terminus font

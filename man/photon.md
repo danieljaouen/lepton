@@ -29,7 +29,10 @@ For a Windows 95-style desktop with a taskbar and Start menu, run
   window ends its shell and everything running in it.
 - `Alt+Shift+Right`, `Alt+Shift+Left`: move the window to the next or
   previous display.
-- `Ctrl+Shift+V`: paste in a terminal window.
+- `Ctrl+Shift+V`: paste in a terminal window (bracketed, for programs
+  that ask: the shell keeps pasted lines until Return).
+- `Shift+Enter`: in a terminal window, a new line in the command rather
+  than running it (sent as Alt+Enter, ESC Return).
 - `Ctrl+=` (or `Ctrl++`), `Ctrl+-`, `Ctrl+0`: in a terminal window, a
   bigger or smaller text size (14 to 32 pixels), or the usual 16 again.
   New terminal windows open at the size chosen last.

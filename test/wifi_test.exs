@@ -88,7 +88,16 @@ defmodule Lepton.WifiTest do
   test "the classic desktop's Wi-Fi applet: signal in the tray, networks to join" do
     alias Lepton.Photon.WM.Classic
     key = {Wifi, :summary}
-    on_exit(fn -> :persistent_term.erase(key) end)
+    # On a machine with Wi-Fi of its own the service runs, and its refreshes
+    # (opening the list scans) would put the real state over this one: it
+    # waits until the test is done.
+    wifi = Process.whereis(Wifi)
+    if wifi, do: :sys.suspend(wifi)
+
+    on_exit(fn ->
+      :persistent_term.erase(key)
+      if wifi && Process.alive?(wifi), do: :sys.resume(wifi)
+    end)
 
     nets = [%{ssid: "home", signal: -50, security: "WPA2", frequency: 2437}, %{ssid: "Bob's café", signal: -80, security: "open", frequency: 5180}]
     :persistent_term.put(key, %{iface: "wlan0", state: "COMPLETED", ssid: "home", ip: "192.168.1.5", signal: -50, networks: nets, scanning: false, saved: ["home"]})

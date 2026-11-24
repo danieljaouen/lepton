@@ -217,7 +217,7 @@ defmodule Lepton.Editor.Keymap do
   ]
 
   @insert [
-    {"ESC", :normal_state}, {"C-g", :normal_state}, {"C-[", :normal_state}, {"RET", :newline},
+    {"ESC", :normal_state}, {"C-g", :normal_state}, {"C-[", :normal_state}, {"RET", :newline}, {"M-RET", :newline},
     {"C-j", :newline}, {"DEL", :backspace}, {"<deletechar>", :delete_forward}, {"TAB", :indent},
     {"<left>", :left}, {"<right>", :right}, {"<up>", :previous_line}, {"<down>", :next_line},
     {"<home>", :bol}, {"<end>", :eol}, {"C-a", :bol}, {"C-e", :eol}, {"C-o", :normal_one},

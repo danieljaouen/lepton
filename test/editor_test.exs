@@ -24,6 +24,9 @@ defmodule Lepton.EditorTest do
     st = keys(st, "i h e l l o SPC ESC")
     assert text(st) == "hello world\n"
     assert st.mode == :normal
+    # Alt+Enter (what a terminal window sends for Shift+Enter) breaks the line as Return does.
+    st = keys(st, "A M-RET ! ESC")
+    assert text(st) == "hello world\n!\n"
   end
 
   # The terminal reports clicks at cells from 0; the line numbers take 4

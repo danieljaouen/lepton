@@ -102,6 +102,22 @@ defmodule Lepton.MuxTest do
       assert Keys.flush(<<27>>) == ["ESC"]
     end
 
+    test "bracketed paste: one key, newlines and all, waited for across reads; a paste that never ends is what came" do
+      assert {["a", {:paste, "ls\necho hi\n"}, "b"], ""} = Keys.decode("a\e[200~ls\necho hi\n\e[201~b")
+      assert {[], "\e[200~ls\nec"} = Keys.decode("\e[200~ls\nec")
+      assert Keys.flush("\e[200~ls\nec") == [{:paste, "ls\nec"}]
+      assert Keys.decode(Keys.encode({:paste, "x\e[201~y"})) == {[{:paste, "xy"}], ""}
+
+      # Through a terminal: split in two, it still arrives as one paste.
+      me = self()
+      {:ok, tty} = Lepton.TTY.start(backend: {Lepton.MuxTest.TestTerm, {me, {24, 80}}}, name: "paste test")
+      Lepton.TTY.set_mode(tty, :raw)
+      Lepton.TTY.input(tty, "\e[200~one\ntw")
+      Process.sleep(100)
+      Lepton.TTY.input(tty, "o\n\e[201~")
+      assert Lepton.TTY.read_key(tty, 2000) == {:paste, "one\ntwo\n"}
+    end
+
     test "encode/normalize round trip" do
       for k <- ["C-t", "a", "<up>", "RET", "C-<left>", "M-x"], do: assert(Keys.decode(Keys.encode(k)) == {[k], ""})
       assert Keys.normalize("^W") == "C-w"
@@ -213,6 +229,35 @@ defmodule Lepton.MuxTest do
       {px, _, _, _} = elem(Enum.find(snap.().panes, fn {id, _} -> id != le_id end), 1).rect
       click.(px + 3, 3)
       assert eventually(fn -> snap.().active_pane != le_id end)
+
+      Process.exit(client, :kill)
+      Lepton.Mux.Server.stop(pid)
+    end
+
+    test "a paste goes to the active pane: bracketed for the shell (its lines wait for Return), as Return for others" do
+      ctx = %Lepton.Ctx{cwd: tmp_dir("muxpaste"), env: %{"HOME" => tmp_dir("pastehome"), "NO_COLOR" => "1"}}
+      {:ok, pid} = DynamicSupervisor.start_child(Lepton.SessionSupervisor, {Lepton.Mux.Server, name: "p#{System.unique_integer([:positive])}", ctx: ctx, size: {24, 80}})
+      {:ok, tty} = Lepton.TTY.start(backend: {TestTerm, {self(), {24, 80}}}, name: "mux paste test")
+      me = self()
+      client = spawn(fn -> Lepton.Mux.Client.run(%{ctx | tty: tty, stdout: tty}, pid, Config.defaults()); send(me, :client_done) end)
+      assert_receive {:client_out, "\e[?2004h"}, 5000
+
+      pane = fn -> snap = Lepton.Mux.Server.snapshot(pid); snap.panes[snap.active_pane].screen end
+      assert eventually(fn -> pane.().bracketed_paste end)
+      Lepton.TTY.input(tty, Lepton.Keys.encode({:paste, "echo one-$((0+1))\necho two-$((1+1))\n"}))
+      assert eventually(fn -> Lepton.Screen.text(pane.()) =~ "echo two-$((1+1))" end)
+      Process.sleep(300)
+      refute Lepton.Screen.text(pane.()) =~ "one-1"
+      Lepton.TTY.input(tty, "\r")
+      assert eventually(fn -> Lepton.Screen.text(pane.()) =~ ~r/\none-1\n+two-2\n/ end)
+
+      # `cat` didn't ask: the lines come as Return, each one read as it ends.
+      Lepton.TTY.input(tty, "cat\r")
+      assert eventually(fn -> not pane.().bracketed_paste end)
+      Lepton.TTY.input(tty, Lepton.Keys.encode({:paste, "alpha\nbeta\n"}))
+      # (each line twice: as typed, and as cat writes it back)
+      count = fn word -> length(Regex.scan(~r/^#{word}$/m, Lepton.Screen.text(pane.()))) end
+      assert eventually(fn -> count.("alpha") == 2 and count.("beta") == 2 end)
 
       Process.exit(client, :kill)
       Lepton.Mux.Server.stop(pid)

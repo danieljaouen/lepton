@@ -48,6 +48,9 @@ defmodule Lepton.Shell.LineEditor do
     {"C-r", :history_search},
     {"TAB", :complete},
     {"RET", :accept_line},
+    # Shift+Enter (sent as Alt+Enter, ESC RET) or Alt+Enter: a newline in
+    # the command line, which runs with the rest at Return (zsh's self-insert-unmeta)
+    {"M-RET", :newline},
     {"C-j", :accept_line},
     {"C-c", :cancel},
     {"C-g", :cancel},
@@ -67,6 +70,9 @@ defmodule Lepton.Shell.LineEditor do
     # Like zsh, no line editor on a dumb terminal (also used by automation).
     if tty && is_pid(tty) && Process.alive?(tty) && Map.get(shell.ctx.env, "TERM") != "dumb" do
       TTY.set_mode(tty, :raw)
+      # Bracketed paste while a line is typed: a paste comes as text, its
+      # newlines in the line, not run one by one as Return would.
+      out(tty, "\e[?2004h")
 
       try do
         {_rows, cols} = TTY.size(tty)
@@ -75,6 +81,7 @@ defmodule Lepton.Shell.LineEditor do
         state = redraw(state)
         loop(state)
       after
+        out(tty, "\e[?2004l")
         TTY.set_mode(tty, :cooked)
       end
     else
@@ -94,6 +101,7 @@ defmodule Lepton.Shell.LineEditor do
     case TTY.read_key(tty) do
       {:cpr, _, _} -> loop(state)
       {:resize, _rows, cols} -> state |> Map.put(:cols, max(cols, 20)) |> redraw() |> loop()
+      {:paste, text} -> state |> insert(paste_text(text)) |> touch(:self_insert) |> redraw() |> loop()
       key -> dispatch(key, state)
     end
   end
@@ -181,6 +189,7 @@ defmodule Lepton.Shell.LineEditor do
   end
 
   defp act(s, :yank), do: insert(s, s.kill)
+  defp act(s, :newline), do: insert(s, "\n")
 
   defp act(s, :transpose_chars) do
     len = String.length(s.buf)
@@ -443,32 +452,58 @@ defmodule Lepton.Shell.LineEditor do
     # (plain: not shell commands, psql's SQL for one: no highlighting)
     shown = if s.shell.options[:plain], do: s.buf, else: highlight(s.buf, s.shell, color?)
     line = s.prompt <> shown <> if(color? and sugg != "", do: "\e[38;5;242m" <> sugg <> "\e[0m", else: "")
-    draw(s, line, Style.width(s.prompt) + Lepton.Width.string(s.buf) + if(color?, do: Lepton.Width.string(sugg), else: 0))
+    draw(s, line, line_widths(s, if(color?, do: Lepton.Width.string(sugg), else: 0)))
   end
 
-  defp draw_raw(s, text), do: draw(s, text, Style.width(text))
+  defp draw_raw(s, text), do: draw(s, text, [Style.width(text)])
 
-  # Redraw the (possibly wrapped) input area and place the cursor.
-  defp draw(s, line, visible_len) do
+  # Pasted text: newlines (CR LF or CR, as terminals send them) become the
+  # line's own; other control characters are left out.
+  defp paste_text(text) do
+    text
+    |> String.replace("\r\n", "\n")
+    |> String.replace("\r", "\n")
+    |> String.replace(~r/[\x00-\x08\x0b-\x1f\x7f]/, "")
+  end
+
+  # Redraw the input area and place the cursor. The input may wrap, and
+  # (pasted) may have lines of its own: `widths` are the visible columns of
+  # each of its lines, the prompt's in the first.
+  defp draw(s, line, widths) do
     tty = s.shell.ctx.tty
     up = if s.drawn_cursor_row > 0, do: "\e[#{s.drawn_cursor_row}A", else: ""
-    rows = div(max(visible_len - 1, 0), s.cols)
-    # (columns, not characters: Chinese, Japanese and Korean take two)
-    cursor_abs = Style.width(s.prompt) + Lepton.Width.string(String.slice(s.buf, 0, s.pos))
-    crow = div(cursor_abs, s.cols)
-    ccol = rem(cursor_abs, s.cols)
+    last = List.last(widths)
     # Terminals defer wrapping at the last column; force it when needed.
-    wrap_fix = if visible_len > 0 and rem(visible_len, s.cols) == 0, do: " \r", else: ""
-    down = rows - crow + if(wrap_fix != "", do: 1, else: 0)
+    wrap_fix = if last > 0 and rem(last, s.cols) == 0, do: " \r", else: ""
+    rows = Enum.sum(Enum.map(widths, &line_rows(&1, s.cols))) - 1 + if(wrap_fix != "", do: 1, else: 0)
+    {crow, ccol} = cursor_at(s, widths)
+    down = rows - crow
     move = (if down > 0, do: "\e[#{down}A", else: "") <> "\r" <> if(ccol > 0, do: "\e[#{ccol}C", else: "")
-    out(tty, up <> "\r\e[J" <> line <> wrap_fix <> move)
+    out(tty, up <> "\r\e[J" <> String.replace(line, "\n", "\r\n") <> wrap_fix <> move)
     %{s | drawn_rows: rows, drawn_cursor_row: crow}
   end
 
+  defp line_rows(width, cols), do: div(max(width - 1, 0), cols) + 1
+
+  # The cursor's row (from the input's first) and column. (Columns, not
+  # characters: Chinese, Japanese and Korean take two.)
+  defp cursor_at(s, widths) do
+    before = String.split(String.slice(s.buf, 0, s.pos), "\n")
+    li = length(before) - 1
+    col = Lepton.Width.string(List.last(before)) + if(li == 0, do: Style.width(s.prompt), else: 0)
+    above = widths |> Enum.take(li) |> Enum.map(&line_rows(&1, s.cols)) |> Enum.sum()
+    {above + div(col, s.cols), rem(col, s.cols)}
+  end
+
+  # The visible width of each of the input's lines (the prompt's in the first).
+  defp line_widths(s, extra) do
+    [first | rest] = s.buf |> String.split("\n") |> Enum.map(&Lepton.Width.string/1)
+    widths = [first + Style.width(s.prompt) | rest]
+    List.update_at(widths, -1, &(&1 + extra))
+  end
+
   defp move_to_end(s) do
-    total = Style.width(s.prompt) + Lepton.Width.string(s.buf)
-    rows = div(max(total - 1, 0), s.cols)
-    down = rows - s.drawn_cursor_row
+    down = s.drawn_rows - s.drawn_cursor_row
     if down > 0, do: out(s.shell.ctx.tty, "\e[#{down}B")
   end
 

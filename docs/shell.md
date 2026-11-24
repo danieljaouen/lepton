@@ -21,7 +21,16 @@ The line editor follows oh-my-zsh's emacs bindings (`bindkey -e`):
 - `C-r` searches history, `Tab` completes commands and paths, and
   `C-x C-e` edits the line in `$EDITOR`;
 - Alt types accents: Alt+e then `e` is é, Alt+u then `u` is ü (see
-  [Typing accents](accents.html)).
+  [Typing accents](accents.html));
+- pasting (bracketed paste, as zsh does it): pasted lines go into the
+  command line, newlines and all, and nothing runs until you press
+  Return, which runs them together. This works in Lepton's terminal
+  windows, in `tmux`, and over SSH from terminals that support it (macOS's
+  Terminal and iTerm2 do);
+- **Shift+Enter** (or Alt+Enter) starts a new line in the command
+  instead of running it, as in zsh; Return runs it all. Over SSH from a
+  Mac, use Option+Enter with "Use Option as Meta key" on, since macOS's
+  Terminal sends Shift+Enter as a plain Return.
 
 `bindkey` lists every binding; the [key bindings page](keybindings.html)
 shows them too. History is appended after every command

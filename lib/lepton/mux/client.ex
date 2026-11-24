@@ -21,6 +21,8 @@ defmodule Lepton.Mux.Client do
     TTY.write(tty, "\e[?1049h\e[?25l\e[H\e[2J")
     {:ok, name} = Server.attach(server, self(), TTY.size(tty))
     if mouse?(cfg), do: TTY.write(tty, "\e[?1002h\e[?1006h")
+    # Pastes come marked (bracketed), and go on to the pane as its program wants them.
+    TTY.write(tty, "\e[?2004h")
     me = self()
     reader = spawn_link(fn -> read_loop(tty, me) end)
     st = %__MODULE__{server: server, name: name, cfg: cfg, tty: tty, ctx: ctx, size: TTY.size(tty)}
@@ -31,7 +33,7 @@ defmodule Lepton.Mux.Client do
       after
         Process.unlink(reader)
         Process.exit(reader, :kill)
-        TTY.write(tty, "\e[?1002l\e[?1006l\e[0m\e[?25h\e[2 q\e[?1049l")
+        TTY.write(tty, "\e[?1002l\e[?1006l\e[?2004l\e[0m\e[?25h\e[2 q\e[?1049l")
         TTY.set_mode(tty, :cooked)
       end
 
@@ -105,6 +107,7 @@ defmodule Lepton.Mux.Client do
   defp handle_key(st, {:cpr, _, _}), do: st
   defp handle_key(st, {:resize, _, _}), do: check_size(st)
   defp handle_key(st, {:mouse, _, _, _, _, _} = m), do: mouse(st, m)
+  defp handle_key(st, {:paste, text}), do: paste(st, text)
 
   defp handle_key(st, key) do
     case st.mode do
@@ -157,6 +160,18 @@ defmodule Lepton.Mux.Client do
     ms = st.cfg.options["repeat-time"] |> to_string() |> Integer.parse() |> then(fn {n, _} -> n; :error -> 500 end)
     System.monotonic_time(:millisecond) + ms
   end
+
+  # -- pasting ---------------------------------------------------------------------------------
+
+  # As tmux: a pane whose program asked for bracketed paste gets the paste
+  # marked; another gets its newlines as Return. (Only in the normal mode.)
+  defp paste(%{mode: :normal, snapshot: %{panes: panes, active_pane: id}} = st, text) do
+    bracketed? = match?(%{screen: %{bracketed_paste: true}}, panes[id])
+    Server.input(st.server, if(bracketed?, do: Keys.encode({:paste, text}), else: text |> String.replace("\r\n", "\r") |> String.replace("\n", "\r")))
+    st
+  end
+
+  defp paste(st, _text), do: st
 
   # -- the mouse -------------------------------------------------------------------------------
 

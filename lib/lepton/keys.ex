@@ -50,6 +50,8 @@ defmodule Lepton.Keys do
   """
   def decode(bytes), do: decode(bytes, [])
 
+  @max_paste 4 * 1024 * 1024
+
   defp decode(<<>>, acc), do: {Enum.reverse(acc), <<>>}
 
   # Escape sequences
@@ -63,6 +65,16 @@ defmodule Lepton.Keys do
   end
 
   defp decode(<<27, ?[, ?M, rest::binary>> = all, acc) when byte_size(rest) < 3, do: {Enum.reverse(acc), all}
+
+  # A bracketed paste (mode 2004): everything up to ESC [ 201 ~ is one
+  # {:paste, text} key, newlines included. (Until the end arrives, wait.)
+  defp decode(<<27, ?[, "200~", rest::binary>> = all, acc) do
+    case :binary.match(rest, "\e[201~") do
+      {at, 6} -> decode(binary_part(rest, at + 6, byte_size(rest) - at - 6), [{:paste, binary_part(rest, 0, at)} | acc])
+      :nomatch when byte_size(rest) > @max_paste -> decode(<<>>, [{:paste, rest} | acc])
+      :nomatch -> {Enum.reverse(acc), all}
+    end
+  end
 
   defp decode(<<27, ?[, rest::binary>> = all, acc) do
     case csi(rest) do
@@ -97,6 +109,8 @@ defmodule Lepton.Keys do
   @doc "Interpret a pending partial sequence as literal keys (after a timeout)."
   def flush(<<>>), do: []
   def flush(<<27>>), do: ["ESC"]
+  # (a paste whose end never came: what there is of it)
+  def flush(<<27, ?[, "200~", text::binary>>), do: [{:paste, text}]
   def flush(<<27, rest::binary>>), do: ["ESC" | flush(rest)]
   def flush(bytes), do: bytes |> :binary.bin_to_list() |> Enum.map(&ctrl_or_char(&1))
 
@@ -229,6 +243,10 @@ defmodule Lepton.Keys do
   }
 
   def encode({:cpr, r, c}), do: "\e[#{r};#{c}R"
+
+  # A paste, as a program in bracketed paste mode gets it (the end marker
+  # can't appear inside it).
+  def encode({:paste, text}), do: "\e[200~" <> String.replace(text, "\e[201~", "") <> "\e[201~"
 
   # A mouse report, in SGR form (as Lepton's terminals send them).
   def encode({:mouse, action, button, x, y, mods}) do

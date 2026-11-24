@@ -203,7 +203,8 @@ defmodule Lepton.TTY do
 
     state =
       if rest != <<>>,
-        do: %{state | esc_timer: Process.send_after(self(), :esc_timeout, 30)},
+        # (a paste still coming, over SSH say, gets longer than an escape)
+        do: %{state | esc_timer: Process.send_after(self(), :esc_timeout, if(String.starts_with?(rest, "\e[200~"), do: 1000, else: 30))},
         else: state
 
     {:noreply, serve(state)}
@@ -295,6 +296,11 @@ defmodule Lepton.TTY do
   defp handle_key({:cpr, _, _}, state), do: state
 
   defp handle_key(key, %{mode: :raw} = state), do: %{state | keys: :queue.in(key, state.keys)}
+
+  # A paste reaching a line being typed (cooked): as if typed, each line ended.
+  defp handle_key({:paste, text}, state) do
+    text |> String.replace("\r\n", "\n") |> String.graphemes() |> Enum.map(&if(&1 in ["\n", "\r"], do: "RET", else: &1)) |> Enum.reduce(state, &handle_key/2)
+  end
 
   defp handle_key(key, state) do
     case key do

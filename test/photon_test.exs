@@ -984,10 +984,28 @@ defmodule Lepton.PhotonTest do
 
     assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ ~r/echo hi\n+hi\n/ end)
 
-    # Ctrl+Shift+V pastes the clipboard.
-    Lepton.Clipboard.put("echo pasted-$((6*7))\n")
+    # Ctrl+Shift+V pastes the clipboard. The shell asks for bracketed paste:
+    # the lines arrive as text in the command line, and nothing runs until Return.
+    assert eventually(fn -> :sys.get_state(term).screen.bracketed_paste end)
+    Lepton.Clipboard.put("echo pasted-$((6*7))\necho second-$((2+3))\n")
     for {code, down} <- [{29, true}, {42, true}, {47, true}, {47, false}, {42, false}, {29, false}], do: Photon.input(ph, {:key, code, down})
-    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ "\npasted-42\n" end)
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ "echo second-$((2+3))" end)
+    Process.sleep(300)
+    refute Lepton.Screen.text(:sys.get_state(term).screen) =~ "pasted-42"
+    Photon.input(ph, {:key, 28, true})
+    Photon.input(ph, {:key, 28, false})
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ ~r/\npasted-42\n+second-5\n/ end)
+
+    # Shift+Enter: a new line in the command (ESC RET, as Alt+Enter), not run until Return.
+    type = fn codes -> for code <- codes, down <- [true, false], do: Photon.input(ph, {:key, code, down}) end
+    # "echo x1" Shift+Enter "echo y2" (x 45, y 21, 1 2, 2 3)
+    type.([18, 46, 35, 24, 57, 45, 2])
+    for {code, down} <- [{42, true}, {28, true}, {28, false}, {42, false}], do: Photon.input(ph, {:key, code, down})
+    type.([18, 46, 35, 24, 57, 21, 3])
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ ~r/echo x1\n+echo y2/ end)
+    refute Lepton.Screen.text(:sys.get_state(term).screen) =~ ~r/^x1$/m
+    type.([28])
+    assert eventually(fn -> Lepton.Screen.text(:sys.get_state(term).screen) =~ ~r/\nx1\n+y2\n/ end)
     Photon.sync(ph)
     # The text is on the screen: some pixel in the window is the foreground colour.
     [%{x: x, y: y}] = Photon.info(ph).windows

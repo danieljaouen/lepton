@@ -29,6 +29,8 @@ defmodule Lepton.Screen do
             # or :any (1003); in SGR form (1006).
             mouse: nil,
             mouse_sgr: false,
+            # bracketed paste (2004): pastes come marked, newlines and all
+            bracketed_paste: false,
             cursor_visible: true,
             pending: "",
             wrap_next: false,
@@ -350,6 +352,7 @@ defmodule Lepton.Screen do
   defp mode(s, "?1002", on), do: %{s | mouse: if(on, do: :drag)}
   defp mode(s, "?1003", on), do: %{s | mouse: if(on, do: :any)}
   defp mode(s, "?1006", on), do: %{s | mouse_sgr: on}
+  defp mode(s, "?2004", on), do: %{s | bracketed_paste: on}
 
   defp mode(s, p, true) when p in ["?1049", "?47", "?1047"] do
     if s.alt, do: s, else: %{s | alt: {s.grid, s.x, s.y}, grid: %{}}

@@ -250,6 +250,8 @@ defmodule Lepton.Photon.Term do
   defp cancel_repeat(st), do: st
 
   @key_v 47
+  @key_enter 28
+  @key_kp_enter 96
   @key_0 11
   @key_minus 12
   @key_equal 13
@@ -272,10 +274,20 @@ defmodule Lepton.Photon.Term do
     zoom(st, size)
   end
 
-  # Ctrl+Shift+V pastes the clipboard (what Firefox copied too; newlines as
-  # Return, as a terminal types them).
+  # Ctrl+Shift+V pastes the clipboard (what Firefox copied too). A program
+  # that asked for bracketed paste (2004: the shell does) gets it marked, its
+  # newlines as text; others get them as Return, as a terminal types them.
   defp type_key(st, @key_v) when band(st.mods, 5) == 5 do
-    TTY.input(st.tty, String.replace(Lepton.Clipboard.get(), "\n", "\r"))
+    text = Lepton.Clipboard.get()
+    TTY.input(st.tty, if(st.screen.bracketed_paste, do: Lepton.Keys.encode({:paste, text}), else: String.replace(text, "\n", "\r")))
+    st
+  end
+
+  # Shift+Enter: ESC RET, as Alt+Enter (Option+Enter on a Mac) sends it, the
+  # usual "new line, don't run it": the shell and Claude Code take it so
+  # (Return alone can't say Shift).
+  defp type_key(st, code) when code in [@key_enter, @key_kp_enter] and band(st.mods, 13) == 1 do
+    TTY.input(st.tty, "\e\r")
     st
   end
 
