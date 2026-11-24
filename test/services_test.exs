@@ -66,7 +66,8 @@ defmodule Lepton.ServicesTest do
     assert eventually(fn -> Enum.count(Services.logs("ticker", 100), &(&1 =~ "ticker[")) >= 3 end)
     assert %{state: :active, pid: pid} = Services.status("ticker")
     assert {out, 0} = sh("svc status ticker")
-    assert out =~ "Active: active" and out =~ "tick 0"
+    # (its latest log lines: "tick 0" may have scrolled out already where the CPU is emulated)
+    assert out =~ "Active: active" and out =~ ~r/ticker\[\d+\]: tick \d+/
     assert {"active\n", 0} = sh("svc is-active ticker")
     assert {"ticker is already running\n", 0} = sh("svc start ticker")
     assert running?("sleep 0.05") or running?("cat")

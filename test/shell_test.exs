@@ -169,6 +169,48 @@ defmodule Lepton.ShellTest do
     end
   end
 
+  describe "commands of several lines" do
+    # The line editor on a terminal whose output a Screen interprets: what it returns, and what shows.
+    defp edit(history, inputs) do
+      {:ok, tty} = Lepton.TTY.start(backend: {Lepton.TTY.Capture, nil})
+      shell = Lepton.Shell.new(%Lepton.Ctx{cwd: "/", env: %{"PATH" => "/nonexistent", "TERM" => "xterm-256color"}, tty: tty, stdin: tty, stdout: tty, stderr: tty})
+      line = Task.async(fn -> Lepton.Shell.LineEditor.read(%{shell | history: history}, "$ ") end)
+      Process.sleep(100)
+      for input <- inputs, do: (Lepton.TTY.input(tty, input); Process.sleep(80))
+      {line, screen_of(tty), tty}
+    end
+
+    defp screen_of(tty) do
+      {_, agent} = :sys.get_state(tty).backend
+      Lepton.Screen.new(24, 80) |> Lepton.Screen.feed(Lepton.TTY.Capture.output(agent))
+    end
+
+    test "Shift+Enter (ESC RET) and pastes put lines in the command; Return runs them together" do
+      {line, _, _} = edit([], ["ls", "\e\r", "j", "\r"])
+      assert Task.await(line, 5000) == {:ok, "ls\nj"}
+      {line, screen, _} = edit([], [Lepton.Keys.encode({:paste, "echo a\r\necho b"}), "\r"])
+      assert Task.await(line, 5000) == {:ok, "echo a\necho b"}
+      assert Lepton.Screen.row_text(screen, 0) =~ "$ echo a" and Lepton.Screen.row_text(screen, 1) == "echo b"
+    end
+
+    # Such a command in history used to be suggested across lines, and the
+    # cursor and every redraw after it landed a line too low.
+    test "one in history is suggested on the line being typed, by its first line; → takes all of it" do
+      {line, screen, tty} = edit(["ls\nj"], ["l"])
+      assert Lepton.Screen.row_text(screen, 0) == "$ ls…" and Lepton.Screen.row_text(screen, 1) == ""
+      assert {screen.x, screen.y} == {3, 0}
+      # Typing on redraws in place: still one line, the cursor after what's typed.
+      Lepton.TTY.input(tty, "s")
+      Process.sleep(80)
+      screen = screen_of(tty)
+      assert Lepton.Screen.row_text(screen, 0) == "$ ls…" and Lepton.Screen.row_text(screen, 1) == ""
+      assert {screen.x, screen.y} == {4, 0}
+      # → takes the whole command.
+      Lepton.TTY.input(tty, "\e[C\r")
+      assert Task.await(line, 5000) == {:ok, "ls\nj"}
+    end
+  end
+
   describe "completion" do
     # TAB in the line editor; the line it returns.
     defp complete(typed, cwd) do

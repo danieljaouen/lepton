@@ -448,14 +448,22 @@ defmodule Lepton.Shell.LineEditor do
 
   defp redraw(s) do
     color? = Style.color?(s.shell.ctx)
-    sugg = suggestion(s) || ""
+    # A command of several lines (Shift+Enter, a paste) is suggested by its
+    # first line and an ellipsis (→ still takes all of it): the suggestion
+    # stays on the line being typed.
+    sugg =
+      case String.split(suggestion(s) || "", "\n", parts: 2) do
+        [one] -> one
+        [first, _more] -> first <> "…"
+      end
+
     # (plain: not shell commands, psql's SQL for one: no highlighting)
     shown = if s.shell.options[:plain], do: s.buf, else: highlight(s.buf, s.shell, color?)
     line = s.prompt <> shown <> if(color? and sugg != "", do: "\e[38;5;242m" <> sugg <> "\e[0m", else: "")
     draw(s, line, line_widths(s, if(color?, do: Lepton.Width.string(sugg), else: 0)))
   end
 
-  defp draw_raw(s, text), do: draw(s, text, [Style.width(text)])
+  defp draw_raw(s, text), do: draw(s, text, text |> String.split("\n") |> Enum.map(&Style.width/1))
 
   # Pasted text: newlines (CR LF or CR, as terminals send them) become the
   # line's own; other control characters are left out.
