@@ -180,6 +180,22 @@ defmodule Lepton.Mux.Client do
   # A press selects the pane under the pointer; the pane's program gets
   # the report if it asked (relative to the pane), as long as the pointer
   # is over the active pane. Only in the normal mode.
+  # The status line, as tmux: a click on a window's name selects it; the
+  # wheel over it goes to the next or previous window.
+  defp mouse(%{mode: :normal, snapshot: snap, size: {rows, _}} = st, {:mouse, :press, button, x, y, _mods}) when y == rows - 1 and snap != nil do
+    case button do
+      :left ->
+        case Enum.find(window_spans(st, snap), fn {_w, from, to} -> x >= from and x < to end) do
+          {w, _, _} -> exec(st, ["select-window", "-t", ":=#{w.index}"])
+          nil -> st
+        end
+
+      :wheel_up -> exec(st, ["previous-window"])
+      :wheel_down -> exec(st, ["next-window"])
+      _ -> st
+    end
+  end
+
   defp mouse(%{mode: :normal, snapshot: %{panes: panes}} = st, {:mouse, action, button, x, y, mods}) do
     hit = Enum.find(panes, fn {_id, %{rect: {px, py, w, h}}} -> x >= px and x < px + w and y >= py and y < py + h end)
 
@@ -621,31 +637,53 @@ defmodule Lepton.Mux.Client do
     end
   end
 
-  defp status_bar(st, snap, cols) do
-    c = theme_color(st)
-    linux = Map.get(st.ctx.env, "TERM") == "linux"
-    sep = if linux, do: "", else: "▌"
-    mode_flag = case st.mode do
+  # The status line's pieces, shared by drawing it and by clicks on it.
+  defp status_sep(st), do: if(Map.get(st.ctx.env, "TERM") == "linux", do: "", else: "▌")
+
+  defp mode_flag(st) do
+    case st.mode do
       :prefix -> " ^ "
       {:repeat, _} -> " ^ "
-      {:copy, _} -> " ⎘ " |> then(&if(linux, do: " C ", else: &1))
+      {:copy, _} -> if(Map.get(st.ctx.env, "TERM") == "linux", do: " C ", else: " ⎘ ")
       _ -> ""
     end
+  end
 
-    left = "\e[4#{c};30;1m #{st.name}#{mode_flag} \e[0m\e[3#{c};48;5;236m#{sep}\e[0m"
-    left_len = String.length(st.name) + String.length(mode_flag) + 2 + String.length(sep)
+  defp status_left_len(st), do: String.length(st.name) + String.length(mode_flag(st)) + 2 + String.length(status_sep(st))
+
+  defp window_label(w) do
+    flag = cond do
+      w.active and w.zoomed -> "*Z"
+      w.active -> "*"
+      w.last -> "-"
+      w.activity -> "#"
+      true -> ""
+    end
+
+    " #{w.index}:#{w.name}#{flag} "
+  end
+
+  # Each window's columns in the status line: [{window, from, to}] (to: exclusive).
+  defp window_spans(st, snap) do
+    {spans, _} =
+      Enum.map_reduce(snap.windows, status_left_len(st), fn w, x ->
+        to = x + String.length(window_label(w))
+        {{w, x, to}, to}
+      end)
+
+    spans
+  end
+
+  defp status_bar(st, snap, cols) do
+    c = theme_color(st)
+    sep = status_sep(st)
+
+    left = "\e[4#{c};30;1m #{st.name}#{mode_flag(st)} \e[0m\e[3#{c};48;5;236m#{status_sep(st)}\e[0m"
+    left_len = status_left_len(st)
 
     {wins, wins_len} =
       Enum.reduce(snap.windows, {"", 0}, fn w, {acc, len} ->
-        flag = cond do
-          w.active and w.zoomed -> "*Z"
-          w.active -> "*"
-          w.last -> "-"
-          w.activity -> "#"
-          true -> ""
-        end
-
-        label = " #{w.index}:#{w.name}#{flag} "
+        label = window_label(w)
         styled = if w.active, do: "\e[4#{c};30;1m#{label}\e[0m", else: "\e[48;5;236;38;5;#{if w.activity, do: "214", else: "248"}m#{label}\e[0m"
         {acc <> styled, len + String.length(label)}
       end)

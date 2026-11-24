@@ -198,6 +198,57 @@ defmodule Lepton.MuxTest do
       def write({pid, _}, data), do: send(pid, {:client_out, data})
     end
 
+    # What the client's terminal shows: its output so far, through a Screen.
+    defp client_screen(acc) do
+      receive do
+        {:client_out, data} -> client_screen(acc <> data)
+      after
+        200 -> Lepton.Screen.new(24, 80) |> Lepton.Screen.feed(acc)
+      end
+    end
+
+    test "mouse on: a click on a window's name in the status line selects it; the wheel there cycles" do
+      ctx = %Lepton.Ctx{cwd: tmp_dir("muxtabs"), env: %{"HOME" => tmp_dir("tabshome"), "NO_COLOR" => "1"}}
+      {:ok, pid} = DynamicSupervisor.start_child(Lepton.SessionSupervisor, {Lepton.Mux.Server, name: "t#{System.unique_integer([:positive])}", ctx: ctx, size: {24, 80}, command: "read"})
+      {:ok, tty} = Lepton.TTY.start(backend: {TestTerm, {self(), {24, 80}}}, name: "mux tabs test")
+      cfg = %{Config.defaults() | options: Map.put(Config.defaults().options, "mouse", "on")}
+      client = spawn(fn -> Lepton.Mux.Client.run(%{ctx | tty: tty, stdout: tty}, pid, cfg) end)
+      assert_receive {:client_out, "\e[?1002h\e[?1006h"}, 5000
+      active = fn -> Enum.find(Lepton.Mux.Server.snapshot(pid).windows, & &1.active) end
+
+      # prefix c: a new window; prefix , and a name: renamed.
+      prefix = Lepton.Keys.encode(Config.defaults().options["prefix"] |> Lepton.Keys.normalize())
+      Lepton.TTY.input(tty, prefix <> "c")
+      assert eventually(fn -> length(Lepton.Mux.Server.snapshot(pid).windows) == 2 end)
+      Lepton.TTY.input(tty, prefix <> ",")
+      Process.sleep(100)
+      Lepton.TTY.input(tty, "\x15notes\r")
+      assert eventually(fn -> active.().name == "notes" end)
+
+      # The status line (the last row) shows both; a click on window 0's name selects it.
+      Process.sleep(300)
+      status = Lepton.Screen.row_text(client_screen(""), 23)
+      assert status =~ "notes*"
+      # (a column in characters: the separator before the names takes several bytes)
+      {at, _} = :binary.match(status, " 0:")
+      col = String.length(binary_part(status, 0, at))
+      Lepton.TTY.input(tty, "\e[<0;#{col + 3};24M\e[<0;#{col + 3};24m")
+      assert eventually(fn -> active.().index == 0 end)
+
+      # The wheel over it: the next window, and back.
+      Lepton.TTY.input(tty, "\e[<65;10;24M")
+      assert eventually(fn -> active.().name == "notes" end)
+      Lepton.TTY.input(tty, "\e[<64;10;24M")
+      assert eventually(fn -> active.().index == 0 end)
+      # A click past the names (on the clock) does nothing.
+      Lepton.TTY.input(tty, "\e[<0;79;24M\e[<0;79;24m")
+      Process.sleep(200)
+      assert active.().index == 0
+
+      Process.exit(client, :kill)
+      Lepton.Mux.Server.stop(pid)
+    end
+
     test "mouse on: a click selects the pane under it, and reaches le there, at the pane's cells" do
       dir = tmp_dir("muxmouse")
       File.write!(Path.join(dir, "f.txt"), Enum.map_join(1..30, "\n", &"line #{&1} of text") <> "\n")

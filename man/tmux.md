@@ -37,7 +37,8 @@ it.
 
 With `set -g mouse on`, a click selects the pane under it, and programs
 that ask for the mouse (`le`) get clicks, drags and the wheel in their
-pane.
+pane. A click on a window's name in the status line selects that
+window; the wheel over the status line goes to the next or previous one.
 
 ## FILES
 

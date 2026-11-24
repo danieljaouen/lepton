@@ -41,7 +41,10 @@ selection and `y` copies it to the clipboard shared with the editor,
 
 With `set -g mouse on` (as in your tmux.conf), a click selects the pane
 under it, and programs that ask for the mouse, such as `le`, get clicks,
-drags and the wheel in their pane.
+drags and the wheel in their pane. In the status line, a click on a
+window's name (`0:zsh`, `1:notes*` ...) switches to that window, and the
+wheel there goes to the next or previous one: open a window with
+`prefix c`, name it with `prefix ,`, and click the other to go back.
 
 ## Moving between the editor and panes
 
