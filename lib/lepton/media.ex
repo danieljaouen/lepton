@@ -245,10 +245,16 @@ defmodule Lepton.Media do
     case FS.probe(path) do
       {nil, _} ->
         # Nothing we can mount (or the device node isn't there yet: try again).
-        if File.exists?(path), do: %{st | skip: MapSet.put(st.skip, dev.name)}, else: st
+        if File.exists?(path) do
+          not_mounted(dev.name, nil)
+          %{st | skip: MapSet.put(st.skip, dev.name)}
+        else
+          st
+        end
 
       {type, _} when not is_map_key(@modules, type) ->
         # A filesystem Lepton knows but doesn't mount (APFS, LUKS, ...).
+        not_mounted(dev.name, type)
         %{st | skip: MapSet.put(st.skip, dev.name)}
 
       {type, label} ->
@@ -272,6 +278,35 @@ defmodule Lepton.Media do
             Logger.warning("media: cannot mount #{dev.name} (#{type}): #{reason}")
             %{st | skip: MapSet.put(st.skip, dev.name)}
         end
+    end
+  end
+
+  # Why a drive isn't mounted, said once when it appears: in the log, and
+  # as a notice on the desktop if it is running.
+  defp not_mounted(name, type) do
+    text = not_mounted_message(name, type)
+    Logger.warning("media: " <> text)
+    if pid = Process.whereis(Lepton.Photon), do: Lepton.Photon.notice(pid, text)
+  end
+
+  @doc false
+  def not_mounted_message(name, type) do
+    case type do
+      t when t in ["apfs", "hfsplus"] ->
+        what = if t == "apfs", do: "APFS", else: "HFS+ (Mac OS Extended)"
+        "#{name} isn't mounted: it's #{what}, a Mac's format Lepton can't read. Format it as exFAT to use it with both your Mac and Lepton."
+
+      "bitlocker" ->
+        "#{name} isn't mounted: it's encrypted with BitLocker (Windows), which Lepton can't open."
+
+      "crypto_LUKS" ->
+        "#{name} isn't mounted: it's encrypted (LUKS), which Lepton can't open."
+
+      nil ->
+        "#{name} isn't mounted: Lepton doesn't recognise its filesystem (it may be blank). FAT, exFAT, NTFS and ext4 drives are mounted."
+
+      t ->
+        "#{name} isn't mounted: Lepton can't mount #{t} filesystems."
     end
   end
 

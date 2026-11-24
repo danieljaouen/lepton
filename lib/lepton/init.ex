@@ -132,7 +132,8 @@ defmodule Lepton.Init do
   defp load_drivers do
     Enum.each(@transports, &modprobe/1)
     load_display()
-    Enum.each(@drivers, &modprobe/1)
+    # (not UAS in QEMU: USB drives use usb-storage there, Lepton.USB.Storage)
+    Enum.each(if(Sys.qemu?(), do: @drivers -- ["uas"], else: @drivers), &modprobe/1)
     # Drivers by hardware ID: USB/SDIO Wi-Fi and Ethernet adapters, USB
     # displays (Lepton.USB does this for devices plugged in later).
     Lepton.Kmod.load_for_hardware()

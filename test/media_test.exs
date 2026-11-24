@@ -82,6 +82,16 @@ defmodule Lepton.MediaTest do
     assert devices |> Media.candidates("mmcblk0") |> Enum.map(& &1.name) == ~w(sdb1 sdc)
   end
 
+  test "a drive that isn't mounted says why: a Mac's format, encryption, or nothing Lepton knows" do
+    assert Media.not_mounted_message("sdc1", "hfsplus") =~ "sdc1 isn't mounted: it's HFS+ (Mac OS Extended), a Mac's format"
+    assert Media.not_mounted_message("sdc1", "hfsplus") =~ "Format it as exFAT"
+    assert Media.not_mounted_message("sdc1", "apfs") =~ "it's APFS"
+    assert Media.not_mounted_message("sdd1", "crypto_LUKS") =~ "encrypted (LUKS)"
+    assert Media.not_mounted_message("sdd1", "bitlocker") =~ "BitLocker"
+    assert Media.not_mounted_message("sde", nil) =~ "doesn't recognise its filesystem"
+    assert Media.not_mounted_message("sde", "xfs") =~ "can't mount xfs"
+  end
+
   test "mount points: the label made safe, else the device; no clashes" do
     assert Media.mount_point("My Photos", "sdb1", []) == "/media/My_Photos"
     assert Media.mount_point(nil, "sdb1", []) == "/media/sdb1"

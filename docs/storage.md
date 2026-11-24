@@ -32,7 +32,14 @@ exFAT (large SD cards), NTFS (Windows drives), ext2/3/4 (Linux drives) and
 ISO 9660 (CD images written to a stick). FAT, exFAT and NTFS have no
 owners or permissions, so every user can read and write them. A
 filesystem the kernel won't write, such as an NTFS drive that Windows
-left hibernated, is mounted read-only.
+left hibernated, is mounted read-only. A Mac's own formats, APFS and
+HFS+ (Mac OS Extended), aren't mounted: Linux can't read them here. To
+use a drive with both your Mac and Lepton, format it as **exFAT** (in Disk
+Utility, choose View → Show All Devices, select the drive itself rather
+than its volume, then Erase: exFAT, GUID Partition Map; this erases it).
+A drive that isn't mounted says why when it is plugged in: a notice on
+the desktop, and a line in `/var/log/messages` (`lsblk` shows its
+format too).
 
 **Several partitions** on a drive are each mounted in their own folder.
 A drive with no partition table, as many sticks and cards are, is
@@ -68,7 +75,14 @@ Turn on **Input → USB Sharing** in the VM's settings, then click the
 **USB** icon in the toolbar while the VM runs and pick the drive or card
 reader. macOS lets go of it and Lepton mounts it. To give the drive back
 to the Mac, eject it in Lepton first, then pick it again in the USB menu.
-See [USB, hubs and displays](usb.html).
+Eject it in the Finder first (without unplugging it), so macOS isn't
+using it. See [USB, hubs and displays](usb.html).
+
+**Fast USB SSDs** (a Samsung T7, most USB 3 SSDs) normally use UAS, a
+protocol that doesn't survive UTM's USB passthrough: the drive drops out
+at once and UTM says it was rejected by the host. In UTM (QEMU) Lepton
+uses such drives with usb-storage instead, the protocol USB sticks use:
+a little slower, but they work. Nothing changes on a real machine.
 
 Lepton's own disk (where an installed Lepton keeps your files) is never
 mounted under `/media`.

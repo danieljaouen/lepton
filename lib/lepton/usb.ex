@@ -249,6 +249,8 @@ defmodule Lepton.USB do
 
     cond do
       st.seen == nil ->
+        # (drives there at boot, in a virtual machine: usb-storage)
+        Lepton.USB.Storage.fallback()
         {:noreply, %{st | seen: names}}
 
       names == st.seen ->
@@ -259,6 +261,8 @@ defmodule Lepton.USB do
         removed = MapSet.difference(st.seen, names)
         for d <- devices(), MapSet.member?(added, d.name), do: Logger.info("usb: #{d.name} connected: #{label(d)} (#{kind(d)})")
         for n <- removed, !String.starts_with?(n, "hid:"), do: Logger.info("usb: #{n} disconnected")
+        # A drive, in a virtual machine: usb-storage rather than UAS (Lepton.USB.Storage).
+        Lepton.USB.Storage.fallback()
         # Drivers for what was plugged in (hubs need none: the USB core enumerates their ports).
         loaded = Lepton.Kmod.load_for_hardware()
         if loaded != [], do: Logger.info("usb: loaded #{Enum.join(loaded, ", ")}")

@@ -33,6 +33,23 @@ defmodule Lepton.Sys do
 
   def pid1?(pid \\ System.pid()), do: to_string(pid) == "1"
 
+  @doc """
+  Whether Lepton runs in QEMU (UTM's QEMU backend, `mix lepton.qemu`): the
+  firmware says so (DMI). USB devices there come through QEMU's
+  passthrough (`Lepton.USB.Storage`).
+  """
+  def qemu? do
+    case :persistent_term.get({__MODULE__, :qemu}, nil) do
+      nil ->
+        v = match?({:ok, "QEMU" <> _}, File.read("/sys/class/dmi/id/sys_vendor"))
+        :persistent_term.put({__MODULE__, :qemu}, v)
+        v
+
+      v ->
+        v
+    end
+  end
+
   @doc "Runs a busybox applet: returns {output, exit_status}."
   def shim(applet, args) do
     if File.exists?(@busybox) do

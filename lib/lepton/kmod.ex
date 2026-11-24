@@ -119,7 +119,7 @@ defmodule Lepton.Kmod do
       device_aliases()
       |> Enum.flat_map(&modules_for(&1, table))
       |> Enum.uniq()
-      |> Enum.reject(&(MapSet.member?(tried, &1) or loaded?(&1)))
+      |> Enum.reject(&(MapSet.member?(tried, &1) or loaded?(&1) or held_back?(&1)))
 
     case Enum.filter(wanted, &(modprobe(&1) == :ok)) do
       [] ->
@@ -131,6 +131,10 @@ defmodule Lepton.Kmod do
         load_rounds(table, rounds - 1, loaded ++ new, MapSet.union(tried, MapSet.new(wanted)))
     end
   end
+
+  # UAS in QEMU: drives use usb-storage there (Lepton.USB.Storage).
+  defp held_back?("uas"), do: Lepton.Sys.qemu?()
+  defp held_back?(_), do: false
 
   def device_aliases do
     for bus <- @hotplug_buses,
