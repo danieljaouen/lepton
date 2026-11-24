@@ -79,6 +79,16 @@ defmodule Lepton.Tutorial do
        prompt, and C-h/j/k/l move between windows - and into tmux panes.
        Try: le ~/tutorial/hello.txt  (quit with SPC q q or ;q)
        """, nil},
+      {"More of le",
+       """
+       le does what Vim does: macros (qa records, q stops, @a plays),
+       visual block (C-v; I or A types on every line), registers ("ayy,
+       "ap), marks (ma, then 'a). :%s/old/new/g replaces in the file and
+       SPC p R across the project, asking at each match (y, n, ! for all);
+       SPC f S saves every changed file. The mouse clicks, drags and
+       scrolls, and Ctrl+Shift+V pastes exactly what you copied.
+       The editor guide has a tour: trylepton.app/docs/editor.html
+       """, nil},
       {"The multiplexer: tmux",
        """
        Your prefix is #{prefix}.  #{prefix} v splits side by side

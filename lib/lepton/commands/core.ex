@@ -733,6 +733,18 @@ defmodule Lepton.Commands.Core do
     end
   end
 
+  defcmd "ncdu", "browse disk usage: what takes the space, largest first (q to quit)", usage: "ncdu [-x] [DIR]" do
+    {opts, rest} = getopt(args, "x")
+    dir = Ctx.path(ctx, List.first(rest) || ".")
+
+    if File.dir?(dir) do
+      Lepton.Ncdu.run(ctx, dir, one_fs: opts["x"] == true)
+    else
+      IO.err(ctx, "ncdu: #{List.first(rest)}: not a directory")
+      1
+    end
+  end
+
   defcmd "du", "estimate file space usage", usage: "du [-sh] [FILE...]" do
     {opts, paths} = getopt(args, "shac")
     paths = if paths == [], do: ["."], else: paths

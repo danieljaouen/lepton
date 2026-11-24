@@ -99,7 +99,30 @@ cp todo.txt done.txt && ls
 
 More: [The editor](editor.html), [System](system.html).
 
-## 5. tmux
+## 5. More of the editor
+
+`le` does what Vim does, and a few things Spacemacs does:
+
+- **Macros**: `qa` records, `q` stops, `@a` plays (`100@a` stops at the
+  last line by itself).
+- **Visual block**: `C-v` selects columns; `I` or `A` types on every
+  line at once, `d`, `y`, `p` cut and paste blocks.
+- **Registers**: `"ayy` copies into register a, `"ap` pastes it.
+- **Marks**: `ma` marks the place, `'a` goes back to it.
+- **Replace everywhere**: `:%s/old/new/g` in the file; `SPC p R` across
+  the project, asking at each match (`y`, `n`, `!` for all);
+  `SPC f S` saves every changed file.
+- **Mouse and paste**: click to move, drag to select, the wheel scrolls;
+  Ctrl+Shift+V pastes exactly what you copied.
+
+```sh
+printf 'apple one\nbanana two\ncherry three\n' > ~/fruit.txt
+le ~/fruit.txt              # then try: gg C-v jj I# Esc
+```
+
+More: [A tour of le](editor.html#a-tour-beyond-the-basics).
+
+## 6. tmux
 
 `tmux` splits your screen into windows and panes, with your
 `~/.tmux.conf`. The prefix is **C-t**.
@@ -114,7 +137,7 @@ and bottom), and **C-t d** to detach. `tmux attach` brings it back.
 
 More: [tmux](tmux.html).
 
-## 6. The network and Wi-Fi
+## 7. The network and Wi-Fi
 
 The VM's network works by itself.
 
@@ -135,7 +158,7 @@ wifi
 
 More: [Networking](networking.html).
 
-## 7. git, GitHub and SSH
+## 8. git, GitHub and SSH
 
 ```sh
 ssh-keygen                      # your key, ~/.ssh/id_ed25519
@@ -151,7 +174,7 @@ git add README.md && git commit -m "Hello from Lepton" && git push
 
 More: [git and GitHub](git.html), [SSH](ssh.html).
 
-## 8. Elixir and packages
+## 9. Elixir and packages
 
 Lepton's commands are written in Elixir, and you can write your own.
 
@@ -165,7 +188,7 @@ elixir -e 'IO.puts Jason.encode!(%{hello: "lepton"})'
 
 More: [Packages](packages.html).
 
-## 9. Services
+## 10. Services
 
 `svc` keeps programs running in the background and starts them at boot.
 
@@ -179,7 +202,7 @@ sudo svc stop clock
 
 More: [Services](services.html).
 
-## 10. Users and sudo
+## 11. Users and sudo
 
 Your account runs administrative commands with `sudo`, which asks for
 your password.
@@ -193,7 +216,7 @@ sudo passwd sam
 
 More: [Users and sudo](users.html).
 
-## 11. The desktop
+## 12. The desktop
 
 Lepton has a graphical desktop, Photon, with two looks. From the VM's
 window (not an SSH session):
@@ -216,7 +239,7 @@ classic                         # Windows 95-style, with a Start menu
 
 More: [The desktop](desktop.html).
 
-## 12. Firefox
+## 13. Firefox
 
 Firefox runs on the desktop. The first time, it is downloaded and
 installed (about 266 MB):
@@ -228,7 +251,7 @@ Give the VM 4 GB of memory for it. It plays video and sound too.
 
 More: [Firefox and other apps](apps.html).
 
-## 13. More displays
+## 14. More displays
 
 Give the VM a second display (UTM: add a **Display** whose card is
 `virtio-gpu-pci`, not `virtio-ramfb`; see
@@ -244,7 +267,7 @@ photon display extend       # one desktop across both (the default)
 
 More: [USB, hubs and displays](usb.html#displays).
 
-## 14. USB devices, drives and SD cards
+## 15. USB devices, drives and SD cards
 
 Plug devices into the Mac and pass them to the VM from UTM's **USB**
 menu. Hubs, keyboards and mice work as soon as they appear.
@@ -266,7 +289,7 @@ eject /media/MYSTICK        # then unplug it
 
 More: [USB, hubs and displays](usb.html), [USB drives and SD cards](storage.html).
 
-## 15. Sound
+## 16. Sound
 
 Give the VM a sound device (UTM: **Sound**), then:
 
@@ -284,7 +307,7 @@ opens a volume control.
 
 More: [Sound](sound.html).
 
-## 16. Bluetooth
+## 17. Bluetooth
 
 With a USB Bluetooth adapter passed to the VM, put a keyboard, mouse or
 pair of headphones in pairing mode, then:
@@ -304,7 +327,7 @@ things.
 
 More: [Bluetooth](bluetooth.html).
 
-## 17. Your dotfiles
+## 18. Your dotfiles
 
 Lepton reads real configuration files: your `~/.zshrc`, `~/.spacemacs`,
 `~/.tmux.conf`, starship prompt and `~/.gitconfig`.
@@ -316,7 +339,7 @@ keys tmux
 
 More: [Your dotfiles, applied](dotfiles.html).
 
-## 18. Upgrade to a new release
+## 19. Upgrade to a new release
 
 When a new release comes out:
 

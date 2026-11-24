@@ -10,7 +10,7 @@ summary: A format-compatible git, your gitconfig aliases, and a gh CLI.
 ## git
 
 Lepton's `git` is format-compatible with upstream git: loose and packed
-objects, index v2, refs, packed-refs and `.gitignore`. It talks to GitHub
+objects, index v2, refs, packed-refs and `.gitignore` (in any directory). It talks to GitHub
 and other servers over HTTPS ("smart HTTP") and [SSH](#ssh-remotes)
 (side-band-64k packs, OFS/REF deltas).
 

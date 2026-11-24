@@ -137,6 +137,8 @@ defmodule Lepton.Editor.Keymap do
     {"SPC q s", :save_quit, "save & quit"},
     {"SPC s s", :swoop, "search buffer"},
     {"SPC s p", :search_project, "search project"},
+    {"SPC s R", :directory_replace, "replace in directory"},
+    {"SPC s %", :directory_replace_regexp, "replace regexp in directory"},
     {"SPC s c", :clear_highlight, "clear highlight"},
     {"SPC t n", :toggle_line_numbers, "line numbers"},
     {"SPC t r", :toggle_relative, "relative numbers"},

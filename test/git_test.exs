@@ -152,6 +152,12 @@ defmodule Lepton.GitTest do
     File.mkdir_p!(Path.join(dir, "_build"))
     for f <- ~w(a.ex b.log keep.log _build/out), do: File.write!(Path.join(dir, f), "")
     assert Enum.sort(Git.worktree_files(repo)) == [".gitignore", "a.ex", "keep.log"]
+
+    # A subdirectory's .gitignore, for what is under it (and its ! over the top one's).
+    File.mkdir_p!(Path.join(dir, "sub/deep"))
+    File.write!(Path.join(dir, "sub/.gitignore"), "secret.txt\n/only-here.txt\n!b.log\n")
+    for f <- ~w(sub/secret.txt sub/deep/secret.txt sub/only-here.txt sub/deep/only-here.txt sub/b.log secret.txt), do: File.write!(Path.join(dir, f), "")
+    assert Enum.sort(Git.worktree_files(repo)) == [".gitignore", "a.ex", "keep.log", "secret.txt", "sub/.gitignore", "sub/b.log", "sub/deep/only-here.txt"]
   end
 
   @tag :network

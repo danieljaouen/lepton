@@ -1279,9 +1279,13 @@ defmodule Lepton.Editor do
   def do_action(st, :swoop, _), do: prompt(st, :swoop, "Swoop: ", "") |> refresh_candidates()
   def do_action(st, :search_project, _), do: prompt(st, :grep, "Search project: ", "")
   # SPC p R (projectile-replace): text to find, what replaces it, then each match asks.
-  def do_action(st, :project_replace, _), do: prompt(st, {:replace_from, :literal}, "Replace in project: ", "")
+  def do_action(st, :project_replace, _), do: prompt(st, {:replace_from, :literal, :project}, "Replace in project: ", "")
   # SPC p % (projectile-replace-regexp): the same with a regexp (\1 ... in the replacement).
-  def do_action(st, :project_replace_regexp, _), do: prompt(st, {:replace_from, :regexp}, "Replace regexp in project: ", "")
+  def do_action(st, :project_replace_regexp, _), do: prompt(st, {:replace_from, :regexp, :project}, "Replace regexp in project: ", "")
+  # SPC s R / SPC s %: the same in a directory you name (this file's to start
+  # with), every file under it: what git ignores, dotfiles, _build too (not .git).
+  def do_action(st, :directory_replace, _), do: prompt(st, {:replace_dir, :literal}, "Replace in directory: ", dir_of(st) <> "/")
+  def do_action(st, :directory_replace_regexp, _), do: prompt(st, {:replace_dir, :regexp}, "Replace regexp in directory: ", dir_of(st) <> "/")
 
   # windows
   def do_action(st, :split_right, _), do: split(st, :right)
@@ -2466,14 +2470,31 @@ defmodule Lepton.Editor do
   defp fuzzy?(_s, ""), do: true
   defp fuzzy?(s, q), do: q |> String.split() |> Enum.all?(&String.contains?(String.downcase(s), String.downcase(&1)))
 
+  # The project's files, relative to its root: in a git repository the
+  # worktree's, as git sees them (what .gitignore and the excludes leave,
+  # dotfiles such as .formatter.exs included; never .git); elsewhere every
+  # file but hidden ones. _build/ and deps/ are left out either way.
+  # (SPC p f, SPC /, SPC p R)
   defp project_files(st) do
-    root = Lepton.Git.root(dir_of(st)) || dir_of(st)
+    case Lepton.Git.root(dir_of(st)) do
+      nil ->
+        root = dir_of(st)
 
-    Path.wildcard(Path.join(root, "**/*"))
-    |> Enum.reject(&(String.contains?(&1, "/.git/") or String.contains?(&1, "/_build/") or String.contains?(&1, "/deps/")))
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.map(&Path.relative_to(&1, root))
+        Path.wildcard(Path.join(root, "**/*"))
+        |> Enum.filter(&File.regular?/1)
+        |> Enum.map(&Path.relative_to(&1, root))
+        |> Enum.reject(&build_dir?/1)
+
+      root ->
+        root
+        |> Lepton.Git.Repo.open()
+        |> Lepton.Git.worktree_files()
+        |> Enum.reject(&build_dir?/1)
+        |> Enum.filter(&File.regular?(Path.join(root, &1)))
+    end
   end
+
+  defp build_dir?(rel), do: Enum.any?(Path.split(rel), &(&1 in ["_build", "deps", ".git"]))
 
   defp mx_commands(st) do
     leader = st.km.normal |> Map.values() |> Enum.filter(&is_atom/1) |> Enum.map(&Keymap.action_label/1)
@@ -2551,9 +2572,16 @@ defmodule Lepton.Editor do
         end
 
       :grep -> grep_project(st, text)
-      {:replace_from, _} when text == "" -> st
-      {:replace_from, how} -> prompt(st, {:replace_to, how, text}, "Replace #{if how == :regexp, do: "regexp ", else: ""}\"#{text}\" with: ", "")
-      {:replace_to, how, from} -> start_project_replace(st, how, from, text)
+      {:replace_dir, how} ->
+        dir = Lepton.Ctx.path(st.ctx, Path.expand(text, dir_of(st)))
+
+        if File.dir?(dir),
+          do: prompt(st, {:replace_from, how, {:dir, dir}}, "Replace #{if how == :regexp, do: "regexp ", else: ""}in #{dir}: ", ""),
+          else: msg(st, "Not a directory: #{dir}", true)
+
+      {:replace_from, _, _} when text == "" -> st
+      {:replace_from, how, scope} -> prompt(st, {:replace_to, how, text, scope}, "Replace #{if how == :regexp, do: "regexp ", else: ""}\"#{text}\" with: ", "")
+      {:replace_to, how, from, scope} -> start_project_replace(st, how, from, text, scope)
 
       {:align, {fl, tl}} -> align(st, fl, tl, text)
 
@@ -2667,16 +2695,23 @@ defmodule Lepton.Editor do
   # the file's), visited in turn; each match asks: y replaces it, n skips it,
   # ! replaces it and all the rest, . replaces it and stops, q stops.
   # Changed buffers are left unsaved (:wa or SPC f S saves them all).
-  defp start_project_replace(st, how, from, to) do
+  defp start_project_replace(st, how, from, to, scope) do
     flags = if how == :regexp, do: search_flags(st), else: "u"
 
     case Regex.compile(if(how == :regexp, do: from, else: Regex.escape(from)), flags) do
       {:ok, re} ->
-        root = Lepton.Git.root(dir_of(st)) || dir_of(st)
+        {root, paths} =
+          case scope do
+            :project ->
+              root = Lepton.Git.root(dir_of(st)) || dir_of(st)
+              {root, Enum.map(project_files(st), &Path.join(root, &1))}
+
+            {:dir, dir} ->
+              {dir, directory_files(dir)}
+          end
 
         files =
-          for file <- project_files(st),
-              path = Path.join(root, file),
+          for path <- paths,
               text = project_text(st, path),
               text != nil and Regex.match?(re, text),
               do: path
@@ -2691,6 +2726,14 @@ defmodule Lepton.Editor do
       {:error, {reason, _}} ->
         msg(st, "Invalid regexp: #{reason}", true)
     end
+  end
+
+  # Every file under `dir`, hidden and ignored ones too; never inside .git.
+  defp directory_files(dir) do
+    Path.wildcard(Path.join(dir, "**/*"), match_dot: true)
+    |> Enum.reject(&(".git" in Path.split(Path.relative_to(&1, dir))))
+    |> Enum.filter(&File.regular?/1)
+    |> Enum.sort()
   end
 
   defp project_text(st, path) do

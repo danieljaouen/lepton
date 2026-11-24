@@ -255,7 +255,11 @@ defmodule Lepton.Git do
 
   # -- worktree ---------------------------------------------------------------------------
 
-  @doc "Worktree files (relative paths), honouring .gitignore and core.excludesfile."
+  @doc """
+  Worktree files (relative paths), honouring .gitignore (the top one, and
+  those in subdirectories, for what is under them), .git/info/exclude and
+  core.excludesfile.
+  """
   def worktree_files(repo) do
     ignore = ignore_rules(repo)
     walk(repo.root, "", ignore)
@@ -263,6 +267,8 @@ defmodule Lepton.Git do
 
   defp walk(root, rel, ignore) do
     dir = if rel == "", do: root, else: Path.join(root, rel)
+    # A subdirectory's own .gitignore: its patterns, for paths under it (later rules win).
+    ignore = if rel != "", do: ignore ++ ignore_file(Path.join(dir, ".gitignore"), rel), else: ignore
 
     case File.ls(dir) do
       {:ok, names} ->
@@ -293,18 +299,25 @@ defmodule Lepton.Git do
 
     [Path.join(repo.root, ".gitignore"), Path.join(repo.git_dir, "info/exclude"), global]
     |> Enum.reject(&is_nil/1)
-    |> Enum.flat_map(fn f ->
-      case File.read(f) do
-        {:ok, text} -> String.split(text, "\n")
-        _ -> []
-      end
-    end)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
-    |> Enum.map(&compile_ignore/1)
+    |> Enum.flat_map(&ignore_file(&1, ""))
   end
 
-  defp compile_ignore(pattern) do
+  # The rules of one ignore file, for paths under `base` ("" for the top).
+  defp ignore_file(file, base) do
+    case File.read(file) do
+      {:ok, text} ->
+        text
+        |> String.split("\n")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+        |> Enum.map(&compile_ignore(&1, base))
+
+      _ ->
+        []
+    end
+  end
+
+  defp compile_ignore(pattern, base) do
     {negate, pattern} = if String.starts_with?(pattern, "!"), do: {true, String.slice(pattern, 1..-1//1)}, else: {false, pattern}
     {dir_only, pattern} = if String.ends_with?(pattern, "/"), do: {true, String.trim_trailing(pattern, "/")}, else: {false, pattern}
     anchored = String.contains?(String.trim_leading(pattern, "/"), "/") or String.starts_with?(pattern, "/")
@@ -318,7 +331,14 @@ defmodule Lepton.Git do
       |> String.replace("\\*", "[^/]*")
       |> String.replace("\\?", "[^/]")
 
-    re = if anchored, do: "^" <> re <> "$", else: "(?:^|/)" <> re <> "$"
+    re =
+      cond do
+        base == "" and anchored -> "^" <> re <> "$"
+        base == "" -> "(?:^|/)" <> re <> "$"
+        anchored -> "^" <> Regex.escape(base) <> "/" <> re <> "$"
+        true -> "^" <> Regex.escape(base) <> "/(?:.*/)?" <> re <> "$"
+      end
+
     {Regex.compile!(re), negate, dir_only}
   end
 

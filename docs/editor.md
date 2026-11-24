@@ -88,7 +88,14 @@ The full list of what was loaded is on the
   on in the replacement), then goes to each match in the project's files
   in turn, highlighted, and asks: `y` replaces it, `n` skips it, `!`
   replaces it and all the rest, `.` replaces it and stops, `q` stops. The
-  files it changed stay open and unsaved: `:wa` (or `SPC f S`) saves them;
+  files it changed stay open and unsaved: `:wa` (or `SPC f S`) saves them.
+  The project's files are, in a git repository, the ones git sees: what
+  `.gitignore` (in any directory), `.git/info/exclude` and your global
+  excludes leave out is left alone, and so is `.git`; dotfiles git tracks
+  (`.formatter.exs`, `.github/`) are in. `SPC p f` and `SPC /` use the
+  same files. For the files git ignores, `SPC s R` (`SPC s %`: a regexp)
+  replaces in a directory you name (the file's own, to start with): every
+  file under it, ignored and hidden ones included, never `.git`;
 - ex commands: `:w :q :wq :e :sp :vsp :s/// :sort :!cmd :r !cmd`;
 - the mouse: a click puts the cursor there (and selects that window; on a
   mode line, just the window), a drag selects text as `v` does, and the
@@ -96,6 +103,77 @@ The full list of what was loaded is on the
   Lepton's terminal windows, in `tmux` with `mouse on` (your tmux.conf
   has it), and over SSH from terminals that report the mouse (Terminal
   and iTerm2 on the Mac do).
+
+## A tour: beyond the basics
+
+Try each of these on a practice file. Make it, and open it:
+
+```sh
+printf 'apple one\nbanana two\ncherry three\n' > ~/fruit.txt
+le ~/fruit.txt
+```
+
+After each exercise, `u` (undo, as many times as it takes) brings the file
+back for the next one.
+
+### Repeat yourself: macros
+
+`qa` starts recording into register a. Type `I- ` (insert `- ` at the
+start of the line), **Esc**, then `j` (down a line), and `q` to stop.
+`100@a` plays it a hundred times, but it stops by itself at the last
+line, where `j` can't go any further:
+
+```
+- apple one
+- banana two
+- cherry three
+```
+
+### Columns: visual block
+
+`gg`, then `C-v` starts a block; `jj` stretches it over three lines.
+`I# ` and **Esc** puts `# ` on all three, at the block's column. Undo,
+then try `C-v jj $ A;` and **Esc**: `$` reaches each line's end, so `A`
+appends `;` to every line. With `w` first, `C-v jj e U` upper-cases the
+second word of each line (`ONE`, `TWO`, `THREE`). `d` deletes a block,
+`y` copies it and `p` puts it back as a block; on an empty line (after
+`o` and **Esc**) a block pastes as lines of its own.
+
+### Keep several things: registers
+
+`"ayy` copies the line into register a; `j"byy` copies the next one into
+b. Now `G"ap` and `"bp` paste them at the end, each from its own
+register, whatever you copied or deleted in between. `:reg` lists them;
+`"A` adds to a, `"_dd` deletes a line without keeping it, and `"+p`
+pastes the clipboard.
+
+### Come back: marks
+
+On `banana`, `ma` marks the place. `G` goes to the end; `'a` comes back
+to the line (`` `a `` to the very spot), and `''` returns to where you
+jumped from. Marks work as motions too: from the last line, `d'a`
+deletes up to banana's line. `mA` (a capital) marks a place in this
+file that `'A` finds from any other file; `:marks` lists them.
+
+### Find and replace
+
+- In this file: `:%s/a/A/g` replaces every `a`.
+- In the whole project: `SPC p R` asks for the text, then its
+  replacement, and goes to each match in turn: `y` replaces it, `n`
+  skips it, `!` replaces all the rest (in every file), `.` this one and
+  stop, `q` stop. `SPC p %` takes a regexp (`\bfoo\b` for the word foo,
+  `\1` in the replacement for a group). What `.gitignore` leaves out is
+  left alone.
+- In a directory, ignored files and all: `SPC s R` (`SPC s %`).
+- The files changed stay unsaved: `SPC f S` (or `C-x s`, or `:wa`) saves
+  them all.
+
+### Mouse and pasting
+
+In a terminal window (or tmux, or over SSH from your Mac) a click puts
+the cursor where you click, a drag selects, and the wheel scrolls.
+Ctrl+Shift+V (Cmd-V over SSH) pastes text exactly as you copied it,
+indentation and all, and one `u` takes it back.
 
 ## Org mode: folding
 

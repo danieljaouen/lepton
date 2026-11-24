@@ -2,7 +2,7 @@
 
 Lepton's git, written in Elixir. It reads and writes the same repository
 format as upstream git: loose and packed objects, index v2, refs,
-packed-refs and `.gitignore`. It talks to GitHub and other servers over
+packed-refs and `.gitignore` (in any directory). It talks to GitHub and other servers over
 HTTPS and SSH.
 
 Your `~/.gitconfig` is honoured: its aliases (including `!` shell

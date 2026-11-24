@@ -37,6 +37,9 @@ include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
 - `SPC p R` replace in the whole project (`SPC p %`: a regexp): each
   match asks `y` (replace), `n` (skip), `!` (all the rest), `.` (this one
   and stop) or `q`; the files changed are saved with `:wa` (`SPC f S`).
+  In a git repository, what `.gitignore` leaves out is left alone.
+  `SPC s R` (`SPC s %`) does the same in a directory you name, every file
+  under it, ignored ones too (never `.git`).
 - `SPC g s` git status (magit-style: `s` stage, `u` unstage, `c c`
   commit, `P p` push, `F p` pull). In the commit message, `, c` or
   `C-c C-c` (or `:wq`) commits and `, k` or `C-c C-k` cancels; both

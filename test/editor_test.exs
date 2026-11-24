@@ -317,6 +317,43 @@ defmodule Lepton.EditorTest do
       _ = st
     end
 
+    test "in a git repository: what git ignores is left alone (subdirectories' .gitignore too); dotfiles it tracks are in" do
+      dir = tmp_dir("projgit")
+      Lepton.Git.Repo.init(dir)
+      File.write!(Path.join(dir, ".gitignore"), "node_modules/\n*.log\n")
+      files = %{"a.ex" => "foo\n", "node_modules/x.js" => "foo\n", "app.log" => "foo\n", "sub/.gitignore" => "secret.txt\n",
+                "sub/secret.txt" => "foo\n", "sub/ok.txt" => "foo\n", ".formatter.exs" => "foo\n"}
+      for {f, text} <- files, do: (File.mkdir_p!(Path.dirname(Path.join(dir, f))); File.write!(Path.join(dir, f), text))
+      ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+      st = Editor.init([Path.join(dir, "a.ex")], ctx)
+
+      st = keys(st, ["SPC", "p", "R"] ++ typed("foo") ++ ["RET"] ++ typed("bar") ++ ["RET", "!", "SPC", "f", "S"])
+      assert st.message =~ "Saved 3 files"
+      changed = for {f, _} <- files, File.read!(Path.join(dir, f)) == "bar\n", do: f
+      assert Enum.sort(changed) == [".formatter.exs", "a.ex", "sub/ok.txt"]
+      assert File.read!(Path.join(dir, "node_modules/x.js")) == "foo\n" and File.read!(Path.join(dir, "sub/secret.txt")) == "foo\n"
+
+      # SPC s R: a directory, all of it (what git ignores too; .git never).
+      head = File.read!(Path.join(dir, ".git/HEAD"))
+      # (it offers the current file's directory: sub/, where the last replace ended)
+      st = keys(st, ["SPC", "s", "R"])
+      assert st.minibuffer.text == Path.join(dir, "sub") <> "/"
+      st = keys(st, ["C-u"] ++ typed(dir) ++ ["RET"] ++ typed("foo") ++ ["RET"] ++ typed("baz") ++ ["RET", "!", "SPC", "f", "S"])
+      assert st.message =~ "Saved 3 files"
+      assert File.read!(Path.join(dir, "node_modules/x.js")) == "baz\n" and File.read!(Path.join(dir, "app.log")) == "baz\n"
+      assert File.read!(Path.join(dir, ".git/HEAD")) == head
+
+      # A subdirectory: only what is under it; SPC s % with a regexp.
+      File.write!(Path.join(dir, "sub/new.txt"), "x1 x2\n")
+      File.write!(Path.join(dir, "top.txt"), "x1\n")
+      st = keys(st, ["SPC", "s", "%", "C-u"] ++ typed(Path.join(dir, "sub")) ++ ["RET"] ++ typed("x(\\d)") ++ ["RET"] ++ typed("y\\1") ++ ["RET", "!", "SPC", "f", "S"])
+      assert File.read!(Path.join(dir, "sub/new.txt")) == "y1 y2\n" and File.read!(Path.join(dir, "top.txt")) == "x1\n"
+
+      # Not a directory: says so.
+      st = keys(st, ["SPC", "s", "R", "C-u"] ++ typed("/no/such/dir") ++ ["RET"])
+      assert st.message =~ "Not a directory"
+    end
+
     test ". replaces this one and stops; q stops; SPC p % takes a regexp and \\1" do
       {st, _dir} = project()
       st = keys(st, ["SPC", "p", "R"] ++ typed("foo") ++ ["RET", "x", "RET", "."])
