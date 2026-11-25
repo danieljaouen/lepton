@@ -85,7 +85,10 @@ along with Claude Code itself; `qemu`, QEMU for
 FFmpeg, which decodes what the [media player and the radio](media.html)
 play (110 packages, about 47 MB to download, 110 MB installed).
 `typst` is [Typst](typst.html), the typesetting system, which you run
-with `typst` (about 18 MB).
+with `typst` (about 18 MB). `snes` is the [SNES emulator](snes.html)'s:
+bsnes, as a libretro core, and the Tiny C Compiler, which builds the
+small program Lepton runs it with (about 5 MB to download, 22 MB
+installed).
 
 ## Updates
 

@@ -306,11 +306,13 @@ defmodule Lepton.Commands.Desktop do
 
   defp open(args, ctx) do
     case open_plan(args, ctx) do
-      {:ok, %{browser: urls, editor: files, player: media, torrent: torrents}} ->
+      {:ok, %{browser: urls, editor: files, player: media, torrent: torrents, snes: games}} ->
         # Torrents (.torrent files, magnet links): added, and the Torrents window opened.
         status = Enum.reduce(torrents, 0, fn t, s -> max(s, Lepton.Commands.invoke(elem(Lepton.Commands.lookup("torrent"), 1), ["open", t], ctx)) end)
         status = if urls == [] or status != 0, do: status, else: Lepton.Commands.invoke(elem(Lepton.Commands.lookup("firefox"), 1), urls, ctx)
         status = if media == [] or status != 0, do: status, else: open_media(media, ctx)
+        # SNES games: each in the emulator.
+        status = Enum.reduce(games, status, fn g, s -> if s != 0, do: s, else: open_snes(g, ctx) end)
         if files == [] or status != 0, do: status, else: edit(files, ctx)
 
       {:error, msg} ->
@@ -322,12 +324,13 @@ defmodule Lepton.Commands.Desktop do
   @doc false
   # What opens where: `{:ok, %{browser: [url], editor: [path]}}` or `{:error, message}`.
   def open_plan(args, ctx) do
-    Enum.reduce_while(args, {:ok, %{browser: [], editor: [], player: [], torrent: []}}, fn arg, {:ok, plan} ->
+    Enum.reduce_while(args, {:ok, %{browser: [], editor: [], player: [], torrent: [], snes: []}}, fn arg, {:ok, plan} ->
       case open_kind(arg, Lepton.Ctx.path(ctx, arg)) do
         {:browser, url} -> {:cont, {:ok, %{plan | browser: plan.browser ++ [url]}}}
         {:editor, path} -> {:cont, {:ok, %{plan | editor: plan.editor ++ [path]}}}
         {:player, path} -> {:cont, {:ok, %{plan | player: plan.player ++ [path]}}}
         {:torrent, t} -> {:cont, {:ok, %{plan | torrent: plan.torrent ++ [t]}}}
+        {:snes, path} -> {:cont, {:ok, %{plan | snes: plan.snes ++ [path]}}}
         {:error, msg} -> {:halt, {:error, msg}}
       end
     end)
@@ -363,6 +366,23 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
+  # A SNES game: the emulator, from a terminal window of its own on the
+  # desktop (as the Start menu's SNES: it offers to install the app first).
+  defp open_snes(path, ctx) do
+    case Process.whereis(Photon) && session_env(ctx) do
+      {:ok, env} ->
+        command = "snes '" <> String.replace(path, "'", "'\\''") <> "'"
+
+        case Term.start(env: env, user: ctx.user, cwd: ctx.cwd, command: command, title: "SNES") do
+          {:ok, _} -> 0
+          {:error, reason} -> IO.err(ctx, "open: can't open the SNES emulator: #{inspect(reason)}"); 1
+        end
+
+      _ ->
+        Lepton.Commands.invoke(elem(Lepton.Commands.lookup("snes"), 1), [path], ctx)
+    end
+  end
+
   defp by_contents(arg, path) do
     head = case File.open(path, [:read, :binary], &:file.read(&1, 8192)) do
       {:ok, {:ok, data}} -> data
@@ -374,6 +394,8 @@ defmodule Lepton.Commands.Desktop do
     cond do
       match?("%PDF" <> _, head) or ext == ".pdf" -> {:browser, file_url(path)}
       ext == ".torrent" -> {:torrent, path}
+      # SNES games (.sfc, .smc): the SNES emulator.
+      Lepton.SNES.rom?(path) -> {:snes, path}
       # Videos and music: the media player.
       Lepton.Player.CLI.media?(path) and ext not in [".m3u", ".m3u8", ".pls"] -> {:player, path}
       image?(head) or ext in @images -> {:browser, file_url(path)}

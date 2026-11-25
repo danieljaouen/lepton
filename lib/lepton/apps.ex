@@ -134,6 +134,19 @@ defmodule Lepton.Apps do
       exe: nil,
       gtk: false
     },
+    # The SNES emulator (`snes`, Lepton.SNES): bsnes as a libretro core,
+    # and the Tiny C Compiler with musl's headers, which build the small
+    # frontend Lepton runs it with (lepton-snes). Lepton draws the
+    # pictures and plays the sound itself, as for the media player.
+    "snes" => %{
+      title: "SNES",
+      summary: "the SNES emulator (bsnes), for snes",
+      packages: ["libretro-bsnes", "tcc", "tcc-libs", "tcc-libs-static", "musl-dev"],
+      exclude: ~r/^(busybox.*|pkgconf)$/,
+      main: "libretro-bsnes",
+      exe: nil,
+      gtk: false
+    },
     "postgresql" => %{
       title: "PostgreSQL",
       summary: "the PostgreSQL database",

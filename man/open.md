@@ -13,6 +13,8 @@ Open files, folders and web addresses in the app for them:
   window); without the desktop, `play` in this terminal.
 - `.torrent` files and `magnet:` links: Torrents (`torrent open`: added,
   and the Torrents window opened on the desktop).
+- SNES games (`.sfc`, `.smc`): the SNES emulator (`snes`), from a
+  terminal window of its own on the desktop.
 
 A file is recognised by its contents as well as its name, so an image
 without an extension still opens in Firefox. With several arguments, the
@@ -29,6 +31,7 @@ running, everything opens in new tabs of it, `open .` included.
     open photo.jpg paper.pdf
     open holiday.mp4
     open ubuntu.iso.torrent
+    open game.sfc
     open .
     xdg-open https://trylepton.app
 
@@ -39,4 +42,4 @@ running, everything opens in new tabs of it, `open .` included.
 
 ## SEE ALSO
 
-le(1), firefox(1), play(1), torrent(1), https://trylepton.app/docs/desktop.html#opening-files
+le(1), firefox(1), play(1), torrent(1), snes(1), https://trylepton.app/docs/desktop.html#opening-files

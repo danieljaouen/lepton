@@ -316,10 +316,9 @@ defmodule Lepton.Shell.LineEditor do
 
   defp complete(s) do
     before = String.slice(s.buf, 0, s.pos)
-    {prefix_text, word} =
-      case Regex.run(~r/^(.*?)(\S*)$/s, before) do
-        [_, p, w] -> {p, w}
-      end
+    # The word being completed, as the shell will read it: `my\ fi` and
+    # `"my fi` are the word "my fi" (`quote`: the quote left open, if any).
+    {prefix_text, word, quote} = last_word(before)
 
     first_word? = String.trim(prefix_text) == "" or String.ends_with?(String.trim_trailing(prefix_text), ["|", ";", "&&", "||"])
 
@@ -331,24 +330,73 @@ defmodule Lepton.Shell.LineEditor do
         true -> path_candidates(s.shell, word)
       end
 
+    # What's added is quoted as the word is: a space after a backslash
+    # outside quotes, as it is inside double quotes, closed with the word.
+    added = fn full -> quote_text(String.slice(full, String.length(word)..-1//1), quote, s.shell.options[:plain]) end
+
     case candidates do
       [] ->
         s
 
       [only] ->
-        suffix = if String.ends_with?(only, "/"), do: "", else: " "
-        insert(s, String.slice(only, String.length(word)..-1//1) <> suffix)
+        suffix = if String.ends_with?(only, "/"), do: "", else: (quote || "") <> " "
+        insert(s, added.(only) <> suffix)
 
       many ->
         common = common_prefix(many)
 
         if String.length(common) > String.length(word) do
-          insert(s, String.slice(common, String.length(word)..-1//1))
+          insert(s, added.(common))
         else
           if s.tabbed, do: list_candidates(s, many), else: %{s | tabbed: true}
         end
     end
   end
+
+  # Split the text before the cursor into what comes before the last word,
+  # and that word's value (backslashes and quotes taken out), with the quote
+  # still open at its end ("'", "\"" or nil).
+  @doc false
+  def last_word(text), do: last_word(String.graphemes(text), "", 0, "", nil)
+
+  defp last_word([], acc, start, value, quote), do: {String.slice(acc, 0, start), value, quote}
+
+  defp last_word([c | rest], acc, start, value, nil) do
+    acc2 = acc <> c
+
+    cond do
+      c == "\\" and rest != [] ->
+        [n | rest2] = rest
+        last_word(rest2, acc2 <> n, start, value <> n, nil)
+
+      c in [" ", "\t", "\n", "|", ";", "&", "(", ")", "<", ">"] ->
+        last_word(rest, acc2, String.length(acc2), "", nil)
+
+      c in ["'", "\""] ->
+        last_word(rest, acc2, start, value, c)
+
+      true ->
+        last_word(rest, acc2, start, value <> c, nil)
+    end
+  end
+
+  defp last_word([c | rest], acc, start, value, q) do
+    acc2 = acc <> c
+
+    cond do
+      c == q -> last_word(rest, acc2, start, value, nil)
+      q == "\"" and c == "\\" and match?([n | _] when n in ["\"", "\\", "$", "`"], rest) ->
+        [n | rest2] = rest
+        last_word(rest2, acc2 <> n, start, value <> n, q)
+      true -> last_word(rest, acc2, start, value <> c, q)
+    end
+  end
+
+  @special ~c" \t\n'\"\\$`&;|<>()*?[]{}#!"
+  defp quote_text(text, _quote, true), do: text
+  defp quote_text(text, nil, _), do: text |> String.graphemes() |> Enum.map_join(&if(match?(<<c>> when c in @special, &1), do: "\\" <> &1, else: &1))
+  defp quote_text(text, "'", _), do: String.replace(text, "'", "'\\''")
+  defp quote_text(text, "\"", _), do: String.replace(text, ~r/(["\\$`])/, "\\\\\\1")
 
   defp list_candidates(s, many) do
     tty = s.shell.ctx.tty

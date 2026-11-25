@@ -43,6 +43,7 @@ defmodule Lepton.Photon.WM.Classic do
     {"Media Player", :media, [command: "play", title: "Media Player"]},
     {"Radio", :radio, [command: "radio", title: "Radio"]},
     {"Torrents", :torrent, [command: "torrent", title: "Torrents"]},
+    {"SNES", :snes, [command: "snes", title: "SNES"]},
     {"Printers", :printer, [command: "printers; read -p 'Press Enter to close. ' x", title: "Printers"]},
     {"Passwords", :vault, [vault: true, title: "Passwords"]},
     {"Help", :help, [command: "help | less", title: "Help"]},
@@ -59,6 +60,7 @@ defmodule Lepton.Photon.WM.Classic do
     {"Media Player", :media, [command: "play", title: "Media Player"]},
     {"Radio", :radio, [command: "radio", title: "Radio"]},
     {"Torrents", :torrent, [command: "torrent", title: "Torrents"]},
+    {"SNES", :snes, [command: "snes", title: "SNES"]},
     {"Passwords", :vault, [vault: true, title: "Passwords"]}
   ]
 
@@ -1039,6 +1041,26 @@ defmodule Lepton.Photon.WM.Classic do
     |> Canvas.fill(x + 3 * s, y + 8 * s, 4 * s, 4 * s, Render.rgb("#555555"))
     |> Canvas.fill(x + 10 * s, y + 8 * s, 4 * s, 2 * s, Render.rgb("#f2e394"))
     |> Canvas.fill(x + 11 * s, y + 11 * s, 2 * s, 2 * s, dark)
+  end
+
+  # A game pad: a grey body, a D-pad, four coloured buttons (the SNES emulator).
+  defp icon(c, x, y, :snes, size) do
+    s = div(size, 16)
+    dark = Render.rgb(@dark)
+    grey = Render.rgb("#555555")
+
+    c
+    |> Canvas.fill(x + 1 * s, y + 4 * s, 14 * s, 8 * s, dark)
+    |> Canvas.fill(x, y + 5 * s, 16 * s, 6 * s, dark)
+    |> Canvas.fill(x + 1 * s, y + 5 * s, 14 * s, 6 * s, Render.rgb("#c0c0c8"))
+    |> Canvas.fill(x + 3 * s, y + 6 * s, 1 * s, 3 * s, dark)
+    |> Canvas.fill(x + 2 * s, y + 7 * s, 3 * s, 1 * s, dark)
+    |> Canvas.fill(x + 6 * s, y + 8 * s, 1 * s, 1 * s, grey)
+    |> Canvas.fill(x + 8 * s, y + 8 * s, 1 * s, 1 * s, grey)
+    |> Canvas.fill(x + 12 * s, y + 6 * s, 1 * s, 1 * s, Render.rgb("#2a50c8"))
+    |> Canvas.fill(x + 13 * s, y + 7 * s, 1 * s, 1 * s, Render.rgb("#d02020"))
+    |> Canvas.fill(x + 11 * s, y + 7 * s, 1 * s, 1 * s, Render.rgb("#20a040"))
+    |> Canvas.fill(x + 12 * s, y + 8 * s, 1 * s, 1 * s, Render.rgb("#e0c020"))
   end
 
   # An arrow down to a tray (downloads, torrents).

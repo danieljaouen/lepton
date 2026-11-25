@@ -920,7 +920,7 @@ defmodule Lepton.PhotonTest do
              match?([%{maximized: true, x: 0, y: 0} | _], Photon.info(ph).windows)
 
     # The Start menu: Firefox first, then Terminal; Ctrl+Esc opens it too.
-    menu_top = 400 - 28 - 302 + 2
+    menu_top = 400 - 28 - 326 + 2
     click.(20, 390)
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
@@ -937,28 +937,48 @@ defmodule Lepton.PhotonTest do
     click.(20, 390)
     click.(80, menu_top + 3 + 5 * 24 + 10)
     assert_receive {:spawned, [command: "play", title: "Media Player"]}, 1000
-    # Printers, the ninth: the chooser in a terminal window
+    # SNES, the ninth: the game chooser in a terminal window
     click.(20, 390)
     click.(80, menu_top + 3 + 8 * 24 + 10)
-    assert_receive {:spawned, [command: "printers" <> _, title: "Printers"]}, 1000
-    # Passwords, the tenth: the password manager's window
+    assert_receive {:spawned, [command: "snes", title: "SNES"]}, 1000
+    # Printers, the tenth: the chooser in a terminal window
     click.(20, 390)
     click.(80, menu_top + 3 + 9 * 24 + 10)
+    assert_receive {:spawned, [command: "printers" <> _, title: "Printers"]}, 1000
+    # Passwords, the eleventh: the password manager's window
+    click.(20, 390)
+    click.(80, menu_top + 3 + 10 * 24 + 10)
     assert_receive {:spawned, [vault: true, title: "Passwords"]}, 1000
     for {k, down} <- [{29, true}, {1, true}, {1, false}, {29, false}], do: Photon.input(ph, {:key, k, down})
     Photon.sync(ph)
     assert pixel_at(out, 100, 400 - 28 - 20) == Render.rgb("#c0c0c0")
 
-    # Double-clicking the Text Editor icon (the third) opens le.
+    # Double-clicking an icon opens it. (An emulated VM can be slow enough
+    # to let the two clicks fall more than 400 ms apart: then once more,
+    # after a pause, so the next pair isn't taken as a third click.)
+    double = fn x, y ->
+      Enum.any?(1..3, fn _ ->
+        Process.sleep(450)
+        click.(x, y)
+        click.(x, y)
+        receive do
+          {:spawned, opts} -> send(self(), {:spawned, opts}) && true
+        after
+          1000 -> false
+        end
+      end)
+    end
+
+    # The Text Editor icon (the third) opens le.
     click.(500, 300)
-    click.(60, 12 + 2 * 76 + 20)
-    click.(60, 12 + 2 * 76 + 20)
+    assert double.(60, 12 + 2 * 76 + 20)
     assert_receive {:spawned, [command: "le", title: "Text Editor"]}, 1000
-    # ... and the Passwords icon (the ninth: at the top of the third
-    # column, each holding four above this screen's taskbar).
+    # ... the SNES icon (the ninth: at the top of the third column, each
+    # holding four above this screen's taskbar), and Passwords below it.
     assert Classic.icon_rect(8, 400) == {252, 12, 112, 56}
-    click.(300, 12 + 20)
-    click.(300, 12 + 20)
+    assert double.(300, 12 + 20)
+    assert_receive {:spawned, [command: "snes", title: "SNES"]}, 1000
+    assert double.(300, 12 + 76 + 20)
     assert_receive {:spawned, [vault: true, title: "Passwords"]}, 1000
 
     # Exit Desktop... quits.

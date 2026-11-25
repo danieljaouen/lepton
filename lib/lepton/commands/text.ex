@@ -667,6 +667,16 @@ defmodule Lepton.Commands.Text do
     Lepton.Cloc.cli(args, ctx)
   end
 
+  defcmd "tar", "create, list and extract tar archives (gzip-compressed too: .tar.gz, .tgz), as GNU tar",
+    usage: "tar -c|-x|-t [-v] [-z] [-a] [-k] [-O] [-f ARCHIVE] [-C DIR] [--strip-components=N] [--exclude=PATTERN] [FILE...]" do
+    Lepton.Archive.Tar.cli(args, ctx)
+  end
+
+  defcmd "unzip", "list, test and extract .zip archives, as Info-ZIP's unzip",
+    usage: "unzip [-l | -v | -t | -p | -Z1] [-o | -n] [-q] [-j] [-d DIR] ZIPFILE [MEMBER...] [-x MEMBER...]" do
+    Lepton.Archive.Zip.cli(args, ctx)
+  end
+
   @shasum_algos %{"1" => :sha, "224" => :sha224, "256" => :sha256, "384" => :sha384, "512" => :sha512, "512224" => :sha512_224, "512256" => :sha512_256}
 
   defcmd "shasum", "print or check SHA checksums (SHA-1, -224, -256, -384, -512, -512/224, -512/256), as macOS's shasum",

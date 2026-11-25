@@ -1,6 +1,7 @@
 defmodule Lepton.CoreutilsTest do
   use ExUnit.Case
   import Lepton.TestHelpers
+  import Bitwise
 
   setup do
     dir = tmp_dir("core")
@@ -27,6 +28,28 @@ defmodule Lepton.CoreutilsTest do
     assert File.read!(Path.join(dir, "moved.txt")) =~ "cherry"
     assert {"", 0} = sh("cp -r d d2", cwd: dir)
     assert File.exists?(Path.join(dir, "d2/e/deep.ex"))
+  end
+
+  test "cp and mv copy in chunks, keep modes and links, and check for space first", %{dir: dir} do
+    # Bigger than a chunk (8 MiB): the copy is whole, the mode kept.
+    big = :crypto.strong_rand_bytes(20 * 1024 * 1024 + 123)
+    File.write!(Path.join(dir, "big.bin"), big)
+    File.chmod!(Path.join(dir, "big.bin"), 0o750)
+    assert {"", 0} = sh("cp big.bin big2.bin", cwd: dir)
+    assert File.read!(Path.join(dir, "big2.bin")) == big
+    assert (File.stat!(Path.join(dir, "big2.bin")).mode &&& 0o777) == 0o750
+    # Links: cp follows a link to a file; cp -r copies links as links.
+    File.mkdir_p!(Path.join(dir, "t"))
+    File.ln_s!("../fruits.txt", Path.join(dir, "t/l"))
+    assert {"", 0} = sh("cp t/l plain.txt && cp -r t t2", cwd: dir)
+    assert File.read!(Path.join(dir, "plain.txt")) =~ "cherry"
+    assert File.read_link!(Path.join(dir, "t2/l")) == "../fruits.txt"
+    assert {_, 1} = sh("cp t nodir", cwd: dir, stderr: StringIO.open("") |> elem(1))
+    # Space: nothing fits in a full file system; the error says so.
+    assert Lepton.Copy.fits(dir, 1 <<< 62) == {:error, :enospc}
+    assert Lepton.Copy.fits(dir, 1) == :ok
+    assert Lepton.Copy.size(Path.join(dir, "t2")) == 0
+    assert Lepton.Copy.size(dir) >= byte_size(big) * 2
   end
 
   test "grep", %{dir: dir} do

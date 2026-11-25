@@ -3,7 +3,8 @@
 Rename SOURCE to DEST, or move several SOURCEs into the directory DEST.
 When DEST is an existing directory, each SOURCE moves into it under its
 own name. Moving between file systems (for example from a USB drive to
-your home directory) copies and then removes the source.
+your home directory) copies and then removes the source, as `cp` copies:
+in pieces, with the space checked first (see cp(1)).
 
 ## OPTIONS
 

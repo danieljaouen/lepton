@@ -87,7 +87,13 @@ defmodule Lepton.Commands.Media do
     end
   end
 
-  defcmd "radio", "internet radio: your stations, a search of 50,000 more, the song playing (needs the ffmpeg app)",
+  defcmd "snes", "the SNES emulator: Super Nintendo games (.sfc, .smc ROMs) in a window on the desktop (needs the snes app)",
+    usage: "snes [ROM]" do
+    Lepton.SNES.cli(args, ctx)
+  end
+
+  defcmd "radio",
+ "internet radio: your stations, a search of 50,000 more, the song playing (needs the ffmpeg app)",
     usage: "radio [STATION|URL] | list | search WORDS... | add NAME URL | rm NAME" do
     case args do
       [] ->

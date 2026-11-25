@@ -236,5 +236,24 @@ defmodule Lepton.ShellTest do
       assert complete("l sub/no", dir) == {:ok, "l sub/notes.txt "}
       assert complete("l ./su", dir) == {:ok, "l ./sub/"}
     end
+
+    test "names with spaces and quotes: escaped as typed, or inside the open quote" do
+      dir = tmp_dir("complete-spaces")
+      File.mkdir_p!(Path.join(dir, "My Documents"))
+      File.write!(Path.join(dir, "My Documents/a b's.txt"), "")
+      File.write!(Path.join(dir, "only one.txt"), "")
+
+      assert complete("cat on", dir) == {:ok, ~S"cat only\ one.txt "}
+      assert complete("cat My", dir) == {:ok, ~S"cat My\ Documents/"}
+      assert complete(~S"cat My\ Documents/a", dir) == {:ok, ~S"cat My\ Documents/a\ b\'s.txt "}
+      assert complete(~S|cat "My Doc|, dir) == {:ok, ~S|cat "My Documents/|}
+      assert complete(~S|cat "My Documents/a|, dir) == {:ok, ~S|cat "My Documents/a b's.txt" |}
+      assert complete("cat 'on", dir) == {:ok, "cat 'only one.txt' "}
+      assert complete("cat 'My Documents/a", dir) == {:ok, ~S"cat 'My Documents/a b'\''s.txt' "}
+      # What lsh reads back is the file's name.
+      assert {:ok, {:list, [{{:pipeline, false, [{:simple, [], [_, word], []}]}, :fg}]}} = Lepton.Shell.Parser.parse(~S"cat My\ Documents/a\ b\'s.txt")
+      assert word == [lit: "My", sq: " ", lit: "Documents/a", sq: " ", lit: "b", sq: "'", lit: "s.txt"]
+      assert Lepton.Shell.LineEditor.last_word(~S"ls x | cat a\ b") == {"ls x | cat ", "a b", nil}
+    end
   end
 end

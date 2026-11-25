@@ -411,12 +411,10 @@ defmodule Lepton.Commands.Core do
 
   defcmd "cp", "copy files and directories", usage: "cp [-rv] SOURCE... DEST" do
     {opts, operands} = getopt(args, "rRvapf")
+    # Lepton.Copy: in chunks, synced as it goes, checked for space (big
+    # files no longer fill memory or stall the machine).
     transfer(ctx, "cp", operands, opts, fn src, dst ->
-      if File.dir?(src) do
-        if opts["r"] || opts["R"] || opts["a"], do: File.cp_r(src, dst) |> norm(), else: {:error, :eisdir}
-      else
-        File.cp(src, dst)
-      end
+      Lepton.Copy.copy(if(File.dir?(src), do: src, else: Path.expand(src) |> follow()), dst, !!(opts["r"] || opts["R"] || opts["a"]))
     end)
   end
 
@@ -425,14 +423,20 @@ defmodule Lepton.Commands.Core do
 
     transfer(ctx, "mv", operands, opts, fn src, dst ->
       case File.rename(src, dst) do
-        {:error, :exdev} -> with :ok <- (File.cp_r(src, dst) |> norm()), {:ok, _} <- File.rm_rf(src), do: :ok
+        # Another file system: copied (Lepton.Copy), then removed.
+        {:error, :exdev} -> with :ok <- Lepton.Copy.copy(src, dst, true), {:ok, _} <- File.rm_rf(src), do: :ok
         other -> other
       end
     end)
   end
 
-  defp norm({:ok, _}), do: :ok
-  defp norm({:error, r, _}), do: {:error, r}
+  # cp copies what a link to a file points to (as cp without -P).
+  defp follow(path, hops \\ 40) do
+    case File.lstat(path) do
+      {:ok, %{type: :symlink}} when hops > 0 -> path |> File.read_link!() |> Path.expand(Path.dirname(path)) |> follow(hops - 1)
+      _ -> path
+    end
+  end
 
 
   defp transfer(ctx, name, operands, opts, fun) when length(operands) >= 2 do
