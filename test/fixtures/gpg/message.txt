@@ -1,0 +1,3 @@
+Hello from GnuPG
+second line  
+- dashed

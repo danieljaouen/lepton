@@ -656,6 +656,135 @@ defmodule Lepton.Commands.Text do
     end)
   end
 
+  defcmd "gpg", "OpenPGP encryption and signing, as GnuPG: keys (make, list, import, export), encrypt, decrypt, sign, verify",
+    usage: "gpg [-e -r NAME | -c | -s | --clearsign | -b | -d | --verify | -k | -K | --import | --export | --quick-gen-key UID ...] [-a] [-o FILE] [FILE...]",
+    aliases: ["gpg2"] do
+    Lepton.PGP.CLI.run(args, ctx)
+  end
+
+  @shasum_algos %{"1" => :sha, "224" => :sha224, "256" => :sha256, "384" => :sha384, "512" => :sha512, "512224" => :sha512_224, "512256" => :sha512_256}
+
+  defcmd "shasum", "print or check SHA checksums (SHA-1, -224, -256, -384, -512, -512/224, -512/256), as macOS's shasum",
+    usage: "shasum [-a 1|224|256|384|512|512224|512256] [-b | -t] [--tag] [-c [-s] [-q] [-w]] [FILE...]" do
+    case shasum_opts(args, %{algo: "1", mode: " ", tag: false, check: false, status: false, quiet: false, warn: false, files: []}) do
+      {:error, msg} ->
+        IO.err(ctx, "shasum: " <> msg)
+        2
+
+      %{check: true} = o ->
+        shasum_check(ctx, o)
+
+      o ->
+        files = if o.files == [], do: ["-"], else: o.files
+        algo = @shasum_algos[o.algo]
+
+        Enum.reduce(files, 0, fn f, status ->
+          case shasum_read(ctx, f) do
+            {:ok, bin} ->
+              hex = Base.encode16(:crypto.hash(algo, bin), case: :lower)
+              IO.puts(ctx, if(o.tag, do: "#{shasum_tag(o.algo)} (#{f}) = #{hex}", else: hex <> " " <> o.mode <> f))
+              status
+
+            {:error, r} ->
+              IO.err(ctx, "shasum: #{f}: #{:file.format_error(r)}")
+              1
+          end
+        end)
+    end
+  end
+
+  defp shasum_opts([a, alg | rest], o) when a in ["-a", "--algorithm"] do
+    if Map.has_key?(@shasum_algos, alg), do: shasum_opts(rest, %{o | algo: alg}), else: {:error, "unrecognized algorithm #{alg} (1, 224, 256, 384, 512, 512224 or 512256)"}
+  end
+
+  defp shasum_opts(["-a" <> alg | rest], o) when alg != "", do: shasum_opts(["-a", alg | rest], o)
+  defp shasum_opts([b | rest], o) when b in ["-b", "--binary"], do: shasum_opts(rest, %{o | mode: "*"})
+  defp shasum_opts([t | rest], o) when t in ["-t", "--text", "-U", "--UNIVERSAL"], do: shasum_opts(rest, %{o | mode: " "})
+  defp shasum_opts(["--tag" | rest], o), do: shasum_opts(rest, %{o | tag: true})
+  defp shasum_opts([c | rest], o) when c in ["-c", "--check"], do: shasum_opts(rest, %{o | check: true})
+  defp shasum_opts([s | rest], o) when s in ["-s", "--status"], do: shasum_opts(rest, %{o | status: true})
+  defp shasum_opts([q | rest], o) when q in ["-q", "--quiet"], do: shasum_opts(rest, %{o | quiet: true})
+  defp shasum_opts([w | rest], o) when w in ["-w", "--warn"], do: shasum_opts(rest, %{o | warn: true})
+  defp shasum_opts(["--" | rest], o), do: %{o | files: o.files ++ rest}
+  defp shasum_opts(["-" | rest], o), do: shasum_opts(rest, %{o | files: o.files ++ ["-"]})
+  defp shasum_opts(["-" <> _ = flag | _], _o), do: {:error, "unknown option #{flag}"}
+  defp shasum_opts([f | rest], o), do: shasum_opts(rest, %{o | files: o.files ++ [f]})
+  defp shasum_opts([], o), do: o
+
+  defp shasum_read(ctx, "-"), do: {:ok, IO.read_all(ctx.stdin)}
+  defp shasum_read(ctx, f), do: File.read(Ctx.path(ctx, f))
+
+  defp shasum_tag("1"), do: "SHA1"
+  defp shasum_tag("512224"), do: "SHA512/224"
+  defp shasum_tag("512256"), do: "SHA512/256"
+  defp shasum_tag(n), do: "SHA" <> n
+
+  # -c: lines "HASH  FILE" (" *FILE": binary), or "SHA256 (FILE) = HASH";
+  # the algorithm from the hash's length (or the tag), as shasum does.
+  defp shasum_check(ctx, o) do
+    lists = if o.files == [], do: ["-"], else: o.files
+
+    results =
+      for list <- lists, line <- shasum_lines(ctx, list) do
+        case shasum_parse(line) do
+          {:ok, algo, hex, file} ->
+            ok =
+              case shasum_read(ctx, file) do
+                {:ok, bin} -> Base.encode16(:crypto.hash(algo, bin), case: :lower) == String.downcase(hex)
+                {:error, _} -> :missing
+              end
+
+            case ok do
+              true -> if !o.status and !o.quiet, do: IO.puts(ctx, "#{file}: OK")
+              false -> if !o.status, do: IO.puts(ctx, "#{file}: FAILED")
+              :missing -> if !o.status, do: IO.puts(ctx, "#{file}: FAILED open or read")
+            end
+
+            ok
+
+          :error ->
+            if o.warn, do: IO.err(ctx, "shasum: #{list}: improperly formatted SHA checksum line")
+            :bad
+        end
+      end
+
+    failed = Enum.count(results, &(&1 in [false, :missing]))
+    if failed > 0 and !o.status, do: IO.err(ctx, "shasum: WARNING: #{failed} computed checksum#{if failed == 1, do: "", else: "s"} did NOT match")
+    cond do
+      results == [] or Enum.all?(results, &(&1 == :bad)) -> IO.err(ctx, "shasum: no properly formatted SHA checksum lines found"); 1
+      failed > 0 -> 1
+      true -> 0
+    end
+  end
+
+  defp shasum_lines(ctx, list) do
+    case shasum_read(ctx, list) do
+      {:ok, text} -> text |> String.split(~r/\r?\n/) |> Enum.reject(&(String.trim(&1) == "" or String.starts_with?(&1, "#")))
+      {:error, r} -> IO.err(ctx, "shasum: #{list}: #{:file.format_error(r)}"); []
+    end
+  end
+
+  @doc false
+  def shasum_parse(line) do
+    by_len = %{40 => :sha, 56 => :sha224, 64 => :sha256, 96 => :sha384, 128 => :sha512}
+
+    cond do
+      m = Regex.run(~r/^SHA(1|224|256|384|512|512\/224|512\/256) \((.+)\) = ([0-9a-fA-F]+)$/, line, capture: :all_but_first) ->
+        [alg, file, hex] = m
+        {:ok, @shasum_algos[String.replace(alg, "/", "")], hex, file}
+
+      m = Regex.run(~r/^([0-9a-fA-F]+) [ *?^U]?(.+)$/, line, capture: :all_but_first) ->
+        [hex, file] = m
+        case by_len[byte_size(hex)] do
+          nil -> :error
+          algo -> {:ok, algo, hex, file}
+        end
+
+      true ->
+        :error
+    end
+  end
+
   defcmd "base64", "base64 encode/decode data", usage: "base64 [-d] [FILE]" do
     {opts, files} = getopt(args, "dw:")
     data = case files do

@@ -93,6 +93,23 @@ defmodule Lepton.CoreutilsTest do
     assert out =~ "└── deep.ex"
   end
 
+  test "shasum: the algorithms (FIPS 180's \"abc\"), --tag, -b, -c and its statuses" do
+    dir = tmp_dir("shasum")
+    File.write!(Path.join(dir, "abc"), "abc")
+    assert {"a9993e364706816aba3e25717850c26c9cd0d89d  abc\n", 0} = sh("shasum abc", cwd: dir)
+    assert {"23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7  abc\n", 0} = sh("shasum -a 224 abc", cwd: dir)
+    assert {"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *abc\n", 0} = sh("shasum -a 256 -b abc", cwd: dir)
+    assert {"SHA512/256 (abc) = 53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23\n", 0} = sh("shasum -a 512256 --tag abc", cwd: dir)
+    {out, 0} = sh("printf abc | shasum -a 384", cwd: dir)
+    assert out =~ ~r/^cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7  -$/m
+    {_, 0} = sh("shasum -a 256 abc > sums; shasum --tag -a 512 abc >> sums", cwd: dir)
+    assert {"abc: OK\nabc: OK\n", 0} = sh("shasum -c sums", cwd: dir)
+    File.write!(Path.join(dir, "abc"), "abd")
+    assert {"abc: FAILED\nabc: FAILED\n", 1} = sh("shasum -c sums", cwd: dir)
+    assert {"", 1} = sh("shasum -c -s sums", cwd: dir)
+    assert {_, 2} = sh("shasum -a 999 abc", cwd: dir)
+  end
+
   test "printf, seq, test, expr, basename" do
     assert {"x=  5|", 0} = sh("printf 'x=%3d|' 5")
     assert {"1\n2\n3\n", 0} = sh("seq 3")

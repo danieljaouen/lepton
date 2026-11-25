@@ -632,7 +632,8 @@ defmodule LeptonBuild.Image do
   end
 
   defp tests do
-    for file <- Path.wildcard("test/**/*.{exs,ex,txt}") do
+    # (and test/fixtures/, whatever they are: gpg's .asc files, say)
+    for file <- Enum.uniq(Path.wildcard("test/**/*.{exs,ex,txt}") ++ Enum.filter(Path.wildcard("test/fixtures/**/*"), &File.regular?/1)) do
       {:file, "/usr/share/lepton/" <> file, 0o644, {:path, file}}
     end
   end
