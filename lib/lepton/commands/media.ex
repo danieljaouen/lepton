@@ -92,6 +92,43 @@ defmodule Lepton.Commands.Media do
     Lepton.SNES.cli(args, ctx)
   end
 
+  # -- images: ImageMagick ----------------------------------------------------------------------
+
+  defcmd "magick", "ImageMagick: convert, crop, resize, rotate and edit images (installs as the imagemagick app)",
+    usage: "magick INPUT [OPTIONS...] OUTPUT | magick TOOL ... (magick -help)" do
+    Lepton.ImageMagick.run("magick", args, ctx)
+  end
+
+  defcmd "convert", "ImageMagick's convert: read an image, change it, write it (magick)",
+    usage: "convert INPUT [OPTIONS...] OUTPUT" do
+    Lepton.ImageMagick.run("convert", args, ctx)
+  end
+
+  defcmd "identify", "ImageMagick's identify: an image's format, size and more (magick)",
+    usage: "identify [-verbose] [-format FMT] IMAGE..." do
+    Lepton.ImageMagick.run("identify", args, ctx)
+  end
+
+  defcmd "mogrify", "ImageMagick's mogrify: change images in place, or into another format (magick)",
+    usage: "mogrify [OPTIONS...] IMAGE..." do
+    Lepton.ImageMagick.run("mogrify", args, ctx)
+  end
+
+  defcmd "composite", "ImageMagick's composite: lay one image over another (magick)",
+    usage: "composite [OPTIONS...] OVERLAY BASE OUTPUT" do
+    Lepton.ImageMagick.run("composite", args, ctx)
+  end
+
+  defcmd "montage", "ImageMagick's montage: images side by side, as a contact sheet (magick)",
+    usage: "montage [OPTIONS...] IMAGE... OUTPUT" do
+    Lepton.ImageMagick.run("montage", args, ctx)
+  end
+
+  defcmd "compare", "ImageMagick's compare: where two images differ, and by how much (magick)",
+    usage: "compare [-metric M] IMAGE1 IMAGE2 [DIFF]" do
+    Lepton.ImageMagick.run("compare", args, ctx)
+  end
+
   defcmd "radio",
  "internet radio: your stations, a search of 50,000 more, the song playing (needs the ffmpeg app)",
     usage: "radio [STATION|URL] | list | search WORDS... | add NAME URL | rm NAME" do

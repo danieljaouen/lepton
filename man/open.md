@@ -6,6 +6,7 @@ Open files, folders and web addresses in the app for them:
   terminal. Without a terminal, on the desktop, `le` opens in a terminal
   window of its own.
 - images (PNG, JPEG, GIF, WebP, SVG, BMP, ICO, AVIF) and PDFs: Firefox.
+  (To change an image, crop or resize it: magick(1).)
 - a folder: Firefox, which lists its files.
 - a web address (`http:`, `https:`, `file:`, `ftp:`): Firefox.
 - videos and music (MP4, MKV, WebM, MPEG, MP3, FLAC, ...): the Media

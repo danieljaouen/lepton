@@ -134,6 +134,19 @@ defmodule Lepton.Apps do
       exe: nil,
       gtk: false
     },
+    # ImageMagick 7 (`magick`, `convert`, `identify`, ...; Lepton.ImageMagick):
+    # the formats most images come in (Alpine splits them into modules).
+    # SVG and PDF are left out: librsvg and Ghostscript would more than
+    # double it. DejaVu: for text drawn on images.
+    "imagemagick" => %{
+      title: "ImageMagick",
+      summary: "ImageMagick, for magick, convert, identify and mogrify",
+      packages: ~w(imagemagick imagemagick-jpeg imagemagick-webp imagemagick-tiff imagemagick-heic imagemagick-jxl imagemagick-jp2 font-dejavu),
+      exclude: ~r/^(busybox.*)$/,
+      main: "imagemagick",
+      exe: nil,
+      gtk: false
+    },
     # The SNES emulator (`snes`, Lepton.SNES): bsnes as a libretro core,
     # and the Tiny C Compiler with musl's headers, which build the small
     # frontend Lepton runs it with (lepton-snes). Lepton draws the

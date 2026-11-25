@@ -12,3 +12,4 @@ if dir = System.get_env("LEPTON_FFMPEG_PREFIX"), do: Application.put_env(:lepton
 if dir = System.get_env("LEPTON_TYPST_PREFIX"), do: Application.put_env(:lepton, :typst_prefix, dir)
 # And an unpacked SNES app (libretro-bsnes, tcc, musl-dev): LEPTON_SNES_PREFIX=DIR.
 if dir = System.get_env("LEPTON_SNES_PREFIX"), do: Application.put_env(:lepton, :snes_prefix, dir)
+if dir = System.get_env("LEPTON_IMAGEMAGICK_PREFIX"), do: Application.put_env(:lepton, :imagemagick_prefix, dir)

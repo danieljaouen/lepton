@@ -2,6 +2,7 @@
 
 Install, update and remove native Linux apps, built from Alpine Linux's
 packages: `firefox`, `typst`, `ffmpeg` (for `play` and `radio`), `snes` (for `snes`),
+`imagemagick` (for `magick`),
 `bluetooth`, `postgresql`, `qemu` and others (`app` lists them). Apps live on the data partition of
 an installed system. Listing is for everyone; the other commands take
 `sudo`.
@@ -31,4 +32,4 @@ an installed system. Listing is for everyone; the other commands take
 
 ## SEE ALSO
 
-firefox(1), typst(1), play(1), snes(1), bluetooth(1), lpm(1), https://trylepton.app/docs/apps.html
+firefox(1), typst(1), play(1), snes(1), magick(1), bluetooth(1), lpm(1), https://trylepton.app/docs/apps.html
