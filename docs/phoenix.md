@@ -44,7 +44,11 @@ mix archive.install hex phx_new --force     # the Phoenix generator
 
 ## 2. Create the app
 
+In a folder of your own (your home, or one you made in it), as yourself,
+not with `sudo`:
+
 ```sh
+cd ~
 mix phx.new myapp --no-install
 cd myapp
 mix deps.get

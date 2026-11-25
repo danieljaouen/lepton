@@ -26,6 +26,7 @@ defmodule Lepton.Users do
   """
 
   alias Lepton.{Ctx, IO, Persist}
+  require Logger
 
   defstruct [:name, :uid, :gid, :gecos, :home, :shell]
 
@@ -278,6 +279,55 @@ defmodule Lepton.Users do
     result
   end
 
+  @doc """
+  `own_new/3` without a session: what `fun` creates at `path` (and the
+  parents it makes) becomes the user's who owns the nearest folder above
+  it that exists, their home (`~/.ssh/known_hosts`, written where ssh has
+  no session at hand). Under root's folders, root's.
+  """
+  def own_new_in_home(path, fun) do
+    path = Path.expand(path)
+
+    case ancestor_owner(path) do
+      nil -> fun.()
+      user -> own_new(%Ctx{user: user.name}, path, fun)
+    end
+  end
+
+  defp ancestor_owner(path) do
+    case File.lstat(path) do
+      {:ok, %{uid: 0}} -> nil
+      {:ok, %{uid: uid}} -> Enum.find(list(), &(&1.uid == uid))
+      _ -> if Path.dirname(path) == path, do: nil, else: ancestor_owner(Path.dirname(path))
+    end
+  end
+
+  @doc """
+  Once, at boot: what is root's in each user's home becomes theirs. Lepton
+  writes as root, and before 1.10 or so (and `ssh`'s known hosts until
+  1.25.2) some of what it wrote there stayed root's, so programs running as
+  the user (`mix phx.new`, `ssh`) couldn't write or read it. `chown -R` by
+  hand does the same.
+  """
+  def repair_homes do
+    for u <- list(), u.uid >= 1000, u.home != "/", File.dir?(u.home) do
+      repair_home(u, u.home)
+      u.name
+    end
+  end
+
+  @doc "What is root's under `dir` (`user`'s home) becomes `user`'s."
+  def repair_home(%__MODULE__{} = user, dir), do: give(%Ctx{user: user.name}, dir, :all)
+
+  @doc false
+  def repair_homes_once do
+    unless Persist.flag?("homes-reowned") do
+      done = repair_homes()
+      Persist.set_flag("homes-reowned")
+      if done != [], do: Logger.info("users: what was root's in #{Enum.join(done, ", ")}'s home is theirs again")
+    end
+  end
+
   # The highest of `path` and its parents that doesn't exist yet (nil: it all does).
   defp first_missing(path) do
     parent = Path.dirname(path)
@@ -331,11 +381,12 @@ defmodule Lepton.Users do
     end
   end
 
-  # The link itself, not what it points at.
-  defp lchown(path, uid, gid) do
+  @doc "Change the owner of `path` itself (a symlink: the link, not what it points at). True if it worked."
+  def lchown(path, uid, gid) do
     case File.lstat(path) do
-      {:ok, %{type: :symlink}} -> Lepton.Sys.shim("chown", ["-h", "#{uid}:#{gid}", path])
-      _ -> File.chown(path, uid) == :ok and File.chgrp(path, gid)
+      {:ok, %{type: :symlink}} -> match?({_, 0}, Lepton.Sys.shim("chown", ["-h", "#{uid}:#{gid}", path]))
+      {:ok, _} -> File.chown(path, uid) == :ok and File.chgrp(path, gid) == :ok
+      _ -> false
     end
   end
 

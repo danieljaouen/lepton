@@ -63,7 +63,8 @@ defmodule Lepton.PhotonTest do
     {c, xdg} = Client.create(c, wm, :get_xdg_surface, "xdg_surface", [:new, surf])
     {c, top} = Client.create(c, xdg, :get_toplevel, "xdg_toplevel")
     c = c |> Client.request(top, :set_title, ["test window"]) |> Client.request(surf, :commit, [])
-    {evs, c} = events(c)
+    # (until the surface's configure arrives: slow where the CPU is emulated and busy)
+    {evs, c} = events_until(c, fn evs -> Enum.any?(evs, &match?({_, "xdg_surface", :configure, _}, &1)) end)
     assert {_, "xdg_toplevel", :configure, [0, 0, states]} = Enum.find(evs, &match?({_, "xdg_toplevel", :configure, _}, &1))
     assert states == <<4::native-32>>, "the first window is activated"
     {_, _, :configure, [serial]} = Enum.find(evs, &match?({_, "xdg_surface", :configure, _}, &1))

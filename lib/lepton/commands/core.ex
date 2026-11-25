@@ -585,17 +585,42 @@ defmodule Lepton.Commands.Core do
         _ -> u.gid
       end
 
+      # As GNU chown: -R doesn't follow symbolic links (it changes the links
+      # themselves, even ones pointing nowhere), and goes on past what it
+      # can't change, saying which.
       Enum.reduce(files, 0, fn f, status ->
         path = Ctx.path(ctx, f)
-        paths = if opts["R"], do: [path | Path.wildcard(Path.join(path, "**"), match_dot: true)], else: [path]
+        paths = if opts["R"], do: tree(path), else: [path]
 
-        if Enum.all?(paths, &(File.chown(&1, u.uid) == :ok and File.chgrp(&1, gid) == :ok)),
-          do: status,
-          else: (IO.err(ctx, "chown: cannot change owner of '#{f}'"); 1)
+        Enum.reduce(paths, status, fn p, status ->
+          if Lepton.Users.lchown(p, u.uid, gid) do
+            status
+          else
+            shown = if p == path, do: f, else: Path.join(f, Path.relative_to(p, path))
+            IO.err(ctx, "chown: cannot change owner of '#{shown}'")
+            1
+          end
+        end)
       end)
     else
       nil -> IO.err(ctx, "chown: invalid user"); 1
       _ -> IO.err(ctx, "usage: chown [-R] USER[:GROUP] FILE..."); 2
+    end
+  end
+
+  # `path` and everything under it, not following symbolic links.
+  defp tree(path) do
+    case File.lstat(path) do
+      {:ok, %{type: :directory}} ->
+        children = case File.ls(path) do
+          {:ok, names} -> Enum.flat_map(Enum.sort(names), &tree(Path.join(path, &1)))
+          _ -> []
+        end
+
+        [path | children]
+
+      _ ->
+        [path]
     end
   end
 

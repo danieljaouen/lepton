@@ -569,7 +569,8 @@ defmodule Lepton.Commands.Dev do
         dest = Ctx.path(ctx, List.first(dir) || url |> Path.basename() |> String.replace_suffix(".git", ""))
         IO.puts(ctx, "Cloning into '#{Path.basename(dest)}'...")
 
-        case Remote.clone(url, dest, home: Ctx.home(ctx), env: ctx.env) do
+        # (the folders it makes on the way, as well as the repository, are the user's)
+        case Lepton.Users.own_new(ctx, dest, fn -> Remote.clone(url, dest, home: Ctx.home(ctx), env: ctx.env) end) do
           {:ok, msg} -> Lepton.Users.own(ctx, dest); IO.puts(ctx, msg); 0
           {:error, e} -> IO.err(ctx, "fatal: #{e}"); 128
         end

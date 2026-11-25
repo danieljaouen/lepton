@@ -97,10 +97,17 @@ a Lepton machine with people you don't trust, or let them log in through
 
 The files your commands create are yours, even though Lepton writes them
 as root. That covers redirects (`>`, `>>`), `touch`, `mkdir`, `cp`,
-`tee`, `ln -s`, files saved in `le`, downloads, git repositories, rsync
-and ssh keys, so programs that run as you, such as Firefox, can change
-them. Writing to a file that already exists keeps its owner, and so do
-files made with `sudo`.
+`tee`, `ln -s`, files saved in `le`, downloads, git repositories (and the
+folders `git clone` makes on the way), rsync, ssh keys and the hosts ssh
+remembers (`~/.ssh`), so programs that run as you, such as Firefox,
+`mix` and `ssh`, can change them. Writing to a file that already exists
+keeps its owner, and so do files made with `sudo`.
+
+Older releases left some of what they wrote in your home directory
+root's (`~/.ssh`, a folder made by `git clone`), so that a program
+running as you couldn't write there: `mix phx.new` said "permission
+denied", say. Lepton gives such files back once, at the first boot of
+1.25.2 or later. `sudo chown -R $USER:$USER ~` does the same by hand.
 
 `su [-] [USER]` switches to another user in a new shell. Root may become
 anyone; anyone else must type that user's password. Root has no password,

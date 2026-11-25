@@ -252,12 +252,15 @@ defmodule Lepton.SSH do
   defp known_pattern?(name, pattern), do: glob?(name, pattern)
 
   @doc "Record `key` for `host` in the known-hosts file `file`."
+  # (Lepton writes as root: a new ~/.ssh or known_hosts is the home's user's.)
   def add_known_host(file, host, port, key) do
-    File.mkdir_p!(Path.dirname(file))
-    File.chmod(Path.dirname(file), 0o700)
-    text = read(file)
-    prefix = if text != "" and not String.ends_with?(text, "\n"), do: "\n", else: ""
-    File.write!(file, prefix <> "#{host_name(host, port)} #{public_line(key)}\n", [:append])
+    Lepton.Users.own_new_in_home(file, fn ->
+      File.mkdir_p!(Path.dirname(file))
+      File.chmod(Path.dirname(file), 0o700)
+      text = read(file)
+      prefix = if text != "" and not String.ends_with?(text, "\n"), do: "\n", else: ""
+      File.write!(file, prefix <> "#{host_name(host, port)} #{public_line(key)}\n", [:append])
+    end)
   end
 
   # -- connections ---------------------------------------------------------------------------------

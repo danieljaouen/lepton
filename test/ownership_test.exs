@@ -46,4 +46,55 @@ defmodule Lepton.OwnershipTest do
     assert uid.("roots.txt") == 0
     assert File.read!(Path.join(home, "roots.txt")) == "root's\nappended\n"
   end
+
+  @tag :native
+  test "ssh's known hosts in a home are its user's; the repair at boot gives back what was left root's" do
+    name = "ollie#{System.unique_integer([:positive])}"
+    root = tmp_dir("ownrepair")
+    {:ok, user} = Users.create(name, "explorer1", home_root: root)
+    on_exit(fn -> Users.delete(name) end)
+    home = Path.join(root, name)
+
+    # The first host ssh records makes ~/.ssh: the user's, not root's.
+    key = Lepton.SSH.generate()
+    Lepton.SSH.add_known_host(Path.join(home, ".ssh/known_hosts"), "example.com", 22, Lepton.SSH.public(key))
+    assert File.lstat!(Path.join(home, ".ssh")).uid == user.uid
+    assert File.lstat!(Path.join(home, ".ssh/known_hosts")).uid == user.uid
+
+    # What an older Lepton left root's (a directory, a file in it, a history file).
+    File.mkdir_p!(Path.join(home, "src/words"))
+    File.write!(Path.join(home, "src/words/notes.org"), "* notes\n")
+    File.write!(Path.join(home, ".lsh_history"), "ls\n")
+    for p <- ~w(src src/words src/words/notes.org .lsh_history), do: File.chown!(Path.join(home, p), 0)
+    outside = Path.join(root, "not-a-home.txt")
+    File.write!(outside, "root's\n")
+
+    # (the test's home isn't /home/NAME, where repair_homes/0 looks)
+    Users.repair_home(user, home)
+    for p <- ~w(src src/words src/words/notes.org .lsh_history), do: assert(File.lstat!(Path.join(home, p)).uid == user.uid, "#{p} is root's")
+    # Outside anyone's home: left alone.
+    assert File.lstat!(outside).uid == 0
+  end
+
+  @tag :native
+  test "chown -R: the links themselves (also one pointing nowhere), never what they point at; it goes on past an error" do
+    name = "pat#{System.unique_integer([:positive])}"
+    root = tmp_dir("chownr")
+    {:ok, user} = Users.create(name, "explorer1", home_root: root)
+    on_exit(fn -> Users.delete(name) end)
+    dir = Path.join(root, "tree")
+    File.mkdir_p!(Path.join(dir, "sub"))
+    File.write!(Path.join(dir, "sub/file"), "x")
+    outside = Path.join(root, "outside.txt")
+    File.write!(outside, "root's")
+    File.ln_s!(outside, Path.join(dir, "to-outside"))
+    File.ln_s!("/no/such/file", Path.join(dir, "dangling"))
+
+    assert {_, 0} = sh("chown -R #{name} #{dir}")
+    for p <- ["", "sub", "sub/file", "to-outside", "dangling"], do: assert(File.lstat!(Path.join(dir, p)).uid == user.uid, "#{p} wasn't changed")
+    assert File.lstat!(outside).uid == 0
+
+    # Something it can't change: says which, and does the rest.
+    assert {_, 1} = sh("chown -R #{name} #{dir} /no/such/place")
+  end
 end

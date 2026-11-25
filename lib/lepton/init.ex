@@ -81,6 +81,8 @@ defmodule Lepton.Init do
       Lepton.Sound.reload()
       Lepton.Keyboard.reload()
       Lepton.Users.sync_etc()
+      # (once: what an older Lepton left root's in people's homes, theirs)
+      spawn(fn -> Lepton.Users.repair_homes_once() end)
       # Each user's socket for Lepton's commands from native programs.
       Lepton.Bridge.start_all()
       Lepton.Pkg.load_installed()
