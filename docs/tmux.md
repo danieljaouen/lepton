@@ -33,7 +33,8 @@ background jobs too; `kill-session` does that for every pane.
 
 ## Copy mode
 
-`prefix [` enters vi copy mode: move with the vi keys, `v` starts a
+`prefix [` enters vi copy mode: move with the vi keys (`{` and `}` by
+paragraph, to the blank line before or after), `v` starts a
 selection and `y` copies it to the clipboard shared with the editor,
 `pbcopy` and `pbpaste` (and with your computer's clipboard over OSC 52).
 

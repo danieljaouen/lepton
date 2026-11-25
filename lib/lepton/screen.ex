@@ -207,8 +207,9 @@ defmodule Lepton.Screen do
     Enum.reduce(1..n//1, s, fn _, s ->
       s =
         if save? and s.top == 0 and s.alt == nil do
-          line = for x <- 0..(s.cols - 1), do: cell(s, x, 0)
-          sb = [line | s.scrollback]
+          # (its text: what copy mode needs, about 100 bytes rather than a
+          # structure per column, 12 KB; 100,000 lines of history add up)
+          sb = [row_text(s, 0) | s.scrollback]
           {sb, len} = if s.sb_len >= s.history_limit, do: {Enum.take(sb, s.history_limit), s.history_limit}, else: {sb, s.sb_len + 1}
           %{s | scrollback: sb, sb_len: len}
         else

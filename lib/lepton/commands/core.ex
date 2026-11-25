@@ -663,18 +663,36 @@ defmodule Lepton.Commands.Core do
 
   # -- find / tree / du / df ------------------------------------------------------------------
 
-  defcmd "find", "search for files in a directory hierarchy", usage: "find [PATH...] [-name GLOB] [-type f|d] [-maxdepth N]" do
+  defcmd "find", "search for files in a directory hierarchy", usage: "find [PATH...] [-name GLOB] [-iname GLOB] [-type f|d|l] [-user NAME] [-group NAME] [-maxdepth N] [-mindepth N] [-xdev] [-print0]" do
     {paths, exprs} = Enum.split_while(args, &(not String.starts_with?(&1, "-")))
     paths = if paths == [], do: ["."], else: paths
-    filters = parse_find(exprs, %{})
 
-    for p <- paths do
-      walk(Ctx.path(ctx, p), p, 0, fn path, shown, depth ->
-        if find_match?(path, shown, depth, filters), do: IO.puts(ctx, shown)
-      end, filters[:maxdepth])
+    case parse_find(exprs, %{}) do
+      {:error, msg} ->
+        IO.err(ctx, "find: " <> msg)
+        1
+
+      filters ->
+        for p <- paths do
+          root = Ctx.path(ctx, p)
+          # -xdev: not into other file systems (the device of the starting point)
+          filters = if filters[:xdev], do: Map.put(filters, :dev, device(root)), else: filters
+
+          # (-print0: each path ends in a NUL, for xargs -0: any name, spaces and all)
+          walk(root, p, 0, fn path, shown, depth ->
+            if find_match?(path, shown, depth, filters), do: if(filters[:print0], do: IO.write(ctx, shown <> <<0>>), else: IO.puts(ctx, shown))
+          end, filters)
+        end
+
+        0
     end
+  end
 
-    0
+  defp device(path) do
+    case File.lstat(path) do
+      {:ok, %{major_device: d}} -> d
+      _ -> nil
+    end
   end
 
   defp parse_find(["-name", g | rest], acc), do: parse_find(rest, Map.put(acc, :name, glob_regex(g)))
@@ -682,7 +700,26 @@ defmodule Lepton.Commands.Core do
   defp parse_find(["-type", t | rest], acc), do: parse_find(rest, Map.put(acc, :type, t))
   defp parse_find(["-maxdepth", n | rest], acc), do: parse_find(rest, Map.put(acc, :maxdepth, String.to_integer(n)))
   defp parse_find(["-mindepth", n | rest], acc), do: parse_find(rest, Map.put(acc, :mindepth, String.to_integer(n)))
-  defp parse_find([_ | rest], acc), do: parse_find(rest, acc)
+
+  defp parse_find(["-user", u | rest], acc) do
+    case if(u =~ ~r/^\d+$/, do: String.to_integer(u), else: (Lepton.Users.get(u) || %{uid: nil}).uid) do
+      nil -> {:error, "'#{u}' is not the name of a known user"}
+      uid -> parse_find(rest, Map.put(acc, :uid, uid))
+    end
+  end
+
+  defp parse_find(["-group", g | rest], acc) do
+    case if(g =~ ~r/^\d+$/, do: String.to_integer(g), else: elem(Lepton.Users.groups()[g] || {nil, []}, 0)) do
+      nil -> {:error, "'#{g}' is not the name of an existing group"}
+      gid -> parse_find(rest, Map.put(acc, :gid, gid))
+    end
+  end
+
+  defp parse_find([x | rest], acc) when x in ["-xdev", "-mount"], do: parse_find(rest, Map.put(acc, :xdev, true))
+  defp parse_find(["-print" | rest], acc), do: parse_find(rest, acc)
+  defp parse_find(["-print0" | rest], acc), do: parse_find(rest, Map.put(acc, :print0, true))
+  # (unknown: an error, as GNU find says, rather than finding everything)
+  defp parse_find([x | _], _acc), do: {:error, "unknown predicate '#{x}' (this find knows -name -iname -type -user -group -maxdepth -mindepth -xdev -print -print0)"}
   defp parse_find([], acc), do: acc
 
   def glob_regex(glob, flags \\ "") do
@@ -698,19 +735,32 @@ defmodule Lepton.Commands.Core do
   end
 
   defp find_match?(path, _shown, depth, f) do
+    owner_ok =
+      if f[:uid] || f[:gid] do
+        case File.lstat(path) do
+          {:ok, st} -> (f[:uid] == nil or st.uid == f[:uid]) and (f[:gid] == nil or st.gid == f[:gid])
+          _ -> false
+        end
+      else
+        true
+      end
+
+    owner_ok and
     (f[:name] == nil or Regex.match?(f[:name], Path.basename(path))) and
       (f[:type] == nil or (f[:type] == "d" and File.dir?(path)) or (f[:type] == "f" and File.regular?(path)) or
          (f[:type] == "l" and symlink?(path))) and
       depth >= (f[:mindepth] || 0)
   end
 
-  defp walk(path, shown, depth, fun, maxdepth) do
+  defp walk(path, shown, depth, fun, filters) do
     fun.(path, shown, depth)
+    maxdepth = filters[:maxdepth]
+    other_fs = filters[:xdev] && depth > 0 && device(path) != filters[:dev]
 
-    if File.dir?(path) and not symlink?(path) and (maxdepth == nil or depth < maxdepth) do
+    if File.dir?(path) and not symlink?(path) and (maxdepth == nil or depth < maxdepth) and !other_fs do
       case File.ls(path) do
         {:ok, names} ->
-          for n <- Enum.sort(names), do: walk(Path.join(path, n), Path.join(shown, n), depth + 1, fun, maxdepth)
+          for n <- Enum.sort(names), do: walk(Path.join(path, n), Path.join(shown, n), depth + 1, fun, filters)
 
         _ ->
           :ok

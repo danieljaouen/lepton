@@ -28,7 +28,8 @@ between panes, `x` kill pane, `z` zoom, `[` copy mode, `]` paste, `:`
 command prompt, `?` list keys. Your `~/.tmux.conf` may change any of
 these; `keys tmux` shows the result.
 
-In copy mode (vi keys with `mode-keys vi`), `v` or `Space` starts a
+In copy mode (vi keys with `mode-keys vi`), `{` and `}` move by paragraph
+(to the previous or next blank line), `v` or `Space` starts a
 selection and `y` or `Enter` copies it to the clipboard shared with the
 editor and `pbcopy`.
 

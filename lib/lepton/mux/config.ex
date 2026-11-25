@@ -81,6 +81,8 @@ defmodule Lepton.Mux.Config do
     {"w", "send-keys -X next-word"},
     {"b", "send-keys -X previous-word"},
     {"e", "send-keys -X next-word-end"},
+    {"{", "send-keys -X previous-paragraph"},
+    {"}", "send-keys -X next-paragraph"},
     {"0", "send-keys -X start-of-line"},
     {"^", "send-keys -X back-to-indentation"},
     {"$", "send-keys -X end-of-line"},

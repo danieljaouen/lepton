@@ -66,6 +66,11 @@ defmodule Lepton.MuxTest do
       s = Screen.new(2, 10) |> Screen.feed("a\r\nb\r\nc")
       assert Screen.row_text(s, 0) == "b"
       assert length(s.scrollback) == 1
+      # Kept as text: a few dozen bytes a line, not a structure per column
+      # (100,000 lines of history made gigabytes, and every redraw copied them).
+      big = Enum.reduce(1..2000, Screen.new(24, 160, history_limit: 100_000), fn i, s -> Screen.feed(s, "line #{i} of the output\r\n") end)
+      assert hd(big.scrollback) == "line 1977 of the output"
+      assert :erts_debug.size(big.scrollback) * 8 < 200_000
       s = s |> Screen.feed("\e[?1049hFULL") |> Screen.feed("\e[?1049l")
       assert Screen.row_text(s, 1) == "c"
     end
@@ -92,6 +97,30 @@ defmodule Lepton.MuxTest do
       # tmux's passthrough: what it wraps takes effect.
       s = Screen.new(2, 20) |> Screen.feed("\ePtmux;\e\e]2;hello\e\e\\\e\\Z")
       assert s.title == "hello" and Screen.text(s) |> String.trim() == "Z"
+    end
+  end
+
+  describe "copy mode" do
+    # The copy mode state over these lines, the cursor at `cy`.
+    defp copy_at(lines, cy), do: %{lines: lines, top: 0, cy: cy, cx: 2, height: 10, width: 40, sel: nil, search: nil}
+    defp x(c, action), do: (%{mode: nil} |> Lepton.Mux.CopyMode.x(c, [action])).mode |> elem(1)
+
+    test "} and { go by paragraphs, as vi: to the blank line after or before, past blank lines first from one" do
+      lines = ["one", "two", "", "", "three", "four", "", "five"]
+      # } from text: the blank line after it, at its start; from that blank line: past the blanks, to the next.
+      c = x(copy_at(lines, 0), "next-paragraph")
+      assert {c.cy, c.cx} == {2, 0}
+      assert x(c, "next-paragraph").cy == 6
+      # No blank line left: the last line.
+      assert x(copy_at(lines, 7), "next-paragraph").cy == 7
+      assert x(copy_at(lines, 6), "next-paragraph").cy == 7
+      # { from text: the blank line before; from a blank line: past them, to the one before that paragraph (or the first line).
+      assert x(copy_at(lines, 7), "previous-paragraph").cy == 6
+      assert x(copy_at(lines, 6), "previous-paragraph").cy == 3
+      assert x(copy_at(lines, 3), "previous-paragraph").cy == 0
+      # The keys, by default.
+      vi = Config.defaults().tables["copy-mode-vi"]
+      assert vi["}"].cmd == "send-keys -X next-paragraph" and vi["{"].cmd == "send-keys -X previous-paragraph"
     end
   end
 
@@ -171,6 +200,20 @@ defmodule Lepton.MuxTest do
       assert map_size(Lepton.Mux.Server.snapshot(pid).panes) == 2
       assert :ok = Lepton.Mux.Server.exec(pid, ["new-window", "-n", "second"])
       assert length(Lepton.Mux.Server.snapshot(pid).windows) == 2
+      Lepton.Mux.Server.stop(pid)
+    end
+
+    # Every redraw copies the snapshot between processes: with a pane's whole
+    # history in it, a long output (find ~) ran the machine out of memory.
+    test "the snapshot leaves the scrollback out; copy mode asks for it" do
+      ctx = %Lepton.Ctx{cwd: tmp_dir("muxsb"), env: %{"HOME" => dotfiles_home(), "NO_COLOR" => "1"}}
+      {:ok, pid} = DynamicSupervisor.start_child(Lepton.SessionSupervisor, {Lepton.Mux.Server, name: "s#{System.unique_integer([:positive])}", ctx: ctx, size: {24, 80}, command: "seq 300; read"})
+      pane = fn -> snap = Lepton.Mux.Server.snapshot(pid); {snap.active_pane, snap.panes[snap.active_pane].screen} end
+      assert eventually(fn -> {_, scr} = pane.(); Lepton.Screen.text(scr) =~ "300" end)
+      {id, scr} = pane.()
+      assert scr.scrollback == []
+      sb = Lepton.Mux.Server.scrollback(pid, id)
+      assert length(sb) > 200 and "1" in sb and Enum.all?(sb, &is_binary/1)
       Lepton.Mux.Server.stop(pid)
     end
 

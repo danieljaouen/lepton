@@ -34,6 +34,15 @@ defmodule Lepton.Sys do
   def pid1?(pid \\ System.pid()), do: to_string(pid) == "1"
 
   @doc """
+  A ceiling on the calling process's memory (its heap, in MiB): a process
+  that goes past it is stopped (and logged) rather than taking all of the
+  machine's memory, which, Lepton being one Erlang VM, would take Lepton
+  down with it. For terminals and multiplexer sessions, whose screens grow
+  with what programs print.
+  """
+  def limit_memory(mib), do: Process.flag(:max_heap_size, %{size: div(mib * 1024 * 1024, 8), kill: true, error_logger: true})
+
+  @doc """
   Whether Lepton runs in QEMU (UTM's QEMU backend, `mix lepton.qemu`): the
   firmware says so (DMI). USB devices there come through QEMU's
   passthrough (`Lepton.USB.Storage`).

@@ -11,7 +11,7 @@ defmodule Lepton.Mux.CopyMode do
   def enter(st, page_up?) do
     snap = st.snapshot
     %{rect: {_x, _y, w, h}, screen: scr} = snap.panes[snap.active_pane]
-    sb = scr.scrollback |> Enum.reverse() |> Enum.map(fn cells -> cells |> Enum.map_join(&elem(&1, 0)) |> String.trim_trailing() end)
+    sb = st.server |> Lepton.Mux.Server.scrollback(snap.active_pane) |> Enum.reverse()
     rows = for y <- 0..(scr.rows - 1), do: Screen.row_text(scr, y)
     lines = sb ++ rows
     top = length(sb)
@@ -77,6 +77,8 @@ defmodule Lepton.Mux.CopyMode do
         :next_word -> word(c, line, 1)
         :previous_word -> word(c, line, -1)
         :next_word_end -> word(c, line, 2)
+        :next_paragraph -> paragraph(c, 1)
+        :previous_paragraph -> paragraph(c, -1)
         _ -> c
       end
 
@@ -102,6 +104,21 @@ defmodule Lepton.Mux.CopyMode do
           nil -> c
         end
     end
+  end
+
+  # } and {, as vi: to the next blank line in that direction (or the first
+  # or last line), at its start; from a blank line, past the blank lines
+  # first, to the one after the next paragraph.
+  defp paragraph(c, dir) do
+    blank? = fn y -> String.trim(Enum.at(c.lines, y) || "") == "" end
+    last = length(c.lines) - 1
+    step = fn y -> y + dir end
+    in_range = fn y -> y >= 0 and y <= last end
+
+    y = step.(c.cy)
+    y = if blank?.(c.cy), do: Stream.iterate(y, step) |> Enum.find(fn y -> not in_range.(y) or not blank?.(y) end), else: y
+    y = Stream.iterate(y, step) |> Enum.find(fn y -> not in_range.(y) or blank?.(y) end)
+    %{c | cy: y |> max(0) |> min(last), cx: 0}
   end
 
   defp clamp(c) do

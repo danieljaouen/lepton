@@ -64,6 +64,7 @@ defmodule Lepton.Photon.Term do
 
   @impl true
   def init(opts) do
+    Lepton.Sys.limit_memory(1024)
     env = Keyword.fetch!(opts, :env)
 
     case Client.connect(Lepton.Wayland.Conn.socket_path(env)) do

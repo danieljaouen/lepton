@@ -68,6 +68,27 @@ defmodule Lepton.CoreutilsTest do
 
   test "find and tree", %{dir: dir} do
     assert {"./d/e/deep.ex\n", 0} = sh("find . -name '*.ex'", cwd: dir)
+    # -user and -group: by name or number; nothing of a user who owns none.
+    me = File.lstat!(dir).uid
+    {all, 0} = sh("find .", cwd: dir)
+    assert {^all, 0} = sh("find . -user #{me}", cwd: dir)
+    assert {^all, 0} = sh("find . -xdev -group #{File.lstat!(dir).gid}", cwd: dir)
+    if me != 0, do: assert({"", 0} = sh("find . -user root", cwd: dir))
+    # Something it doesn't know is an error, not a reason to list everything.
+    assert {"", 1} = sh("find . -newer x", cwd: dir)
+
+    # -print0 and xargs -0: names with spaces stay whole.
+    sp = Path.join(dir, "sp")
+    File.mkdir_p!(sp)
+    for n <- ["two words.txt", "plain.txt"], do: File.write!(Path.join(sp, n), "x")
+    assert {out, 0} = sh("find sp -type f -print0", cwd: dir)
+    assert out == "sp/plain.txt\0sp/two words.txt\0"
+    assert {"2\n", 0} = sh("find sp -type f -print0 | xargs -0 -n 1 echo | wc -l | tr -d ' '", cwd: dir)
+    assert {"sp/two words.txt\n", 0} = sh("find sp -name 'two*' -print0 | xargs -0 ls", cwd: dir)
+    # Without -0: blanks split, quotes and a backslash keep one together; -I: once a line.
+    assert {"a\nmy file\nit s\n", 0} = sh(~S|printf 'a "my file" it\\ s' \| xargs -n 1 echo|, cwd: dir)
+    assert {"<one two>\n<three>\n", 0} = sh("printf 'one two\\nthree\\n' | xargs -I @ echo '<@>'", cwd: dir)
+    assert {"", 1} = sh("find . -user nosuchuser", cwd: dir)
     assert {out, 0} = sh("tree d", cwd: dir)
     assert out =~ "└── deep.ex"
   end

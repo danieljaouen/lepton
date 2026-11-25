@@ -584,11 +584,24 @@ defmodule Lepton.Commands.Text do
 
   # -- xargs ---------------------------------------------------------------------------------
 
-  defcmd "xargs", "build and execute command lines from standard input", usage: "xargs [-n N] [CMD [ARG...]]" do
-    {opts, cmd} = getopt(args, "n:I:")
+  defcmd "xargs", "build and execute command lines from standard input", usage: "xargs [-0] [-n N] [-I STR] [CMD [ARG...]]" do
+    {opts, cmd} = getopt(args, "0n:I:")
     cmd = if cmd == [], do: ["echo"], else: cmd
-    items = ctx.stdin |> IO.read_all() |> String.split()
-    n = Lepton.Args.int(opts, "n", 5000)
+    text = IO.read_all(ctx.stdin)
+
+    # -0: items end in NULs (find -print0), names kept whole whatever is in
+    # them; -I: one item a line; else, as GNU xargs, blanks between items
+    # and quotes or a backslash to keep one together.
+    items =
+      cond do
+        # (getopt reads -0 as a number, as for head -5)
+        opts["0"] || opts["#"] == "0" -> String.split(text, <<0>>, trim: true)
+        opts["I"] -> text |> String.split("\n", trim: true) |> Enum.map(&String.trim_leading/1) |> Enum.reject(&(&1 == ""))
+        true -> xargs_words(text)
+      end
+
+    # (-I runs the command once an item, as GNU xargs does)
+    n = if opts["I"], do: 1, else: Lepton.Args.int(opts, "n", 5000)
 
     items
     |> Enum.chunk_every(max(n, 1))
@@ -604,6 +617,19 @@ defmodule Lepton.Commands.Text do
       max(status, Lepton.Shell.Exec.exec(name, rest, shell))
     end)
   end
+
+  @doc false
+  # xargs's items without -0: blanks and newlines between them; 'single' or
+  # "double" quotes, or a backslash, put blanks (and the other quote) in one.
+  def xargs_words(text), do: xargs_words(text, [], nil, false)
+
+  defp xargs_words(<<>>, acc, cur, _q), do: Enum.reverse(if(cur, do: [cur | acc], else: acc))
+  defp xargs_words(<<"\\", c::utf8, rest::binary>>, acc, cur, false), do: xargs_words(rest, acc, (cur || "") <> <<c::utf8>>, false)
+  defp xargs_words(<<q, rest::binary>>, acc, cur, false) when q in [?', ?"], do: xargs_words(rest, acc, cur || "", q)
+  defp xargs_words(<<q, rest::binary>>, acc, cur, q), do: xargs_words(rest, acc, cur, false)
+  defp xargs_words(<<c::utf8, rest::binary>>, acc, cur, q) when q != false, do: xargs_words(rest, acc, cur <> <<c::utf8>>, q)
+  defp xargs_words(<<c, rest::binary>>, acc, cur, false) when c in [?\s, ?\t, ?\n, ?\r], do: xargs_words(rest, if(cur, do: [cur | acc], else: acc), nil, false)
+  defp xargs_words(<<c::utf8, rest::binary>>, acc, cur, false), do: xargs_words(rest, acc, (cur || "") <> <<c::utf8>>, false)
 
   # -- checksums / encodings ---------------------------------------------------------------------
 

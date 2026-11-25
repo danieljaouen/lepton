@@ -16,6 +16,7 @@ defmodule Lepton.Mux.Client do
   defstruct [:server, :name, :cfg, :tty, :ctx, :size, :snapshot, mode: :normal, message: nil, frame: [], result: nil]
 
   def run(ctx, server, cfg) do
+    Lepton.Sys.limit_memory(1024)
     tty = ctx.tty
     TTY.set_mode(tty, :raw)
     TTY.write(tty, "\e[?1049h\e[?25l\e[H\e[2J")

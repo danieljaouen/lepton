@@ -159,6 +159,8 @@ defmodule Lepton.Mux.Server do
   def stop(pid), do: GenServer.cast(pid, :stop)
   def exec(pid, tokens), do: GenServer.call(pid, {:exec, tokens}, 30_000)
   def snapshot(pid), do: GenServer.call(pid, :snapshot)
+  @doc "A pane's scrollback, its lines' text, newest first (for copy mode)."
+  def scrollback(pid, pane), do: GenServer.call(pid, {:scrollback, pane}, 30_000)
   def key(pid, key), do: GenServer.cast(pid, {:key, key})
   def input(pid, bytes), do: GenServer.cast(pid, {:input, bytes})
   def attach(pid, client, size), do: GenServer.call(pid, {:attach, client, size})
@@ -168,6 +170,8 @@ defmodule Lepton.Mux.Server do
 
   @impl true
   def init(opts) do
+    # (a session that grows without end is stopped, not the machine)
+    Lepton.Sys.limit_memory(1024)
     name = opts[:name]
     Registry.register(@registry, {:session, name}, nil)
     {rows, cols} = opts[:size] || {24, 80}
@@ -204,6 +208,10 @@ defmodule Lepton.Mux.Server do
     {:reply, {:ok, st.name}, st}
   end
 
+  def handle_call({:scrollback, id}, _from, st) do
+    {:reply, (st.panes[id] && st.panes[id].screen.scrollback) || [], st}
+  end
+
   def handle_call(:snapshot, _from, st) do
     win = st.windows[st.active]
     area = area(st)
@@ -213,7 +221,9 @@ defmodule Lepton.Mux.Server do
     panes =
       for {id, rect} <- rects, into: %{} do
         p = st.panes[id]
-        {id, %{rect: rect, screen: p.screen, index: pane_index(win, id)}}
+        # (not the scrollback: the client draws what's on the screen, and every
+        # redraw copies the snapshot; copy mode asks for it, scrollback/2)
+        {id, %{rect: rect, screen: %{p.screen | scrollback: []}, index: pane_index(win, id)}}
       end
 
     windows =
