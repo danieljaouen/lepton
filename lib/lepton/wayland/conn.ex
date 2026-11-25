@@ -47,14 +47,19 @@ defmodule Lepton.Wayland.Conn do
   end
 
   @doc "Start the reader for `sock`, delivering to `owner`; it takes over the socket's controlling process."
+  # The reader owns the socket (its controlling process) and watches the
+  # process it reads for: when that ends, however it ends (a window's
+  # process killed rather than closed), the socket is closed, and the
+  # compositor drops its windows. (Before, a killed window's process left
+  # its window on the screen, its socket held open by its reader.)
   def start_reader(sock, owner) do
-    pid = spawn(fn -> read_loop(sock, owner) end)
+    pid = spawn(fn -> read_loop(sock, owner, Process.monitor(owner)) end)
     _ = :socket.setopt(sock, {:otp, :controlling_process}, pid)
     pid
   end
 
-  defp read_loop(sock, owner) do
-    case :socket.recvmsg(sock, 0, 512, [], :infinity) do
+  defp read_loop(sock, owner, mref) do
+    case :socket.recvmsg(sock, 0, 512, [], :nowait) do
       {:ok, %{iov: iov} = msg} ->
         data = IO.iodata_to_binary(iov)
         fds = for %{level: :socket, type: :rights, data: d} <- Map.get(msg, :ctrl, []), <<fd::native-32 <- d>>, do: fd
@@ -63,7 +68,17 @@ defmodule Lepton.Wayland.Conn do
           send(owner, {:wl_closed, sock})
         else
           send(owner, {:wl_data, sock, data, fds})
-          read_loop(sock, owner)
+          read_loop(sock, owner, mref)
+        end
+
+      # Nothing yet: wait for data, or for the owner to end.
+      {:select, {:select_info, _, ref}} ->
+        receive do
+          {:"$socket", ^sock, :select, ^ref} ->
+            read_loop(sock, owner, mref)
+
+          {:DOWN, ^mref, :process, _, _} ->
+            :socket.close(sock)
         end
 
       {:error, _} ->

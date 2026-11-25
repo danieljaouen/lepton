@@ -968,6 +968,26 @@ defmodule Lepton.PhotonTest do
     assert_receive {:DOWN, ^ref, _, _, :normal}, 2000
   end
 
+  # A window's process killed (not closed): its connection goes with it,
+  # and its window off the screen. (Its reader held the socket open: a
+  # media player's window stayed, dead, after its video ended.)
+  test "a client whose process is killed: its connection closes, and Photon drops it" do
+    {ph, _out, env} = start_photon()
+    me = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, _c} = Lepton.Wayland.Client.connect(Path.join(env["XDG_RUNTIME_DIR"], env["WAYLAND_DISPLAY"]))
+        send(me, :connected)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :connected, 2000
+    assert Enum.any?(1..30, fn _ -> Photon.info(ph).clients == 1 || (Process.sleep(50) && false) end)
+    Process.exit(owner, :kill)
+    assert Enum.any?(1..40, fn _ -> Photon.info(ph).clients == 0 || (Process.sleep(50) && false) end)
+  end
+
   test "the classic desktop's emoji picker: categories, typed into text fields and terminals, else copied" do
     alias Lepton.Photon.WM.Classic
 

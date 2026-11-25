@@ -8,6 +8,11 @@ Open files, folders and web addresses in the app for them:
 - images (PNG, JPEG, GIF, WebP, SVG, BMP, ICO, AVIF) and PDFs: Firefox.
 - a folder: Firefox, which lists its files.
 - a web address (`http:`, `https:`, `file:`, `ftp:`): Firefox.
+- videos and music (MP4, MKV, WebM, MPEG, MP3, FLAC, ...): the Media
+  Player, in a window of its own on the desktop (`play`, the video in its
+  window); without the desktop, `play` in this terminal.
+- `.torrent` files and `magnet:` links: Torrents (`torrent open`: added,
+  and the Torrents window opened on the desktop).
 
 A file is recognised by its contents as well as its name, so an image
 without an extension still opens in Firefox. With several arguments, the
@@ -22,6 +27,8 @@ running, everything opens in new tabs of it, `open .` included.
 
     open notes.txt
     open photo.jpg paper.pdf
+    open holiday.mp4
+    open ubuntu.iso.torrent
     open .
     xdg-open https://trylepton.app
 
@@ -32,4 +39,4 @@ running, everything opens in new tabs of it, `open .` included.
 
 ## SEE ALSO
 
-le(1), firefox(1), https://trylepton.app/docs/desktop.html#opening-files
+le(1), firefox(1), play(1), torrent(1), https://trylepton.app/docs/desktop.html#opening-files

@@ -306,8 +306,11 @@ defmodule Lepton.Commands.Desktop do
 
   defp open(args, ctx) do
     case open_plan(args, ctx) do
-      {:ok, %{browser: urls, editor: files}} ->
-        status = if urls == [], do: 0, else: Lepton.Commands.invoke(elem(Lepton.Commands.lookup("firefox"), 1), urls, ctx)
+      {:ok, %{browser: urls, editor: files, player: media, torrent: torrents}} ->
+        # Torrents (.torrent files, magnet links): added, and the Torrents window opened.
+        status = Enum.reduce(torrents, 0, fn t, s -> max(s, Lepton.Commands.invoke(elem(Lepton.Commands.lookup("torrent"), 1), ["open", t], ctx)) end)
+        status = if urls == [] or status != 0, do: status, else: Lepton.Commands.invoke(elem(Lepton.Commands.lookup("firefox"), 1), urls, ctx)
+        status = if media == [] or status != 0, do: status, else: open_media(media, ctx)
         if files == [] or status != 0, do: status, else: edit(files, ctx)
 
       {:error, msg} ->
@@ -319,10 +322,12 @@ defmodule Lepton.Commands.Desktop do
   @doc false
   # What opens where: `{:ok, %{browser: [url], editor: [path]}}` or `{:error, message}`.
   def open_plan(args, ctx) do
-    Enum.reduce_while(args, {:ok, %{browser: [], editor: []}}, fn arg, {:ok, plan} ->
+    Enum.reduce_while(args, {:ok, %{browser: [], editor: [], player: [], torrent: []}}, fn arg, {:ok, plan} ->
       case open_kind(arg, Lepton.Ctx.path(ctx, arg)) do
         {:browser, url} -> {:cont, {:ok, %{plan | browser: plan.browser ++ [url]}}}
         {:editor, path} -> {:cont, {:ok, %{plan | editor: plan.editor ++ [path]}}}
+        {:player, path} -> {:cont, {:ok, %{plan | player: plan.player ++ [path]}}}
+        {:torrent, t} -> {:cont, {:ok, %{plan | torrent: plan.torrent ++ [t]}}}
         {:error, msg} -> {:halt, {:error, msg}}
       end
     end)
@@ -331,6 +336,7 @@ defmodule Lepton.Commands.Desktop do
   @doc false
   def open_kind(arg, path) do
     cond do
+      Regex.match?(~r/^magnet:\?/i, arg) -> {:torrent, arg}
       Regex.match?(~r/^(https?|file|ftp):/i, arg) -> {:browser, arg}
       File.dir?(path) -> {:browser, file_url(path <> "/")}
       not File.exists?(path) -> {:error, "#{arg}: no such file or directory"}
@@ -339,6 +345,23 @@ defmodule Lepton.Commands.Desktop do
   end
 
   defp file_url(path), do: "file://" <> URI.encode(String.replace(path, ~r{/+}, "/"))
+
+  # Media: the Media Player, in a window of its own on the desktop (as the
+  # Start menu opens it: play, its video in a window), else here.
+  defp open_media(paths, ctx) do
+    case Process.whereis(Photon) && session_env(ctx) do
+      {:ok, env} ->
+        command = "play " <> Enum.map_join(paths, " ", &("'" <> String.replace(&1, "'", "'\\''") <> "'"))
+
+        case Term.start(env: env, user: ctx.user, cwd: ctx.cwd, command: command, title: "Media Player") do
+          {:ok, _} -> 0
+          {:error, reason} -> IO.err(ctx, "open: can't open the Media Player: #{inspect(reason)}"); 1
+        end
+
+      _ ->
+        Lepton.Commands.invoke(elem(Lepton.Commands.lookup("play"), 1), paths, ctx)
+    end
+  end
 
   defp by_contents(arg, path) do
     head = case File.open(path, [:read, :binary], &:file.read(&1, 8192)) do
@@ -350,6 +373,9 @@ defmodule Lepton.Commands.Desktop do
 
     cond do
       match?("%PDF" <> _, head) or ext == ".pdf" -> {:browser, file_url(path)}
+      ext == ".torrent" -> {:torrent, path}
+      # Videos and music: the media player.
+      Lepton.Player.CLI.media?(path) and ext not in [".m3u", ".m3u8", ".pls"] -> {:player, path}
       image?(head) or ext in @images -> {:browser, file_url(path)}
       ext in @text or text?(head) -> {:editor, path}
       true -> {:error, "#{arg}: don't know what opens this kind of file"}

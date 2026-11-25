@@ -115,6 +115,11 @@ defmodule Lepton.Player.CLI do
     if tty, do: TTY.write(tty, ["\r\e[2K", line(status, i, n, elem(TTY.size(tty), 1))])
 
     cond do
+      # A video ended with its window open: it waits there (Space, or its
+      # play button, plays it again) until the window is closed, or q.
+      status.state == :ended and status.window ->
+        wait_or_key(ctx, tty, pid, ref, status, i, n)
+
       status.state == :ended ->
         :ended
 
@@ -139,6 +144,26 @@ defmodule Lepton.Player.CLI do
           :continue -> loop(ctx, tty, pid, ref, status, i, n)
           result -> result
         end
+    end
+  end
+
+  defp wait_or_key(ctx, tty, pid, ref, status, i, n) do
+    event =
+      if tty do
+        case TTY.read_key(tty, 250) do
+          :timeout -> nil
+          key -> key
+        end
+      else
+        receive do
+          {:player, ^pid, s} -> send(self(), {:player, pid, s}); nil
+          {:DOWN, ^ref, _, _, _} -> :gone
+        end
+      end
+
+    case key(pid, event) do
+      :continue -> loop(ctx, tty, pid, ref, status, i, n)
+      result -> result
     end
   end
 
@@ -178,6 +203,8 @@ defmodule Lepton.Player.CLI do
       :paused -> "⏸"
       _ -> "■"
     end
+
+    s = if s.state == :ended and s[:window], do: %{s | title: "#{s.title} (ended: Space plays it again; close its window or q)"}, else: s
 
     vol = Sound.status()
     vol = if vol.muted, do: "muted", else: "vol #{vol.volume}%"

@@ -88,6 +88,8 @@ defmodule Lepton.Player do
       error: nil,
       sound_error: nil,
       reconnects: 0,
+      # its window was closed: the video is over
+      closed: false,
       env: opts[:env] || %{},
       # (ffmpeg runs as this user)
       user: opts[:user],
@@ -165,7 +167,9 @@ defmodule Lepton.Player do
   def handle_info(:reconnect, %{state: :playing, audio: nil} = st), do: {:noreply, start_audio(%{st | error: nil})}
   def handle_info(:reconnect, st), do: {:noreply, st}
 
-  def handle_info({:window_closed, pid}, %{window: pid} = st), do: {:noreply, notify(%{st | window: nil})}
+  # The window closed (its close button, q): this video is over; its sound
+  # stops too, and whoever plays a list goes on to the next.
+  def handle_info({:window_closed, pid}, %{window: pid} = st), do: {:noreply, window_gone(st)}
 
   def handle_info({:DOWN, _, :process, pid, _}, st) do
     subs = MapSet.delete(st.subs, pid)
@@ -174,14 +178,27 @@ defmodule Lepton.Player do
   end
 
   def handle_info({:EXIT, pid, _}, %{audio: pid} = st), do: {:noreply, %{st | audio: nil}}
-  def handle_info({:EXIT, pid, _}, %{window: pid} = st), do: {:noreply, notify(%{st | window: nil})}
+  def handle_info({:EXIT, pid, _}, %{window: pid} = st), do: {:noreply, window_gone(st)}
   def handle_info(_msg, st), do: {:noreply, st}
 
   @impl true
   def terminate(_reason, st) do
     halt(st)
-    if st.window && Process.alive?(st.window), do: Process.exit(st.window, :shutdown)
+    # (asked to close: it closes its connection, and leaves the screen)
+    if st.window && Process.alive?(st.window) do
+      try do
+        GenServer.stop(st.window, :normal, 2000)
+      catch
+        :exit, _ -> Process.exit(st.window, :kill)
+      end
+    end
+
     :ok
+  end
+
+  defp window_gone(st) do
+    st = if st.state == :playing, do: st |> halt() |> Map.put(:state, :ended), else: st
+    notify(%{st | window: nil, closed: true})
   end
 
   # -- playing -------------------------------------------------------------------------------------
@@ -329,6 +346,7 @@ defmodule Lepton.Player do
       live: st.live,
       video: st.info.video != nil,
       window: st.window != nil,
+      closed: st.closed,
       error: st.error || st.sound_error,
       url: st.url
     }

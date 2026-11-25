@@ -32,6 +32,22 @@ defmodule Lepton.OpenTest do
     assert url == dir <> "/sub/"
     assert {:error, "nope.txt: no such file or directory"} = Desktop.open_plan(~w(notes.txt nope.txt), ctx)
     assert {:error, "blob.bin: don't know" <> _} = Desktop.open_plan(~w(blob.bin), ctx)
+    # Videos and music: the media player (play, in a Media Player window on the desktop).
+    for f <- ~w(clip.mpg movie.MP4 song.flac), do: write.(f, <<0, 0, 1, 0xBA>>)
+    assert {:ok, %{player: media, browser: [], editor: []}} = Desktop.open_plan(~w(clip.mpg movie.MP4 song.flac), ctx)
+    assert media == Enum.map(~w(clip.mpg movie.MP4 song.flac), &Path.join(dir, &1))
+    # Torrents: .torrent files and magnet links go to Torrents (torrent open).
+    write.("film.torrent", "d4:infoe")
+    magnet = "magnet:?xt=urn:btih:" <> String.duplicate("ab", 20)
+    assert {:ok, %{torrent: [t, ^magnet], browser: []}} = Desktop.open_plan(["film.torrent", magnet], ctx)
+    assert t == Path.join(dir, "film.torrent")
+    {:ok, err} = StringIO.open("")
+    {out, _} = Lepton.TestHelpers.sh("open film.torrent", cwd: dir, home: dir, stderr: err)
+    assert out =~ "Torrents: not a torrent"
+    # No desktop here: it plays where it's typed (play: FFmpeg, if it's there).
+    {:ok, err} = StringIO.open("")
+    {_, status} = Lepton.TestHelpers.sh("open clip.mpg", cwd: dir, stderr: err)
+    unless Lepton.FFmpeg.installed?(), do: assert(status == 1 and elem(StringIO.contents(err), 1) =~ "ffmpeg")
     assert {:ok, %{browser: ["file://" <> spaced]}} = Desktop.open_plan(["my dir"], (File.mkdir_p!(Path.join(dir, "my dir")); ctx))
     assert spaced =~ "my%20dir/"
 

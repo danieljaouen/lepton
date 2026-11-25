@@ -65,6 +65,10 @@ The keys, in the terminal and in the window:
 | `q`, Esc | stop (in the window: close it) |
 
 A click on the picture pauses; a click on the progress line goes there.
+When a video ends, its window stays, on its last picture: Space (or a
+click) plays it again; closing the window ends it, and `play` goes on to
+the next file. `open video.mp4` opens a video (or music) in the Media
+Player too.
 
 ## Internet radio: radio
 

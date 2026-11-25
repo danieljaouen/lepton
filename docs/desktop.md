@@ -79,6 +79,8 @@ folders and web addresses in the app for them:
 | images (PNG, JPEG, GIF, WebP, SVG, ...) and PDFs | [Firefox](apps.html) |
 | a folder, such as `open .` | Firefox, as a list of its files |
 | a web address (`https://...`) | Firefox |
+| videos and music (MP4, MKV, MPEG, MP3, FLAC, ...) | the [Media Player](media.html), in a window of its own |
+| `.torrent` files and `magnet:` links | [Torrents](torrents.html) |
 
 ```sh
 open notes.txt          # edit it in le
