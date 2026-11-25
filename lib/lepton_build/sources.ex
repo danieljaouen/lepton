@@ -41,7 +41,15 @@ defmodule LeptonBuild.Sources do
     {"main", "dbus-libs"},
     {"main", "wpa_supplicant"},
     {"main", "hostapd"},
-    {"main", "wireless-regdb"}
+    {"main", "wireless-regdb"},
+    # e2fsck, which checks and repairs the data partition at boot
+    # (Lepton.Persist.Check): it can't come from an app, which lives there.
+    {"main", "e2fsprogs"},
+    {"main", "e2fsprogs-libs"},
+    {"main", "libcom_err"},
+    {"main", "libblkid"},
+    {"main", "libuuid"},
+    {"main", "libeconf"}
   ]
 
   @alpine_firmware ~w(mediatek rtw88 rtw89 rtlwifi realtek rtl_bt ath9k_htc brcm cypress other)

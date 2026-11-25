@@ -45,6 +45,14 @@ defmodule Lepton.Persist do
 
       dev ->
         Lepton.Kmod.modprobe("ext4")
+        # Not left cleanly (a crash, the VM stopped from outside) or marked
+        # with errors: checked and repaired first (Lepton.Persist.Check).
+        case Lepton.Persist.Check.run(dev) do
+          {:failed, status, _} -> Logger.error("persist: e2fsck couldn't repair #{dev} (status #{status}): see the lines above")
+          {:error, why} -> Logger.warning("persist: not checked: #{why}")
+          _ -> :ok
+        end
+
         # A disk made bigger: the partition and its file system grow into it
         # (Lepton.Persist.Grow), before they're mounted.
         if not Sys.cmdline_flag?("lepton.nogrow=1") do

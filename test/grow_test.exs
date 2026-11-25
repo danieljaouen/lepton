@@ -58,6 +58,31 @@ defmodule Lepton.GrowTest do
     :file.close(f)
   end
 
+  # s_state in the superblock of a partition `first` sectors into the image.
+  defp set_state(path, first, state) do
+    {:ok, f} = :file.open(String.to_charlist(path), [:read, :write, :raw, :binary])
+    :ok = :file.pwrite(f, first * 512 + 1024 + 58, <<state::little-16>>)
+    :file.close(f)
+  end
+
+  test "the superblock's state: clean, not unmounted cleanly, marked with errors" do
+    {path, data} = image(64, 40)
+    {:ok, f} = :file.open(String.to_charlist(path), [:read, :raw, :binary])
+    {:ok, sb} = :file.pread(f, data.first * 512 + 1024, 1024)
+    :file.close(f)
+    part = Path.join(Path.dirname(path), "part.img")
+    File.write!(part, :binary.copy(<<0>>, 1024) <> sb)
+    assert Lepton.Persist.Check.state(part) == :clean
+    set_state(part, 0, 0)
+    assert Lepton.Persist.Check.state(part) == :unclean
+    set_state(part, 0, 3)
+    assert Lepton.Persist.Check.state(part) == :errors
+    assert {:error, _} = Lepton.Persist.Check.state(path)
+    # Clean: nothing to do.
+    set_state(part, 0, 1)
+    assert Lepton.Persist.Check.run(part) == :clean
+  end
+
   # The real thing, in the VM: a loop device's partition and its ext2, grown
   # past what one block of group descriptors covers (16 GiB: ext4 switches
   # the file system to meta_bg), a file in it kept, mounted again as ext2.
@@ -75,6 +100,9 @@ defmodule Lepton.GrowTest do
     mnt = tmp_dir("growmnt")
 
     try do
+      # e2fsck (in the image) finds nothing to say about a new Lepton file system.
+      assert Lepton.Persist.Check.available?()
+      assert {_, 0} = System.cmd("/usr/libexec/lepton/e2fsck", ["-f", "-n", part], stderr_to_stdout: true)
       :ok = Lepton.Sys.mount("ext2", part, mnt)
       File.write!(Path.join(mnt, "keep.txt"), "still here")
       Lepton.Sys.umount(mnt)
@@ -86,8 +114,16 @@ defmodule Lepton.GrowTest do
       :file.close(f)
       {_, 0} = Lepton.Sys.shim("losetup", ["-c", loop])
 
+      # Marked with errors (as a file system the kernel once found fault
+      # with is): ext4 won't grow it; the partition grows all the same.
+      set_state(part, 0, 3)
+      assert [{:partition, _, p}] = Grow.run(part, mount_at: tmp_dir("growtmp"))
+      # Checked (as at boot, before growing): clean again, and then it grows.
+      assert Lepton.Persist.Check.state(part) == :errors
+      assert {:checked, _, _} = Lepton.Persist.Check.run(part)
+      assert Lepton.Persist.Check.state(part) == :clean
       done = Grow.run(part, mount_at: tmp_dir("growtmp"))
-      assert [{:partition, _, p}, {:filesystem, _, fs}] = done
+      assert [{:filesystem, _, fs}] = done
       assert p > 17 * 1024 * 1024 * 1024 and fs > 17 * 1024 * 1024 * 1024
       {:ok, %{blocks: after_, block_size: bs}} = Grow.superblock(part)
       assert after_ > before and after_ * bs == fs

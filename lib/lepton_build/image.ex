@@ -90,7 +90,8 @@ defmodule LeptonBuild.Image do
 
   # The musl-linked Wi-Fi programs (Alpine), kept apart from ERTS's glibc
   # libraries: binaries in /usr/libexec/lepton, libraries in /usr/lib/musl.
-  @musl_programs [{"wpa_supplicant", "sbin/wpa_supplicant"}, {"hostapd", "usr/sbin/hostapd"}]
+  # ({package, path in it}; installed as /usr/libexec/lepton/BASENAME)
+  @musl_programs [{"wpa_supplicant", "sbin/wpa_supplicant"}, {"hostapd", "usr/sbin/hostapd"}, {"e2fsprogs", "sbin/e2fsck"}]
   @musl_lib_dir "/usr/lib/musl"
 
   @lib_dir "/usr/lib/aarch64-linux-gnu"
@@ -566,7 +567,7 @@ defmodule LeptonBuild.Image do
     musl = Path.join(src["musl"].dir, "lib/ld-musl-aarch64.so.1")
 
     [{:dir, "/usr/libexec", 0o755}, {:dir, "/usr/libexec/lepton", 0o755}, {:dir, @musl_lib_dir, 0o755}] ++
-      for({name, rel} <- @musl_programs, do: {:file, "/usr/libexec/lepton/#{name}", 0o755, {:path, Path.join(src[name].dir, rel)}}) ++
+      for({pkg, rel} <- @musl_programs, do: {:file, "/usr/libexec/lepton/#{Path.basename(rel)}", 0o755, {:path, Path.join(src[pkg].dir, rel)}}) ++
       for(soname <- Enum.sort(needed), do: {:file, "#{@musl_lib_dir}/#{soname}", 0o755, {:path, available[soname]}}) ++
       [
         # The interpreter musl binaries name; /lib is /usr/lib.

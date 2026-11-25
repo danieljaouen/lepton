@@ -161,6 +161,13 @@ installer makes it); a disk shared with another system, whose
 partitions come after Lepton's, is left as it is. The boot option
 `lepton.nogrow=1` skips growing.
 
+Before that, at every start, `LEPTON-DATA`'s file system is checked if
+it wasn't left cleanly (Lepton crashed, or the VM was stopped from
+outside) or the kernel once found something wrong with it: `e2fsck`
+repairs it, before anything uses it. (A file system marked with errors
+can't grow until it has been checked.) What it found is in
+`/var/log/messages`.
+
 With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
 `mix lepton.qemu --disk disk.qcow2` to install and
 `mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system
