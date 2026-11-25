@@ -13,6 +13,9 @@ defmodule Lepton.Commands.Media do
         2
 
       %{items: []} = o ->
+        # (the desktop's Media Player: offered FFmpeg first, if it lacks it;
+        # without, WAV files still play)
+        ensure_ffmpeg(ctx, "The media player plays videos and music with FFmpeg")
         CLI.choose(ctx, start_dir(ctx), video: o.video)
 
       o ->
@@ -28,7 +31,7 @@ defmodule Lepton.Commands.Media do
             Lepton.Commands.Desktop.play_wavs(ctx, items)
 
           true ->
-            CLI.run(ctx, items, video: o.video, start: o.start)
+            if ensure_ffmpeg(ctx, "play plays these with FFmpeg"), do: CLI.run(ctx, items, video: o.video, start: o.start), else: 1
         end
     end
   end
@@ -89,9 +92,9 @@ defmodule Lepton.Commands.Media do
     case args do
       [] ->
         cond do
-          why = Lepton.FFmpeg.missing() -> IO.err(ctx, "radio: " <> why); 1
-          ctx.tty && is_pid(ctx.tty) -> Radio.ui(ctx)
-          true -> IO.err(ctx, "usage: radio STATION|URL (or radio, in a terminal, to choose)"); 2
+          !(ctx.tty && is_pid(ctx.tty)) -> IO.err(ctx, "usage: radio STATION|URL (or radio, in a terminal, to choose)"); 2
+          ensure_ffmpeg(ctx, "The radio plays stations with FFmpeg") -> Radio.ui(ctx)
+          true -> 1
         end
 
       ["list"] ->
@@ -139,11 +142,11 @@ defmodule Lepton.Commands.Media do
         2
 
       words ->
-        with nil <- Lepton.FFmpeg.missing(),
+        with true <- ensure_ffmpeg(ctx, "The radio plays stations with FFmpeg") || :missing,
              {:ok, station} <- Radio.find(ctx, Enum.join(words, " ")) do
           Radio.play(ctx, station)
         else
-          why when is_binary(why) -> IO.err(ctx, "radio: " <> why); 1
+          :missing -> 1
           {:error, why} -> IO.err(ctx, "radio: " <> why); 1
         end
     end
@@ -294,6 +297,11 @@ defmodule Lepton.Commands.Media do
   defp create_opts([t, url | rest], opts, paths) when t in ["-t", "--tracker"], do: create_opts(rest, %{opts | trackers: opts.trackers ++ [url]}, paths)
   defp create_opts([p | rest], opts, paths), do: create_opts(rest, opts, paths ++ [p])
   defp create_opts([], opts, paths), do: {opts, paths}
+
+  # FFmpeg there (true), or offered (in a terminal) and installed now.
+  defp ensure_ffmpeg(ctx, what) do
+    Lepton.FFmpeg.installed?() or Lepton.Apps.offer_install(ctx, "ffmpeg", what) == :installed
+  end
 
   @doc false
   def clock(s), do: Player.clock(s)

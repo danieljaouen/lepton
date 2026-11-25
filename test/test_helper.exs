@@ -8,3 +8,5 @@ ExUnit.start(exclude: exclude)
 # An unpacked FFmpeg (no `ffmpeg` app installed): LEPTON_FFMPEG_PREFIX=DIR
 # runs the media player's tests that need it.
 if dir = System.get_env("LEPTON_FFMPEG_PREFIX"), do: Application.put_env(:lepton, :ffmpeg_prefix, dir)
+# Likewise an unpacked Typst: LEPTON_TYPST_PREFIX=DIR.
+if dir = System.get_env("LEPTON_TYPST_PREFIX"), do: Application.put_env(:lepton, :typst_prefix, dir)

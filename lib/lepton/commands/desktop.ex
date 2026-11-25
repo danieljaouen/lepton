@@ -28,7 +28,7 @@ defmodule Lepton.Commands.Desktop do
   end
 
   defcmd "app", "native Linux apps (from Alpine's packages): list, install, update, remove",
-    usage: "app [list] | install NAME | reinstall NAME | update [NAME] | remove NAME" do
+    usage: "app [list] | install NAME | reinstall NAME | update [NAME] | update-all | remove NAME" do
     app(args, ctx)
   end
 
@@ -462,7 +462,34 @@ defmodule Lepton.Commands.Desktop do
     0
   end
 
-  defp app([cmd | _], ctx) when cmd in ~w(install reinstall update remove) and ctx.user != "root", do: Users.denied(ctx, "app #{cmd}")
+  defp app([cmd | _], ctx) when cmd in ~w(install reinstall update update-all remove) and ctx.user != "root", do: Users.denied(ctx, "app #{cmd}")
+
+  # Every installed app, one after another, and what became of each.
+  defp app(["update-all"], ctx) do
+    case Apps.names() |> Enum.filter(&Apps.installed?/1) do
+      [] ->
+        IO.puts(ctx, "No apps installed (app shows those there are).")
+        0
+
+      names ->
+        results =
+          for name <- names do
+            IO.puts(ctx, "== #{name}")
+            before = Apps.version(name)
+            status = app(["update", name], ctx)
+            {name, status, before, Apps.version(name)}
+          end
+
+        updated = for {n, 0, b, a} <- results, b != a, do: "#{n} #{b} -> #{a}"
+        current = for {n, 0, b, a} <- results, b == a, do: n
+        failed = for {n, s, _, _} <- results, s != 0, do: n
+        IO.puts(ctx, "")
+        if updated != [], do: IO.puts(ctx, "Updated: " <> Enum.join(updated, ", "))
+        if current != [], do: IO.puts(ctx, "Up to date: " <> Enum.join(current, ", "))
+        if failed != [], do: IO.err(ctx, "Failed: " <> Enum.join(failed, ", "))
+        if failed == [], do: 0, else: 1
+    end
+  end
 
   defp app(["update"], ctx) do
     Apps.names() |> Enum.filter(&Apps.installed?/1) |> Enum.map(&app(["update", &1], ctx)) |> Enum.max(fn -> 0 end)

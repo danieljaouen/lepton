@@ -122,6 +122,18 @@ defmodule Lepton.Apps do
       exe: nil,
       gtk: false
     },
+    # Typst, the typesetting system (`typst compile paper.typ`): the
+    # command line program, run by Lepton's `typst` (Lepton.Typst). CA
+    # certificates: it fetches packages (`@preview/...`) over HTTPS.
+    "typst" => %{
+      title: "Typst",
+      summary: "Typst, the typesetting system (typst compile, watch, fonts)",
+      packages: ["typst", "ca-certificates-bundle"],
+      exclude: ~r/^(busybox.*)$/,
+      main: "typst",
+      exe: nil,
+      gtk: false
+    },
     "postgresql" => %{
       title: "PostgreSQL",
       summary: "the PostgreSQL database",
@@ -134,6 +146,40 @@ defmodule Lepton.Apps do
   }
 
   def names, do: Map.keys(@apps) |> Enum.sort()
+
+  @doc """
+  An app something needs isn't installed: in a terminal, ask whether to
+  install it now (`sudo app install NAME`, which asks for your password),
+  else say how. `what` says what it's for ("FFmpeg plays videos and
+  music"). Returns `:installed`, `:declined` or `:missing` (no terminal,
+  or the install failed). The desktop's apps open in a terminal, so
+  clicking one is enough.
+  """
+  def offer_install(ctx, name, what) do
+    tty = ctx.tty
+    title = get(name).title
+
+    if tty && is_pid(tty) && Process.alive?(tty) do
+      Lepton.IO.puts(ctx, "#{what}, and #{title} isn't installed yet (#{get(name).summary}).")
+      Lepton.TTY.set_mode(tty, :raw)
+      Lepton.TTY.write(tty, "Install it now? (y/n) ")
+      key = Lepton.TTY.read_key(tty)
+      Lepton.TTY.set_mode(tty, :cooked)
+      Lepton.TTY.write(tty, "\r\n")
+
+      if key in ["y", "Y", "RET"] do
+        {cmd, args} = if ctx.user in [nil, "root"], do: {"app", ["install", name]}, else: {"sudo", ["app", "install", name]}
+        status = Lepton.Shell.Exec.exec(cmd, args, %Lepton.Shell{ctx: ctx})
+        if status == 0 and installed?(name), do: :installed, else: :missing
+      else
+        Lepton.IO.puts(ctx, "Not installed. (Later: sudo app install #{name})")
+        :declined
+      end
+    else
+      Lepton.IO.err(ctx, "#{title} isn't installed. Install it with: sudo app install #{name}")
+      :missing
+    end
+  end
   def get(name), do: Map.get(@apps, name)
 
   def root, do: Path.join(Lepton.Persist.state_dir(), "apps")

@@ -21,7 +21,9 @@ It's an [app](apps.html), installed once, as root:
 sudo app install ffmpeg
 ```
 
-That's 110 packages from Alpine Linux, about 47 MB to download (110 MB
+Or just open the Media Player or the Radio (or run `play` or `radio`):
+without FFmpeg, they ask whether to install it, and do, with your
+password. That's 110 packages from Alpine Linux, about 47 MB to download (110 MB
 installed). FFmpeg turns files into sound and pictures; Lepton does the
 rest itself: the sound goes to the sound card through Lepton's
 [sound](sound.html) (so the system volume and the card you chose apply),

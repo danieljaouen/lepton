@@ -198,6 +198,16 @@ buffer list (`SPC b b`) filters as you type.
 Word completion in a big file looks at the two megabytes around the
 cursor, nearest first, rather than at the whole file.
 
+## Typst
+
+`.typ` files open in Typst mode: headings, `*strong*`, `_emphasis_`,
+`#code`, `$math$` and comments are coloured, and with
+[Typst](typst.html) installed, saving compiles the file into a PDF
+beside it. `SPC m c` compiles (an error: the cursor goes to it),
+`SPC m p` compiles and opens the PDF, `SPC m w` turns compiling on save
+off and on. `le --typst` (the desktop's Typst Editor) starts a new
+document in `~/Documents`.
+
 ## Org mode: folding
 
 In `.org` files, headings (`* `, `** `, ...) fold as in Spacemacs:

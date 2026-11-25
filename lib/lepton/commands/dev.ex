@@ -7,13 +7,24 @@ defmodule Lepton.Commands.Dev do
 
   # -- editor & multiplexer ---------------------------------------------------------------
 
+  defcmd "typst", "Typst, the typesetting system: typst compile, watch, init, fonts (installs as the typst app)",
+    usage: "typst compile FILE.typ [OUT.pdf] | watch FILE.typ | init TEMPLATE | fonts | query | ... (typst --help)" do
+    Lepton.Typst.run(args, ctx)
+  end
+
   defcmd "le", "the Lepton editor (Spacemacs keybindings from your dotfiles)",
-    usage: "le [FILE...]",
+    usage: "le [--typst] [FILE...]",
     aliases: ["vi", "vim", "nvim", "emacs", "emacsclient", "spacemacs", "edit"] do
     files = Enum.reject(args, &String.starts_with?(&1, ["-", "+"]))
+    # --typst (the desktop's Typst Editor): a Typst file, a new one in
+    # ~/Documents if none is named, begun with a few lines to start from.
+    typst? = "--typst" in args
+    files = if typst? and files == [], do: [Lepton.Editor.untitled_typst(ctx)], else: files
+    # (the Typst Editor compiles with Typst: offered it, if it isn't there)
+    if typst? and ctx.tty and not Lepton.Typst.installed?(), do: Lepton.Apps.offer_install(ctx, "typst", "The Typst Editor makes PDFs of your documents with Typst")
 
     if ctx.tty do
-      Lepton.Editor.run(files, ctx)
+      Lepton.Editor.run(files, ctx, typst_starter: typst?)
     else
       IO.err(ctx, "le: not a terminal")
       1

@@ -166,7 +166,7 @@ Photon with a different window manager, styled after Windows 95:
   Firefox, or F11) fills the whole display, over the taskbar, until you
   leave it (Esc)
 - a teal desktop with icons for [Firefox](apps.html), the Terminal, the
-  Text Editor (`le`), the System Monitor (`top`), the
+  Text Editor (`le`), the [Typst Editor](typst.html), the System Monitor (`top`), the
   [Media Player and Radio](media.html), [Torrents](torrents.html),
   [Passwords](passwords.html) and **Install PostgreSQL** (which sets up
   the [database](postgresql.html) and becomes **PostgreSQL**, opening
@@ -180,7 +180,7 @@ Photon with a different window manager, styled after Windows 95:
   volume's speaker (click it for the volume control: [Sound](sound.html)),
   the emoji picker (below) and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
-  Terminal, Text Editor, System Monitor, [Media Player, Radio](media.html),
+  Terminal, Text Editor, [Typst Editor](typst.html), System Monitor, [Media Player, Radio](media.html),
   [Torrents](torrents.html), [Printers](printing.html) (choose
   your default printer), [Passwords](passwords.html) (the password
   manager), Help and Exit Desktop

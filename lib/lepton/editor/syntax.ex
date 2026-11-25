@@ -22,6 +22,7 @@ defmodule Lepton.Editor.Syntax do
   @erlang_kw ~w(case of end if receive after when fun try catch begin module export import record define)
   @shell_kw ~w(if then else elif fi for in do done while until case esac function return export local alias source)
   @lisp_kw ~w(defun defvar defcustom setq setq-default let let* lambda if when unless progn cond and or define-key global-set-key with-eval-after-load add-hook require)
+  @typst_kw ~w(let set show import include if else for while break continue return context as in not and or none auto true false)
   @python_kw ~w(def class if elif else for while in return import from as with try except finally raise pass break continue lambda yield None True False and or not is)
 
   def rules(mode) do
@@ -52,6 +53,23 @@ defmodule Lepton.Editor.Syntax do
 
       m when m in ["Markdown", "Org"] ->
         [{~r/^(#+|\*+) .*/u, @heading}, {~r/`[^`]*`/u, @string}, {~r/\*\*[^*]+\*\*/u, @keyword}]
+
+      # Typst: comments, raw text, strings, math, headings, #code (its
+      # keywords apart), labels and references, *strong* and _emphasis_.
+      "Typst" ->
+        [
+          {~r/\/\/.*$|\/\*.*?(\*\/|$)/u, @comment},
+          {~r/```.*?(```|$)|`[^`]*`?/u, @string},
+          {~r/"(?:[^"\\\\]|\\\\.)*"?/u, @string},
+          {~r/\$[^$]*\$?/u, @atom},
+          {~r/^\s*=+ .*/u, @heading},
+          {Regex.compile!("#(?:" <> Enum.join(@typst_kw, "|") <> ")\\b", "u"), @keyword},
+          {~r/#[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*/u, @function},
+          {~r/<[\w:.-]+>|@[\w:.-]+/u, @number},
+          {~r/(?<![\w*])\*[^*\s][^*]*\*/u, @keyword},
+          {~r/(?<![\w_])_[^_\s][^_]*_/u, @type_color},
+          {~r/^\s*[-+] |^\s*\/ /u, @atom}
+        ]
 
       m when m in ["Diff", "Git-Commit"] ->
         [{~r/^\+.*/u, @added}, {~r/^-.*/u, @removed}, {~r/^@@.*/u, @atom}, {~r/^#.*/u, @comment}]

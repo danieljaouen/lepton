@@ -221,6 +221,19 @@ defmodule Lepton.MediaPlayerTest do
     assert Task.await(task, 5000) == 0
   end
 
+  test "the desktop's Radio without FFmpeg: it asks to install it; n declines, and says how later" do
+    unless FFmpeg.installed?() do
+      home = tmp_dir("radiohome")
+      {task, tty} = on_screen(fn ctx -> Lepton.Shell.Exec.exec("radio", [], %Lepton.Shell{ctx: ctx}) end, %{"HOME" => home}, home)
+      {_, agent} = :sys.get_state(tty).backend
+      out = Lepton.TTY.Capture.output(agent)
+      assert out =~ "The radio plays stations with FFmpeg, and FFmpeg isn't installed yet" and out =~ "Install it now? (y/n)"
+      type(tty, ["n"])
+      assert Task.await(task, 5000) == 1
+      assert Lepton.TTY.Capture.output(agent) =~ "Not installed. (Later: sudo app install ffmpeg)"
+    end
+  end
+
   test "play's folder view: folders and media, into a folder and back, quit" do
     dir = tmp_dir("media")
     File.mkdir_p!(Path.join(dir, "Album"))

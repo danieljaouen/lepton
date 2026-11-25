@@ -68,6 +68,23 @@ without auto-indent, in any mode.
 
 Options (`-...`) and `+LINE` arguments are accepted and ignored.
 
+## OPTIONS
+
+- `--typst`: Typst mode for the files given, and with none, a new
+  `~/Documents/untitled.typ` begun with a few lines to start from (the
+  desktop's Typst Editor). Any `.typ` file is in Typst mode anyway.
+
+## TYPST
+
+In `.typ` files, Typst's markup is highlighted, and with the `typst` app
+installed (`sudo app install typst`):
+
+- saving compiles the file into a PDF beside it (`SPC m w` turns that
+  off and on);
+- `SPC m c` compiles; on an error, the cursor goes to it, the echo area
+  says what it is, and typst's whole report is in the `*typst*` buffer;
+- `SPC m p` compiles and opens the PDF (in Firefox, on the desktop).
+
 ## FILES
 
 - `~/.spacemacs`, `~/.spacemacs.d/*.el`: configuration.

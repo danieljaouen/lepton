@@ -38,6 +38,7 @@ defmodule Lepton.Photon.WM.Classic do
     {"Firefox", :web, [app: "firefox", title: "Firefox"]},
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
+    {"Typst Editor", :typst, [command: "le --typst", title: "Typst Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
     {"Media Player", :media, [command: "play", title: "Media Player"]},
     {"Radio", :radio, [command: "radio", title: "Radio"]},
@@ -53,6 +54,7 @@ defmodule Lepton.Photon.WM.Classic do
     {"Firefox", :web, [app: "firefox", title: "Firefox"]},
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
+    {"Typst Editor", :typst, [command: "le --typst", title: "Typst Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
     {"Media Player", :media, [command: "play", title: "Media Player"]},
     {"Radio", :radio, [command: "radio", title: "Radio"]},
@@ -1052,6 +1054,20 @@ defmodule Lepton.Photon.WM.Classic do
       |> Canvas.fill(x + 1 * s, y + 13 * s, 14 * s, 2 * s, Render.rgb("#888888"))
 
     Enum.reduce(0..3, c, fn i, c -> Canvas.fill(c, x + (2 + i) * s, y + (7 + i) * s, (12 - 2 * i) * s, s, green) end)
+  end
+
+  # A page with a big T and lines of text (the Typst editor).
+  defp icon(c, x, y, :typst, size) do
+    s = div(size, 16)
+    teal = Render.rgb("#239dad")
+
+    c
+    |> Canvas.fill(x + 2 * s, y, 12 * s, 16 * s, Render.rgb(@dark))
+    |> Canvas.fill(x + 3 * s, y + 1 * s, 10 * s, 14 * s, Render.rgb(@white))
+    |> Canvas.fill(x + 5 * s, y + 3 * s, 6 * s, 2 * s, teal)
+    |> Canvas.fill(x + 7 * s, y + 5 * s, 2 * s, 5 * s, teal)
+    |> Canvas.fill(x + 5 * s, y + 11 * s, 6 * s, 1 * s, Render.rgb("#888888"))
+    |> Canvas.fill(x + 5 * s, y + 13 * s, 4 * s, 1 * s, Render.rgb("#888888"))
   end
 
   # A padlock (the password manager).

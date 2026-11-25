@@ -64,6 +64,7 @@ ISO it is kept in memory and is gone after a reboot; give the VM at least
 | `app` | the apps there are, their versions, and when they were last checked for updates |
 | `sudo app install NAME` | download and install an app |
 | `sudo app update [NAME]` | update an app (or all of them) now |
+| `sudo app update-all` | update every installed app, and sum up what changed |
 | `sudo app remove NAME` | remove it |
 | `firefox [URL...]` | start Firefox (installing it first, as root) |
 
@@ -83,6 +84,8 @@ along with Claude Code itself; `qemu`, QEMU for
 [virtual machines](virtual-machines.html) (about 31 MB); and `ffmpeg`,
 FFmpeg, which decodes what the [media player and the radio](media.html)
 play (110 packages, about 47 MB to download, 110 MB installed).
+`typst` is [Typst](typst.html), the typesetting system, which you run
+with `typst` (about 18 MB).
 
 ## Updates
 

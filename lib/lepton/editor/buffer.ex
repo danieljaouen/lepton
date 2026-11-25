@@ -199,7 +199,8 @@ defmodule Lepton.Editor.Buffer do
     ".html" => "HTML",
     ".css" => "CSS",
     ".diff" => "Diff",
-    ".patch" => "Diff"
+    ".patch" => "Diff",
+    ".typ" => "Typst"
   }
 
   def mode_for(nil), do: "Text"
@@ -222,7 +223,7 @@ defmodule Lepton.Editor.Buffer do
       m when m in ["Elixir", "Shell-script", "Python", "Ruby", "YAML", "TOML", "Conf"] -> "# "
       m when m in ["Erlang"] -> "% "
       m when m in ["Emacs-Lisp", "Lisp", "Clojure"] -> ";; "
-      m when m in ["JavaScript", "TypeScript", "C", "CSS"] -> "// "
+      m when m in ["JavaScript", "TypeScript", "C", "CSS", "Typst"] -> "// "
       _ -> "# "
     end
   end

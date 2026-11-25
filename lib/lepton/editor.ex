@@ -82,6 +82,8 @@ defmodule Lepton.Editor do
   end
 
   @default_vars %{
+    # Typst files: compile to a PDF on each save (SPC m w toggles)
+    "typst-compile-on-save" => true,
     "fill-column" => 79,
     "display-fill-column-indicator-column" => 101,
     "display-line-numbers-type" => "relative",
@@ -99,8 +101,8 @@ defmodule Lepton.Editor do
   # -- entry point --------------------------------------------------------------------
 
   @doc "Run the editor on `files` using the terminal in `ctx`. Returns exit status."
-  def run(files, ctx) do
-    st = init(files, ctx)
+  def run(files, ctx, opts \\ []) do
+    st = init(files, ctx, opts)
     TTY.set_mode(ctx.tty, :raw)
     # The mouse reports presses, drags and releases (1002), in SGR form (1006).
     # (and bracketed paste, 2004: a paste comes as one piece of text)
@@ -115,7 +117,7 @@ defmodule Lepton.Editor do
     end
   end
 
-  def init(files, ctx) do
+  def init(files, ctx, opts \\ []) do
     emacs = Lepton.Dotfiles.emacs(Lepton.Ctx.home(ctx))
     km = Keymap.build(emacs)
     vars = Map.merge(@default_vars, emacs.vars)
@@ -135,6 +137,7 @@ defmodule Lepton.Editor do
         f, st -> open_path(st, Lepton.Ctx.path(ctx, f))
       end)
 
+    st = if opts[:typst_starter], do: typst_starter(st), else: st
     first = hd(st.order)
     win = %Win{id: 1, buf: first}
     st = %{st | windows: %{1 => win}, layout: {:leaf, 1}, active: 1}
@@ -1354,6 +1357,16 @@ defmodule Lepton.Editor do
     prompt(%{st | mode: :normal}, {:align, region}, "Align regexp: ", "")
   end
 
+  # -- Typst (SPC m c, SPC m p, SPC m w) ------------------------------------------------------
+
+  def do_action(st, :typst_compile, _), do: if(typst?(st), do: st |> save_first() |> typst_compile(:compile), else: not_typst(st))
+  def do_action(st, :typst_preview, _), do: if(typst?(st), do: st |> save_first() |> typst_compile(:preview), else: not_typst(st))
+
+  def do_action(st, :typst_toggle_watch, _) do
+    on = !st.vars["typst-compile-on-save"]
+    msg(%{st | vars: Map.put(st.vars, "typst-compile-on-save", on)}, if(on, do: "Typst: compiling on each save", else: "Typst: not compiling on save (SPC m c compiles)"))
+  end
+
   def do_action(st, :comment_line, n) do
     {fl, tl} = if st.mode in [:visual, :visual_line, :visual_block], do: region_lines(st), else: {elem(cursor(st), 0), elem(cursor(st), 0) + (n || 1) - 1}
     st = snapshot(st)
@@ -1542,6 +1555,116 @@ defmodule Lepton.Editor do
     end
   end
 
+  defp typst?(st), do: buf(st).mode == "Typst"
+
+  @typst_starter """
+  #set page(paper: "a4")
+  #set text(lang: "en")
+
+  = A Title
+
+  Write here. *Strong*, _emphasis_, math: $a^2 + b^2 = c^2$.
+
+  // Saving compiles this into a PDF beside it; SPC m p shows the PDF.
+  """
+
+  @doc "A name for a new Typst file in ~/Documents: untitled.typ, untitled-2.typ, ..."
+  def untitled_typst(ctx) do
+    dir = Path.join(Lepton.Ctx.home(ctx), "Documents")
+    Lepton.Users.own_new(ctx, dir, fn -> File.mkdir_p(dir) end)
+
+    Stream.iterate(1, &(&1 + 1))
+    |> Stream.map(&Path.join(dir, if(&1 == 1, do: "untitled.typ", else: "untitled-#{&1}.typ")))
+    |> Enum.find(&(not File.exists?(&1)))
+  end
+
+  # New (empty, not yet on disk) Typst files get the starter, unsaved.
+  defp typst_starter(st) do
+    Enum.reduce(st.order, st, fn id, st ->
+      b = st.buffers[id]
+
+      if b.mode == "Typst" and b.path && not File.exists?(b.path) and Buffer.text(b) in ["", "\n"] do
+        put_buf(st, Buffer.set_lines(b, String.split(String.trim_trailing(@typst_starter), "\n")))
+      else
+        st
+      end
+    end)
+  end
+  defp not_typst(st), do: msg(st, "Not a Typst file (.typ)", true)
+
+  # Compile needs the file as it is on screen: save it first (that compiles
+  # too, with compile-on-save; once is enough).
+  defp save_first(st) do
+    b = buf(st)
+
+    cond do
+      b.path == nil -> prompt(st, :write_file, "Write file: ", dir_of(st) <> "/")
+      b.modified -> elem(save_buffer(st, b), 1)
+      true -> st
+    end
+  end
+
+  # Compile the buffer's file to a PDF beside it. An error: the cursor goes
+  # to it, the echo area says what it is, and typst's full report is in
+  # the *typst* buffer. :preview opens the PDF as well (Firefox, on the
+  # desktop).
+  defp typst_compile(st, how) do
+    b = buf(st)
+
+    if b.path == nil do
+      st
+    else
+      case Lepton.Typst.compile(Path.expand(b.path), st.ctx) do
+        {:missing, why} ->
+          msg(st, why, true)
+
+        {:ok, pdf, output} ->
+          st = typst_output(st, output)
+          pdf_name = Lepton.Ctx.tildify(st.ctx, pdf)
+          warn = if output =~ "warning:", do: " (with warnings: SPC b b *typst*)", else: ""
+
+          case how do
+            :preview ->
+              quoted = "'" <> String.replace(pdf, "'", "'\\''") <> "'"
+              {env, user} = {st.ctx.env, st.ctx.user}
+              # (in the background: the editor doesn't wait for Firefox)
+              spawn(fn -> Lepton.Shell.run_capture("open " <> quoted, cwd: Path.dirname(pdf), env: env, user: user) end)
+              msg(st, "Compiled #{pdf_name}; opened it#{warn}")
+
+            :save ->
+              msg(st, "Wrote #{Lepton.Ctx.tildify(st.ctx, b.path)}, compiled #{Path.basename(pdf)}#{warn}")
+
+            _ ->
+              msg(st, "Compiled #{pdf_name}#{warn}")
+          end
+
+        {:error, output, where} ->
+          st = typst_output(st, output)
+          st =
+            case where do
+              {file, l, c} -> if Path.basename(file) == Path.basename(b.path), do: set_cursor(st, {max(l - 1, 0), max(c - 1, 0)}), else: st
+              nil -> st
+            end
+
+          at = case where do
+            {file, l, c} -> " (#{Path.basename(file)}:#{l}:#{c})"
+            nil -> ""
+          end
+
+          msg(st, "Typst: " <> String.replace_prefix(Lepton.Typst.summary(output), "error: ", "") <> at <> "; SPC b b *typst* for all", true)
+      end
+    end
+  end
+
+  # typst's report, in a *typst* buffer (replaced each time).
+  defp typst_output(st, output) do
+    text = if String.trim(output) == "", do: "No errors or warnings.\n", else: output
+    case Enum.find(Map.values(st.buffers), &(&1.name == "*typst*")) do
+      nil -> add_buffer(st, Buffer.new("*typst*", text, kind: :help, mode: "Text", read_only: true))
+      old -> put_buf(st, %{Buffer.set_lines(old, String.split(String.trim_trailing(text, "\n"), "\n")) | modified: false})
+    end
+  end
+
   defp msg(st, text, error \\ false)
   defp msg(st, nil, _), do: st
   defp msg(st, text, error), do: %{st | message: text, message_error: error, messages: Enum.take([text | st.messages], 200)}
@@ -1557,7 +1680,9 @@ defmodule Lepton.Editor do
       true ->
         {result, st} = save_buffer(st, b)
         # (A commit message's save says what was committed instead.)
-        if result == :ok and b.kind != :commit, do: msg(st, "Wrote #{Lepton.Ctx.tildify(st.ctx, b.path)}"), else: st
+        st = if result == :ok and b.kind != :commit, do: msg(st, "Wrote #{Lepton.Ctx.tildify(st.ctx, b.path)}"), else: st
+        # A Typst file: its PDF too (as typst watch would), if Typst is there.
+        if result == :ok and b.mode == "Typst" and st.vars["typst-compile-on-save"] and Lepton.Typst.installed?(), do: typst_compile(st, :save), else: st
     end
   end
 
