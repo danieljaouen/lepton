@@ -1,0 +1,6 @@
+#!/bin/sh
+# Firefox's handler for magnet links and .torrent files (Lepton.Apps's
+# Firefox policy): `torrent open` adds it and opens the Torrents window.
+# Firefox's own libraries (musl) stay out of the way of Erlang's.
+unset LD_LIBRARY_PATH LD_PRELOAD
+exec /usr/bin/lepton torrent open "$1"

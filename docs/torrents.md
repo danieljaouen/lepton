@@ -35,6 +35,18 @@ on disk first; nothing is downloaded twice.
 
 <!-- commands: torrent -->
 
+## From Firefox
+
+Click a magnet link in [Firefox](apps.html), or open a `.torrent` file
+it downloads: it goes straight to Lepton's Torrents, without asking. The
+torrent is added (into `~/Downloads`), a notice on the desktop says so,
+and the Torrents window opens (or, if it's open, shows the new one).
+`torrent open MAGNET|FILE` does the same from a terminal.
+
+This is Firefox's own setting for those links and files, which Lepton
+makes when it starts Firefox; restart Firefox after updating Lepton for
+it to apply.
+
 ## Where peers come from
 
 - **Trackers**: the servers a torrent names (HTTP, HTTPS and UDP).

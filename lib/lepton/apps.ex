@@ -521,6 +521,9 @@ defmodule Lepton.Apps do
       policies = %{
         "policies" => %{
           "DontCheckDefaultBrowser" => true,
+          # Magnet links and .torrent files: to Lepton's Torrents, without
+          # asking (the helper runs `torrent open`).
+          "Handlers" => torrent_handlers(),
           # DRM (Widevine) on, without asking: Spotify's web player and
           # other streaming sites need it.
           "EncryptedMediaExtensions" => %{"Enabled" => true},
@@ -551,6 +554,21 @@ defmodule Lepton.Apps do
     else
       :ok
     end
+  end
+
+  @open_torrent "/usr/libexec/lepton/open-torrent"
+
+  @doc false
+  # Firefox's Handlers policy: magnet: links and application/x-bittorrent
+  # files go to the helper, which adds them to Torrents.
+  def torrent_handlers do
+    handler = %{"action" => "useHelperApp", "ask" => false, "handlers" => [%{"name" => "Torrents", "path" => @open_torrent}]}
+
+    %{
+      "schemes" => %{"magnet" => handler},
+      "mimeTypes" => %{"application/x-bittorrent" => handler},
+      "extensions" => %{"torrent" => handler}
+    }
   end
 
   @doc """

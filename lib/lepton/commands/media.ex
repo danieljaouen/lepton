@@ -153,7 +153,7 @@ defmodule Lepton.Commands.Media do
   end
 
   defcmd "torrent", "BitTorrent: download from magnet links and .torrent files, and share back while they stay added",
-    usage: "torrent [add [-d DIR] [--peer HOST:PORT] MAGNET|FILE|URL | list | stop T | start T | rm [--delete] T | info FILE | create [-o FILE] [-t TRACKER]... PATH]" do
+    usage: "torrent [add [-d DIR] [--peer HOST:PORT] MAGNET|FILE|URL | open MAGNET|FILE | list | stop T | start T | rm [--delete] T | info FILE | create [-o FILE] [-t TRACKER]... PATH]" do
     torrent(ctx, args)
   end
 
@@ -188,6 +188,27 @@ defmodule Lepton.Commands.Media do
           end
         end)
     end
+  end
+
+  # From Firefox (a magnet link clicked, a .torrent opened: its policy
+  # sends them to /usr/libexec/lepton/open-torrent, which runs this):
+  # added, said in a notice on the desktop, and the Torrents window
+  # opened there, unless one is (its list shows the new one).
+  defp torrent(ctx, ["open", source]) do
+    {status, text} =
+      case Lepton.Torrent.add(ctx, source) do
+        {:ok, id} -> {0, "Torrents: added #{torrent_name(ctx, id)}"}
+        {:error, why} -> {1, "Torrents: " <> why}
+      end
+
+    IO.puts(ctx, text)
+
+    if pid = Process.whereis(Lepton.Photon) do
+      Lepton.Photon.notice(pid, text)
+      torrents_window(pid, ctx)
+    end
+
+    status
   end
 
   defp torrent(ctx, ["list"]) do
@@ -278,6 +299,26 @@ defmodule Lepton.Commands.Media do
   defp torrent(ctx, _) do
     IO.err(ctx, "usage: torrent [add [-d DIR] MAGNET|FILE|URL | list | stop T | start T | rm [--delete] T | info FILE | create [-o FILE] [-t TRACKER]... PATH]")
     2
+  end
+
+  @doc false
+  # The Torrents window on desktop `photon`: opened, unless one is.
+  def torrents_window(photon, ctx) do
+    info = Lepton.Photon.info(photon)
+
+    if Enum.any?(info.windows, &(&1.title == "Torrents")) do
+      :already
+    else
+      env = Map.merge(ctx.env, %{"XDG_RUNTIME_DIR" => Path.dirname(info.socket), "WAYLAND_DISPLAY" => Path.basename(info.socket)})
+      Lepton.Photon.Term.start(env: env, user: ctx.user, cwd: Lepton.Ctx.home(ctx), command: "torrent", title: "Torrents")
+    end
+  end
+
+  defp torrent_name(ctx, id) do
+    case Enum.find(Lepton.Torrent.list(ctx), &(&1.id == id)) do
+      %{name: name} when is_binary(name) -> name
+      _ -> Lepton.Torrent.short(id)
+    end
   end
 
   defp add_opts([d, dir | rest], o) when d in ["-d", "--dir"], do: add_opts(rest, %{o | dir: dir})

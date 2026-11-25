@@ -22,6 +22,9 @@ has it. Every piece is checked (SHA-1) before it's kept.
   torrent: a magnet link (quote it: it holds `&`), a `.torrent` file, or
   the address of one. Files go into DIR (default `~/Downloads`).
   `--peer` names a peer to try (one on your network, say).
+- `torrent open MAGNET|FILE`: add it (into `~/Downloads`), say so in a
+  notice on the desktop, and open the Torrents window there (unless it's
+  open). Firefox runs this for magnet links and `.torrent` files.
 - `torrent list`: each torrent, its number, id, progress and state.
 - `torrent stop T`, `torrent start T`: stop one (it stays listed), start
   it again. T is its number in the list, the start of its id, or part

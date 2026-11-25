@@ -208,6 +208,49 @@ defmodule Lepton.TorrentTest do
     Torrent.remove(ctx, t.id)
   end
 
+  test "from Firefox: torrent open adds it (or says why not); Firefox's policy sends magnet links and .torrent files there" do
+    home = tmp_dir("torrenthome")
+    {base, src} = album([{"song.ogg", 40_000}])
+    {:ok, bin} = Metainfo.create(src)
+    File.write!(Path.join(base, "song.torrent"), bin)
+    {out, 0} = sh("torrent open #{base}/song.torrent", home: home)
+    assert out =~ "Torrents: added album"
+    {out, 1} = sh("torrent open 'magnet:?dn=nothing'", home: home)
+    assert out =~ "Torrents: the magnet link has no BitTorrent hash"
+    for t <- Torrent.list(%Lepton.Ctx{env: %{"HOME" => home}}), do: Torrent.remove(%Lepton.Ctx{env: %{"HOME" => home}}, t.id)
+
+    handlers = Lepton.Apps.torrent_handlers()
+    for {kind, key} <- [{"schemes", "magnet"}, {"mimeTypes", "application/x-bittorrent"}, {"extensions", "torrent"}] do
+      assert %{"action" => "useHelperApp", "ask" => false, "handlers" => [%{"path" => "/usr/libexec/lepton/open-torrent"}]} = handlers[kind][key]
+    end
+
+    prefix = tmp_dir("policies")
+    File.mkdir_p!(Path.join(prefix, "usr/lib/firefox/distribution"))
+    Lepton.Apps.firefox_policies(prefix)
+    assert JSON.decode!(File.read!(Path.join(prefix, "usr/lib/firefox/distribution/policies.json")))["policies"]["Handlers"] == handlers
+    # The helper: in the image, beside the other programs (unsetting Firefox's libraries).
+    helper = if File.exists?("/usr/libexec/lepton/open-torrent"), do: "/usr/libexec/lepton/open-torrent", else: "rootfs/usr/libexec/lepton/open-torrent"
+    if File.exists?(helper) do
+      assert File.read!(helper) =~ ~s(exec /usr/bin/lepton torrent open "$1")
+      assert Bitwise.band(File.stat!(helper).mode, 0o111) != 0
+    end
+  end
+
+  test "the Torrents window: opened on the desktop, once" do
+    dir = "/tmp/ltw-#{System.unique_integer([:positive])}"
+    File.mkdir_p!(dir)
+    out = Lepton.Photon.Output.file(Path.join(dir, "fb"), 640, 400)
+    {:ok, ph} = Lepton.Photon.start(output: out, socket: Path.join(dir, "wayland-0"))
+    on_exit(fn -> if Process.alive?(ph), do: Lepton.Photon.stop(ph); File.rm_rf(dir) end)
+    ctx = %Lepton.Ctx{env: %{"HOME" => tmp_dir("torrenthome"), "PATH" => "/bin", "NO_COLOR" => "1"}, user: "root"}
+    titles = fn -> for w <- Lepton.Photon.info(ph).windows, do: w.title end
+    {:ok, _} = Lepton.Commands.Media.torrents_window(ph, ctx)
+    assert eventually(fn -> "Torrents" in titles.() end, 50)
+    assert Lepton.Commands.Media.torrents_window(ph, ctx) == :already
+    Process.sleep(300)
+    assert Enum.count(titles.(), &(&1 == "Torrents")) == 1
+  end
+
   test "torrent create, info, add (into a folder that has the files: seeding), list, stop, start, rm" do
     home = tmp_dir("torrenthome")
     {base, src} = album([{"song.ogg", 100_000}])
