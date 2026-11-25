@@ -122,6 +122,26 @@ defmodule Lepton.SSHDTest do
     SSH.close(conn)
   end
 
+  test "the daemon goes with the process that started it, even killed (svc restart: port 22 free again)", ctx do
+    me = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, d} = SSHD.start(0, host_key: Path.join(ctx.state, "ssh/ssh_host_ed25519_key"), home: &Path.join(ctx.homes, &1.name))
+        SSHD.bind_to(d)
+        {:ok, info} = :ssh.daemon_info(d)
+        send(me, {:port, info[:port]})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:port, port}, 5000
+    assert {:ok, s} = :gen_tcp.connect(~c"127.0.0.1", port, [], 1000)
+    :gen_tcp.close(s)
+    Process.exit(owner, :kill)
+    free = fn -> match?({:error, :econnrefused}, :gen_tcp.connect(~c"127.0.0.1", port, [], 1000)) end
+    assert Enum.any?(1..50, fn _ -> free.() || (Process.sleep(100) && false) end)
+  end
+
   test "authorized_keys: comments, options and unreadable lines" do
     key = SSH.public(SSH.generate())
     text = "# c\n\ngarbage\ncommand=\"ls\",no-pty #{SSH.public_line(key, "x")}\nssh-ed25519 AAAAnotbase64!!\n"

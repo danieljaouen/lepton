@@ -456,6 +456,8 @@ defmodule Lepton.Commands.Services do
 
     case Lepton.SSHD.start(port, log: self()) do
       {:ok, daemon} ->
+        # (stopped with this process, even if it's killed)
+        Lepton.SSHD.bind_to(daemon)
         {:ok, key} = Lepton.SSHD.host_key()
         IO.puts(ctx, "sshd: listening on port #{port}, keys only (no passwords)")
         IO.puts(ctx, "sshd: host key #{Lepton.SSH.fingerprint(Lepton.SSH.public(key))} (ED25519)")

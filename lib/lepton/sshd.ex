@@ -89,6 +89,25 @@ defmodule Lepton.SSHD do
 
   def stop(daemon), do: :ssh.stop_daemon(daemon)
 
+  @doc """
+  Stop `daemon` when `owner` ends, however it ends. OTP's daemon isn't
+  linked to whoever started it: the sshd service's process, killed
+  rather than asked to stop (its tree killed when the process it ran in
+  ended first), left the daemon listening, and every start after it then
+  found port 22 taken (`eaddrinuse`) until Lepton restarted.
+  """
+  def bind_to(daemon, owner \\ self()) do
+    spawn(fn ->
+      ref = Process.monitor(owner)
+
+      receive do
+        {:DOWN, ^ref, :process, _, _} -> :ssh.stop_daemon(daemon)
+      end
+    end)
+
+    daemon
+  end
+
   @doc "The account `user` may log in as, if any."
   def account(user) when is_list(user), do: account(to_string(user))
   def account(user), do: Users.get(user)
