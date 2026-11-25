@@ -162,7 +162,9 @@ defmodule LeptonBuild.Markdown do
   @doc false
   def inline(text) do
     # Code spans first, so nothing inside them is interpreted.
-    {text, codes} = stash(text, "c", ~r/`([^`]+)`/, fn [_, c] -> "<code>" <> escape(c) <> "</code>" end)
+    # A span opens and closes with the same number of backticks, so ``
+    # `a `` holds a backtick; one space inside each end is dropped.
+    {text, codes} = stash(text, "c", ~r/(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)/s, fn [_, _, c] -> "<code>" <> escape(code_span(c)) <> "</code>" end)
     {text, links} = stash(text, "l", ~r/<(https?:\/\/[^>\s]+)>/, fn [_, url] -> ~s(<a href="#{escape(url)}">#{escape(url)}</a>) end)
     {text, ids} = stash(text, "i", ~r/\{#([A-Za-z0-9_-]+)\}/, fn [_, id] -> ~s(<span class="anchor-target" id="#{id}"></span>) end)
 
@@ -174,6 +176,12 @@ defmodule LeptonBuild.Markdown do
     |> unstash("i", ids)
     |> unstash("l", links)
     |> unstash("c", codes)
+  end
+
+  defp code_span(c) do
+    if String.starts_with?(c, " ") and String.ends_with?(c, " ") and String.trim(c) != "",
+      do: String.slice(c, 1..-2//1),
+      else: c
   end
 
   # Swap matches for placeholders (tagged, so different kinds can't collide)

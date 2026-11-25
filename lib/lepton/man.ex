@@ -214,7 +214,7 @@ defmodule Lepton.Man do
     room = max(width - indent, 20)
 
     words =
-      for [w] <- Regex.scan(~r/(?:`[^`]*`|[^\s`]|`)+/, text), part <- split_long(w, room), do: inline(part, color?)
+      for [w] <- Regex.scan(~r/(?:``.+?``|`[^`]*`|[^\s`]|`)+/, text), part <- split_long(w, room), do: inline(part, color?)
 
     pad = String.duplicate(" ", indent)
 
@@ -239,7 +239,9 @@ defmodule Lepton.Man do
   defp inline(text, color?) do
     text = Regex.replace(~r/\[([^\]]+)\]\([^)\s]+\)/, text, "\\1")
 
-    Regex.replace(~r/`([^`]*)`/, text, fn _, code ->
+    # (`` `a `` holds a backtick)
+    Regex.replace(~r/``\s?(.+?)\s?``|`([^`]*)`/, text, fn _, double, single ->
+      code = if double != "", do: double, else: single
       if color?, do: "\e[1m#{code}\e[22m", else: code
     end)
   end
@@ -325,7 +327,7 @@ defmodule Lepton.Man do
   end
 
   defp stash(text) do
-    codes = Regex.scan(~r/`[^`]*`/, text) |> Enum.map(&hd/1)
+    codes = Regex.scan(~r/``.+?``|`[^`]*`/, text) |> Enum.map(&hd/1)
     {text, _} = Enum.reduce(codes, {text, 0}, fn c, {t, i} -> {String.replace(t, c, "\u0000#{i}\u0000", global: false), i + 1} end)
     {text, codes}
   end

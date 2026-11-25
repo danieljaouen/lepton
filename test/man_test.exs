@@ -106,6 +106,13 @@ defmodule Lepton.ManTest do
     assert page =~ "\e[1m-a\e[22m"
   end
 
+  test "a code span holding a backtick (`` `a ``) shows as the code alone" do
+    page = Man.render(Man.page("le"), 80, false)
+    assert page =~ "'a goes to its line and `a to the very place"
+    refute page =~ "``"
+    assert Man.render(Man.page("le"), 80, true) =~ "\e[1m`a\e[22m"
+  end
+
   test "the pager cuts and highlights around escape sequences" do
     line = "\e[1mbold\e[22m and plain"
     assert Lepton.Pager.fit(line, 80) == line

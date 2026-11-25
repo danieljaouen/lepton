@@ -85,6 +85,11 @@ defmodule Lepton.DocsTest do
       assert html =~ ~s(<span class="anchor-target" id="here"></span>&lt;b&gt;.)
     end
 
+    test "code spans holding backticks: as many backticks open as close" do
+      {html, _} = Markdown.render("`'a` to the line (`` `a `` to the spot), `` ` `` and the letter; ```a``b```, then *em*.\n")
+      assert html =~ "<code>'a</code> to the line (<code>`a</code> to the spot), <code>`</code> and the letter; <code>a``b</code>, then <em>em</em>."
+    end
+
     test "lists, tables, code and quotes" do
       {html, _} = Markdown.render("- a\n  more\n  - nested\n- b\n\n1. one\n\n| A | B |\n|---|---|\n| `x\\|y` | z |\n\n```sh\necho <hi>\n```\n\n> quoted\n")
       assert html =~ "<li>a more<ul>\n<li>nested</li>"
