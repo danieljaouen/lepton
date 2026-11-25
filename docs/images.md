@@ -11,12 +11,14 @@ Lepton edits images with [ImageMagick](https://imagemagick.org) 7: `magick`,
 and its tools as commands of their own (`convert`, `identify`, `mogrify`,
 `composite`, `montage`, `compare`). It's the `imagemagick` app, installed
 the first time you use one of them (it asks), or with
-`sudo app install imagemagick` (about 21 MB to download, 58 MB
-installed).
+`sudo app install imagemagick` (about 46 MB to download, 140 MB
+installed, 60 MB of it Ghostscript, for PDF).
 
-It reads and writes PNG, JPEG, GIF, WebP, TIFF, BMP, JPEG XL, JPEG 2000
-and dozens more, and reads HEIC (iPhone photos). SVG and PDF aren't
-included. To look at the result, `open` it (Firefox shows images).
+It reads and writes PNG, JPEG, GIF, WebP, TIFF, BMP, JPEG XL, JPEG 2000,
+PDF, PostScript and dozens more, and reads SVG and HEIC (iPhone photos).
+To look at the result, `open` it (Firefox shows images and PDFs).
+(Installed before SVG and PDF came in? The next `magick` fetches them
+for the one after; `sudo app update imagemagick` brings them now.)
 
 ## Crop
 
@@ -47,6 +49,9 @@ magick photo.jpg -flop mirrored.jpg               # left to right (-flip: top to
 
 ```sh
 magick IMG_0042.HEIC photo.jpg                    # iPhone photo to JPEG
+magick -density 300 logo.svg -resize 512x512 logo.png   # SVG, drawn sharp at any size
+magick -density 150 paper.pdf[0] page1.png        # a PDF's first page as an image
+magick scan1.jpg scan2.jpg scans.pdf              # images into one PDF
 magick photo.png -quality 85 photo.jpg
 magick photo.jpg -strip clean.jpg                 # without its metadata (location too)
 magick photo.jpg -colorspace Gray grey.jpg

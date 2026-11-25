@@ -2,8 +2,10 @@ defmodule Lepton.Archive.Tar do
   @moduledoc """
   tar archives, as GNU tar reads and writes them: ustar headers, GNU long
   names (`L`, `K`) and pax extended headers (`x`) when reading; ustar, with
-  a pax header for names that don't fit, when writing. gzip (`.tar.gz`,
-  `.tgz`) both ways; other compressors are recognised and refused.
+  a pax header for names that don't fit, when writing. Compressed with
+  gzip (`.tar.gz`: Erlang's zlib), bzip2, xz or zstd (`.tar.bz2`,
+  `.tar.xz`, `.tar.zst`: programs, see `Lepton.Archive.Compress`), both
+  ways; reading recognises the compression by the archive's first bytes.
 
   `cli/2` is the `tar` command.
   """
@@ -23,12 +25,16 @@ defmodule Lepton.Archive.Tar do
   def compression(<<"LZIP", _::binary>>), do: :lzip
   def compression(_), do: :none
 
-  @doc "Decompress an archive (`{:ok, tar}` or `{:error, message}`)."
-  def decompress(data) do
+  @doc """
+  Decompress an archive (`{:ok, tar}` or `{:error, message}`): gzip here;
+  bzip2, xz and zstd with their programs, on `path` (the archive's file,
+  or nil) for `ctx` (which may be asked to install them).
+  """
+  def decompress(data, path \\ nil, ctx \\ nil) do
     case compression(data) do
       :none -> {:ok, data}
       :gzip -> gunzip(data)
-      other -> {:error, "#{other}-compressed archives aren't supported (gzip and plain tar are)"}
+      other -> Lepton.Archive.Compress.decompress(other, data, path, ctx)
     end
   end
 
@@ -440,7 +446,7 @@ defmodule Lepton.Archive.Tar do
   end
 
   defp parse(args) do
-    o = %{mode: nil, file: "-", verbose: 0, gzip: false, dir: nil, strip: 0, stdout: false, keep: false, exclude: [], members: [], compress: nil}
+    o = %{mode: nil, file: "-", verbose: 0, comp: nil, dir: nil, strip: 0, stdout: false, keep: false, exclude: [], members: [], compress: nil}
 
     args =
       case args do
@@ -493,12 +499,14 @@ defmodule Lepton.Archive.Tar do
   defp flag("x", o), do: set_mode(o, :extract)
   defp flag("t", o), do: set_mode(o, :list)
   defp flag("v", o), do: %{o | verbose: o.verbose + 1}
-  defp flag("z", o), do: %{o | gzip: true}
+  defp flag("z", o), do: %{o | comp: :gzip}
+  defp flag("j", o), do: %{o | comp: :bzip2}
+  defp flag("J", o), do: %{o | comp: :xz}
+  defp flag("Z", o), do: %{o | comp: :zstd}
   defp flag("a", o), do: %{o | compress: :auto}
   defp flag("O", o), do: %{o | stdout: true}
   defp flag("k", o), do: %{o | keep: true}
   defp flag(f, o) when f in ["p", "o", "h", "m"], do: o
-  defp flag(f, _o) when f in ["j", "J"], do: {:error, "#{if f == "j", do: "bzip2", else: "xz"} isn't supported (gzip, -z, is)"}
   defp flag(f, _o), do: {:error, "invalid option -- '#{f}'"}
 
   defp set_mode(%{mode: nil} = o, m), do: %{o | mode: m}
@@ -526,7 +534,7 @@ defmodule Lepton.Archive.Tar do
   defp long_opt([name], rest, o) do
     short_for = %{"create" => "c", "extract" => "x", "get" => "x", "list" => "t", "verbose" => "v", "gzip" => "z", "gunzip" => "z",
                   "auto-compress" => "a", "to-stdout" => "O", "keep-old-files" => "k", "preserve-permissions" => "p",
-                  "no-same-owner" => "o", "bzip2" => "j", "xz" => "J", "touch" => "m"}
+                  "no-same-owner" => "o", "bzip2" => "j", "xz" => "J", "zstd" => "Z", "touch" => "m"}
 
     case short_for[name] do
       nil -> {:error, "unrecognized option '--#{name}'"}
@@ -548,8 +556,8 @@ defmodule Lepton.Archive.Tar do
         create_cmd(o, ctx, base)
 
       true ->
-        with {:ok, raw} <- read_archive(o, ctx),
-             {:ok, tar} <- decompress(raw),
+        with {:ok, raw, path} <- read_archive(o, ctx),
+             {:ok, tar} <- decompress(raw, path, ctx),
              {:ok, entries} <- entries(tar) do
           entries = select(entries, o.members)
 
@@ -570,11 +578,11 @@ defmodule Lepton.Archive.Tar do
     end
   end
 
-  defp read_archive(%{file: "-"}, ctx), do: {:ok, IO.read_all(ctx.stdin)}
+  defp read_archive(%{file: "-"}, ctx), do: {:ok, IO.read_all(ctx.stdin), nil}
 
   defp read_archive(%{file: f}, ctx) do
     case File.read(Ctx.path(ctx, f)) do
-      {:ok, data} -> {:ok, data}
+      {:ok, data} -> {:ok, data, Ctx.path(ctx, f)}
       {:error, r} -> {:error, "#{f}: Cannot open: #{:file.format_error(r)}"}
     end
   end
@@ -684,13 +692,10 @@ defmodule Lepton.Archive.Tar do
   end
 
   defp create_cmd(o, ctx, base) do
-    gzip = o.gzip or (o.compress == :auto and String.ends_with?(o.file, [".tar.gz", ".tgz", ".gz"]))
+    # -z, -j, -J, --zstd; or -a, by the archive's name.
+    kind = o.comp || if(o.compress == :auto, do: Lepton.Archive.Compress.by_name(o.file), else: :none)
 
     cond do
-      o.compress == :auto and String.ends_with?(o.file, [".xz", ".txz", ".bz2", ".tbz", ".zst"]) ->
-        IO.err(ctx, "tar: #{o.file}: only gzip compression is supported (.tar.gz, .tgz)")
-        2
-
       true ->
         missing = Enum.reject(o.members, &match?({:ok, _}, File.lstat(Path.expand(&1, base))))
         Enum.each(missing, &IO.err(ctx, "tar: #{&1}: Cannot stat: No such file or directory"))
@@ -703,17 +708,27 @@ defmodule Lepton.Archive.Tar do
         Enum.each(warnings, &IO.err(ctx, "tar: " <> &1))
         # -v: the names, on stderr when the archive goes to stdout.
         if o.verbose > 0, do: tar |> entries() |> elem(1) |> Enum.each(&verbose_line(ctx, o, &1))
-        data = if gzip, do: :zlib.gzip(tar), else: tar
+        compressed =
+          case kind do
+            :none -> {:ok, tar}
+            :gzip -> {:ok, :zlib.gzip(tar)}
+            other -> Lepton.Archive.Compress.compress(other, tar, ctx)
+          end
 
         result =
-          case out_path do
-            nil -> IO.write(ctx, data)
-            p -> if Lepton.Users.check_write(ctx, p) == :ok, do: Lepton.Users.own_new(ctx, p, fn -> File.write(p, data) end), else: {:error, :eacces}
+          case {compressed, out_path} do
+            {{:error, msg}, _} -> {:error, msg}
+            {{:ok, data}, nil} -> IO.write(ctx, data)
+            {{:ok, data}, p} -> if Lepton.Users.check_write(ctx, p) == :ok, do: Lepton.Users.own_new(ctx, p, fn -> File.write(p, data) end), else: {:error, :eacces}
           end
 
         case result do
           :ok ->
             if missing != [] or Enum.any?(warnings, &String.contains?(&1, "Cannot")), do: 2, else: 0
+
+          {:error, msg} when is_binary(msg) ->
+            IO.err(ctx, "tar: " <> msg)
+            2
 
           {:error, r} ->
             IO.err(ctx, "tar: #{o.file}: Cannot open: #{:file.format_error(r)}")

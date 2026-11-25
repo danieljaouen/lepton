@@ -5,8 +5,9 @@ defmodule Lepton.ImageMagick do
   (`sudo app install imagemagick`), run by Lepton as you, in your
   folder. Ctrl-C stops it.
 
-  Formats: PNG, JPEG, GIF, WebP, TIFF, JPEG XL, JPEG 2000, BMP and dozens
-  more read and write; HEIC (iPhone photos) reads. Text (`label:`,
+  Formats: PNG, JPEG, GIF, WebP, TIFF, JPEG XL, JPEG 2000, BMP, PDF,
+  PostScript and dozens more read and write; SVG and HEIC (iPhone
+  photos) read (SVG through librsvg, PDF through Ghostscript). Text (`label:`,
   `-annotate`) is drawn in DejaVu, which the app brings.
 
   ImageMagick looks for its format modules and settings where Alpine put
@@ -49,7 +50,11 @@ defmodule Lepton.ImageMagick do
       "MAGICK_CODER_MODULE_PATH" => Path.join(modules, "coders"),
       "MAGICK_CODER_FILTER_PATH" => Path.join(modules, "filters"),
       "MAGICK_CONFIGURE_PATH" => types <> ":" <> config,
-      "FONTCONFIG_FILE" => fonts
+      "FONTCONFIG_FILE" => fonts,
+      # PDF and PostScript: Ghostscript, which ImageMagick runs as `gs`
+      # (first on the path), with its resources where the app has them.
+      "PATH" => Path.join(p, "usr/bin") <> ":" <> (ctx.env["PATH"] || "/bin"),
+      "GS_LIB" => Enum.map_join(["Resource/Init", "lib", "Resource/Font"], ":", &Path.join([p, "usr/share/ghostscript", &1]))
     })
   end
 
@@ -58,6 +63,10 @@ defmodule Lepton.ImageMagick do
   first, as `magick identify ...`): its exit status.
   """
   def run(tool, args, ctx) do
+    # Updates, as for Firefox: one downloaded earlier goes in now; a new
+    # definition (SVG and PDF, added later) is fetched for next time.
+    if !Application.get_env(:lepton, :imagemagick_prefix) and installed?(), do: Apps.maintain(@app)
+
     if installed?() or Apps.offer_install(ctx, @app, "#{tool} is ImageMagick's") == :installed do
       user = Lepton.Users.get(ctx.user || "root") || Lepton.Users.get("root")
       args = if tool == "magick", do: args, else: [tool | args]

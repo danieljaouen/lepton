@@ -2,7 +2,7 @@
 
 Install, update and remove native Linux apps, built from Alpine Linux's
 packages: `firefox`, `typst`, `ffmpeg` (for `play` and `radio`), `snes` (for `snes`),
-`imagemagick` (for `magick`),
+`imagemagick` (for `magick`), `compressors` (xz and zstd, for `tar`),
 `bluetooth`, `postgresql`, `qemu` and others (`app` lists them). Apps live on the data partition of
 an installed system. Listing is for everyone; the other commands take
 `sudo`.

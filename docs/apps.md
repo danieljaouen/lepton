@@ -89,8 +89,9 @@ with `typst` (about 18 MB). `snes` is the [SNES emulator](snes.html)'s:
 bsnes, as a libretro core, and the Tiny C Compiler, which builds the
 small program Lepton runs it with (about 5 MB to download, 22 MB
 installed). `imagemagick` is [ImageMagick](images.html), for editing
-images with `magick`, `convert`, `identify` and `mogrify` (about 21 MB to
-download, 58 MB installed).
+images with `magick`, `convert`, `identify` and `mogrify`, PDF and SVG
+too (about 46 MB to download, 140 MB installed). `compressors` holds xz
+and zstd, which `tar` uses for `.tar.xz` and `.tar.zst` (about 2 MB).
 
 ## Updates
 

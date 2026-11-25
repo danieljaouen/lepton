@@ -63,9 +63,20 @@ the game saves and again when you close it, so you can go on where you
 left off. Save states (F5) go beside them, `GAME.state1` to
 `GAME.state9`: a snapshot of the whole console, at any moment.
 
+## Game controllers
+
+USB and Bluetooth gamepads work, two at once for two players: the first
+one plugged in is player 1 (along with the keyboard), the second player
+2. Plug one in during a game and the title says which player it is.
+
+The buttons go by their place, as on a SNES pad, whatever is printed on
+them: the bottom face button is B, the right one A, the left one Y and
+the top one X; the shoulder buttons (and triggers) are L and R; Select
+and Start are Select and Start. The D-pad, or the left stick, moves.
+The USB pads made to look like a SNES pad work as they're laid out.
+
 ## Limits
 
-One player, from the keyboard (game controllers aren't read yet). The
-games themselves are yours to bring: Lepton doesn't come with any.
+The games themselves are yours to bring: Lepton doesn't come with any.
 
 <!-- commands: snes -->

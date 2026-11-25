@@ -2,7 +2,7 @@
 title: Archives and big files
 order: 9
 section: shell
-summary: tar and unzip for .tar, .tar.gz and .zip files, and copying big files with cp and mv.
+summary: tar and unzip for .tar (gzip, bzip2, xz, zstd) and .zip files, and copying big files with cp and mv.
 ---
 
 # Archives and big files
@@ -10,8 +10,9 @@ summary: tar and unzip for .tar, .tar.gz and .zip files, and copying big files w
 ## tar
 
 `tar` makes, lists and unpacks tar archives, plain (`.tar`) or
-compressed with gzip (`.tar.gz`, `.tgz`), as GNU tar does. The first
-argument may leave out its dash, as in `tar xzf`:
+compressed with gzip (`.tar.gz`, `.tgz`), bzip2 (`.tar.bz2`), xz
+(`.tar.xz`) or zstd (`.tar.zst`), as GNU tar does. The first argument
+may leave out its dash, as in `tar xzf`:
 
 ```sh
 tar czf notes.tgz notes/          # make notes.tgz from the folder notes
@@ -20,6 +21,8 @@ tar xf notes.tgz                  # unpack it here (gzip is recognised: -z is op
 tar xf release.tar.gz -C ~/src    # unpack into ~/src
 tar xf release.tar.gz --strip-components=1   # without the top folder
 tar caf backup.tar.gz ~/Documents # -a: compressed or not by the name
+tar xf linux-6.18.tar.xz          # any compression is recognised when reading
+tar cJf photos.tar.xz Pictures/   # -j bzip2, -J xz, --zstd zstd
 tar xOf notes.tgz notes/todo.txt  # a member to the screen (-O)
 ```
 
@@ -30,9 +33,12 @@ files out when making one, `-k` keeps files that are already there.
 Archives from elsewhere unpack safely: a leading `/` is taken off the
 names, and a member whose name climbs out with `..` is skipped. Long
 names, symbolic links and permissions are kept both ways; the files
-you unpack are yours. Archives compressed with xz, bzip2 or zstd
-(`.tar.xz`, `.tar.bz2`, `.tar.zst`) aren't supported yet: tar says
-which it found.
+you unpack are yours.
+
+gzip is built into Lepton and bzip2 comes with it (busybox's). xz and
+zstd are the `compressors` app (about 2 MB), which `tar` offers to
+install the first time it needs them; reading a `.tar.xz` works even
+without it.
 
 ## unzip
 

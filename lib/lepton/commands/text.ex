@@ -667,8 +667,8 @@ defmodule Lepton.Commands.Text do
     Lepton.Cloc.cli(args, ctx)
   end
 
-  defcmd "tar", "create, list and extract tar archives (gzip-compressed too: .tar.gz, .tgz), as GNU tar",
-    usage: "tar -c|-x|-t [-v] [-z] [-a] [-k] [-O] [-f ARCHIVE] [-C DIR] [--strip-components=N] [--exclude=PATTERN] [FILE...]" do
+  defcmd "tar", "create, list and extract tar archives, compressed too (.tar.gz, .tar.bz2, .tar.xz, .tar.zst), as GNU tar",
+    usage: "tar -c|-x|-t [-v] [-z | -j | -J | --zstd] [-a] [-k] [-O] [-f ARCHIVE] [-C DIR] [--strip-components=N] [--exclude=PATTERN] [FILE...]" do
     Lepton.Archive.Tar.cli(args, ctx)
   end
 

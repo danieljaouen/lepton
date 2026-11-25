@@ -43,6 +43,47 @@ defmodule Lepton.SNESTest do
     assert SNES.source() =~ "retro_load_game"
   end
 
+  test "game controllers: which devices, and their buttons, D-pads and sticks as the SNES's" do
+    alias Lepton.SNES.Pads
+    # By place: south B, east A, west Y, north X; shoulders and triggers L, R; Select, Start.
+    assert Enum.map([0x130, 0x131, 0x134, 0x133, 0x136, 0x137, 0x138, 0x139, 0x13A, 0x13B], &Pads.button/1) == [0, 8, 1, 9, 10, 11, 10, 11, 2, 3]
+    # A SNES-style USB pad (a joystick): 1 X, 2 A, 3 B, 4 Y, 5 L, 6 R, 9 Select, 10 Start.
+    assert Enum.map([0x120, 0x121, 0x122, 0x123, 0x124, 0x125, 0x128, 0x129], &Pads.button/1) == [9, 8, 0, 1, 10, 11, 2, 3]
+
+    st = %{keys: 0, hat: {0, 0}, stick: {0, 0}}
+    dev = %{x: {0, 255}, y: {0, 255}}
+    st = Pads.decode(1, 0x130, 1, dev, st)
+    assert Pads.mask(st) == 1
+    # The hat: left and up.
+    st = st |> then(&Pads.decode(3, 0x10, -1, dev, &1)) |> then(&Pads.decode(3, 0x11, -1, dev, &1))
+    assert Pads.mask(st) == 1 + 16 + 64
+    st = st |> then(&Pads.decode(3, 0x10, 0, dev, &1)) |> then(&Pads.decode(3, 0x11, 0, dev, &1)) |> then(&Pads.decode(1, 0x130, 0, dev, &1))
+    assert Pads.mask(st) == 0
+    # The stick: a little off the middle is nothing; most of the way right is Right.
+    assert Pads.mask(Pads.decode(3, 0, 140, dev, st)) == 0
+    assert Pads.mask(Pads.decode(3, 0, 250, dev, st)) == 128
+    assert Pads.mask(Pads.decode(3, 1, 5, dev, st)) == 16
+    # D-pad buttons
+    assert Pads.mask(Pads.decode(1, 0x221, 1, dev, st)) == 32
+
+    # Which devices: those with gamepad or joystick buttons (not a keyboard).
+    sys = tmp_dir("pads-sys")
+    caps = fn n, ev, key ->
+      dir = Path.join(sys, "event#{n}/device/capabilities")
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "ev"), ev <> "\n")
+      File.write!(Path.join(dir, "key"), key <> "\n")
+    end
+
+    # a keyboard: KEY_A (30)
+    caps.(0, "120013", "40000000")
+    # a gamepad: BTN_SOUTH (0x130) in the fifth 64-bit word from the right
+    caps.(1, "1b", "7fff000000000000 0 0 0 0")
+    # a joystick: BTN_TRIGGER (0x120)
+    caps.(2, "1b", "ffff00000000 0 0 0 0")
+    assert Pads.devices(sys) == ["/dev/input/event1", "/dev/input/event2"]
+  end
+
   test "the chooser lists folders and games; open sends games to the emulator" do
     dir = tmp_dir("snes")
     File.mkdir_p!(Path.join(dir, "Games"))
@@ -95,6 +136,16 @@ defmodule Lepton.SNESTest do
       for k <- [44, 30, 28], do: Photon.input(ph, {:key, k, true})
       assert eventually(fn -> rgb.() != black end, 50)
       for k <- [44, 30, 28], do: Photon.input(ph, {:key, k, false})
+      assert eventually(fn -> rgb.() == black end, 50)
+
+      # A game controller (what Lepton.SNES.Pads sends): player 1's B and
+      # Start colour it; player 2's are another pad (this game reads one).
+      send(win, {:snes_pad, 1, 0b1001})
+      Process.sleep(300)
+      assert rgb.() == black
+      send(win, {:snes_pad, 0, 0b1001})
+      assert eventually(fn -> rgb.() != black end, 50)
+      send(win, {:snes_pad, 0, 0})
       assert eventually(fn -> rgb.() == black end, 50)
 
       # Hold B, close: what the game wrote to its battery RAM is saved.

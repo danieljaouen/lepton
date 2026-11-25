@@ -109,7 +109,10 @@ defmodule Lepton.SNES.Window do
     port = open_host(opts[:host], [Lepton.SNES.core(), opts[:rom], save_dir, "#{w}", "#{h}"], st.log, opts[:user])
     # (sound: the frontend plays it through ALSA; Lepton plays it only if
     # that can't, when the first of it comes here: see audio/2)
-    Map.merge(st, %{port: port, audio: nil})
+    # Game controllers: players 1 and 2 (Lepton.SNES.Pads); player 1's
+    # buttons go with the keyboard's.
+    pads = if opts[:pads] != false, do: Lepton.SNES.Pads.start(self())
+    Map.merge(st, %{port: port, audio: nil, pads: pads, pad: %{0 => 0, 1 => 0}})
   end
 
   # The frontend, as the user (a ROM from their files is read with their
@@ -161,6 +164,17 @@ defmodule Lepton.SNES.Window do
     {:stop, :normal, %{st | port: nil}}
   end
 
+  # A pad's buttons changed: player 1's go with the keyboard's.
+  def handle_info({:snes_pad, player, mask}, st) do
+    st = %{st | pad: Map.put(st.pad, player, mask)}
+    both = if player == 0, do: bor(mask, st.buttons), else: mask
+    send_host(st, <<?K, both::16, player>>)
+    {:noreply, st}
+  end
+
+  def handle_info({:snes_pad_added, player, name}, st), do: {:noreply, show(st, "#{name}: player #{player + 1}")}
+  def handle_info({:snes_pad_removed, player}, st), do: {:noreply, show(st, "player #{player + 1}'s pad unplugged")}
+
   def handle_info(:title, st), do: {:noreply, %{st | c: Client.request(st.c, st.ids.top, :set_title, [title(st)])}}
   def handle_info(_msg, st), do: {:noreply, st}
 
@@ -179,6 +193,7 @@ defmodule Lepton.SNES.Window do
     end
 
     if st.audio, do: Process.exit(st.audio, :kill)
+    if st[:pads], do: Process.exit(st.pads, :kill)
     Client.close(st.c)
     :ok
   catch
@@ -347,10 +362,11 @@ defmodule Lepton.SNES.Window do
     end
   end
 
+  # The keyboard's buttons (player 1, with the first pad's).
   defp set_buttons(%{buttons: b} = st, b), do: st
 
   defp set_buttons(st, b) do
-    send_host(st, <<?K, b::16>>)
+    send_host(st, <<?K, bor(b, st.pad[0])::16, 0>>)
     %{st | buttons: b}
   end
 

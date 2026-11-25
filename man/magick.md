@@ -9,9 +9,10 @@ mogrify(1), composite(1), montage(1), compare(1).
 
 It's the `imagemagick` app (`sudo app install imagemagick`; the commands
 offer to install it). It runs as you, in this folder; Ctrl-C stops it.
-PNG, JPEG, GIF, WebP, TIFF, BMP, JPEG XL, JPEG 2000 and more are read
-and written, HEIC is read; SVG and PDF aren't included. Text is drawn
-in DejaVu.
+PNG, JPEG, GIF, WebP, TIFF, BMP, JPEG XL, JPEG 2000, PDF, PostScript and
+more are read and written; SVG and HEIC are read. PDF goes through
+Ghostscript (`-density DPI` before a PDF or SVG sets how finely it's
+drawn; `paper.pdf[0]` is its first page). Text is drawn in DejaVu.
 
 ## OPTIONS
 
@@ -29,6 +30,9 @@ A few of hundreds (`magick -help`, and https://imagemagick.org/script/command-li
     magick photo.jpg -crop 800x600+100+50 +repage cropped.jpg
     magick photo.jpg -resize 50% -quality 85 half.jpg
     magick IMG_0042.HEIC photo.jpg
+    magick -density 150 paper.pdf[0] page1.png
+    magick logo.svg logo.png
+    magick scan1.jpg scan2.jpg scans.pdf
     magick photo.jpg -gravity center -crop 1:1 +repage -resize 512x512 avatar.png
 
 ## EXIT STATUS

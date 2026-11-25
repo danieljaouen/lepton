@@ -59,7 +59,6 @@ defmodule Lepton.ArchiveTest do
     {:ok, err} = StringIO.open("")
     assert {_, 2} = sh("tar -f src.tar", cwd: dir, stderr: err)
     assert {_, 2} = sh("tar -cf x.tar", cwd: dir, stderr: err)
-    assert {_, 2} = sh("tar -xJf src.tar", cwd: dir, stderr: err)
     File.write!(Path.join(dir, "fake.tar.xz"), <<0xFD, "7zXZ", 0, 0>>)
     assert {_, 2} = sh("tar -xf fake.tar.xz", cwd: dir, stderr: err)
     File.write!(Path.join(dir, "junk.tar"), String.duplicate("junk", 200))
@@ -75,6 +74,56 @@ defmodule Lepton.ArchiveTest do
     assert Tar.target("a/../../evil", dir) == nil
     assert Tar.target("./a/b", dir, 1) == Path.join(dir, "b")
     assert Tar.member_name("/etc/hosts") == {"etc/hosts", "Removing leading '/' from member names"}
+  end
+
+  test "tar: bzip2 and xz with busybox, xz and zstd with the compressors app; recognised when reading" do
+    dir = tmp_dir("tar-comp")
+    tree(dir)
+    {plain, 0} = sh("tar tf - < /dev/null; tar -cf src.tar src && tar tf src.tar", cwd: dir)
+
+    if File.exists?("/bin/busybox") do
+      # bzip2, both ways: -j, and -a by the name
+      assert {_, 0} = sh("tar cjf src.tar.bz2 src && tar caf a.tbz2 src", cwd: dir)
+      assert <<"BZh", _::binary>> = File.read!(Path.join(dir, "src.tar.bz2"))
+      assert <<"BZh", _::binary>> = File.read!(Path.join(dir, "a.tbz2"))
+      assert {^plain, 0} = sh("tar tf src.tar.bz2", cwd: dir)
+      File.mkdir_p!(Path.join(dir, "out-bz"))
+      assert {_, 0} = sh("tar xf src.tar.bz2 -C out-bz", cwd: dir)
+      assert File.read!(Path.join(dir, "out-bz/src/sub/rand.bin")) == File.read!(Path.join(dir, "src/sub/rand.bin"))
+      # From standard input too.
+      assert {^plain, 0} = sh("cat src.tar.bz2 | tar tjf -", cwd: dir)
+    end
+
+    if Lepton.Archive.Compress.installed?() do
+      for {flag, name, magic} <- [{"-J", "src.tar.xz", <<0xFD, "7zXZ">>}, {"--zstd", "src.tar.zst", <<0x28, 0xB5, 0x2F, 0xFD>>}] do
+        assert {_, 0} = sh("tar -c #{flag} -f #{name} src", cwd: dir)
+        assert String.starts_with?(File.read!(Path.join(dir, name)), magic)
+        assert {^plain, 0} = sh("tar tf #{name}", cwd: dir)
+        out = "out-" <> name
+        File.mkdir_p!(Path.join(dir, out))
+        assert {_, 0} = sh("tar xf #{name} -C #{out}", cwd: dir)
+        assert File.read!(Path.join([dir, out, "src/a b.txt"])) == "hello\n"
+      end
+
+      assert {_, 0} = sh("tar caf auto.txz src && tar caf auto.tzst src", cwd: dir)
+      assert {^plain, 0} = sh("tar tf auto.txz", cwd: dir)
+      assert {^plain, 0} = sh("tar tf auto.tzst", cwd: dir)
+    else
+      # Without the app (and no terminal to ask in): how to install it.
+      {:ok, err} = StringIO.open("")
+      assert {_, 2} = sh("tar --zstd -cf src.tar.zst src", cwd: dir, stderr: err)
+      {:ok, {_, text}} = StringIO.close(err)
+      assert text =~ "sudo app install compressors"
+    end
+
+    # Reading .tar.xz without the app: busybox's xzcat (busybox can't make
+    # one, so the archive is the one the app made above).
+    if File.exists?("/bin/busybox") and Lepton.Archive.Compress.installed?() do
+      Application.put_env(:lepton, :compressors_prefix, "/nonexistent")
+      on_exit(fn -> Application.put_env(:lepton, :compressors_prefix, System.get_env("LEPTON_COMPRESSORS_PREFIX")) end)
+      refute Lepton.Archive.Compress.installed?()
+      assert {^plain, 0} = sh("tar tf src.tar.xz", cwd: dir)
+    end
   end
 
   test "tar: reads GNU long names, pax headers and base-256 sizes" do

@@ -30,6 +30,14 @@ defmodule Lepton.ImageMagickTest do
       assert {"", 0} = sh("magick -size 200x50 xc:white -fill black -pointsize 20 -annotate +10+30 Lepton text.png", cwd: dir)
       {colors, 0} = sh(~S|identify -format '%k\n' text.png|, cwd: dir)
       assert String.to_integer(String.trim(colors)) > 2
+      # SVG in (librsvg); PDF out and back in (Ghostscript).
+      File.write!(Path.join(dir, "logo.svg"), ~s(<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#36c"/><circle cx="60" cy="40" r="30" fill="yellow"/></svg>))
+      assert {"", 0} = sh("magick logo.svg logo.png", cwd: dir)
+      assert {"120x80 srgb(255,255,0)\n", 0} = sh(~S|identify -format '%wx%h %[pixel:p{60,40}]\n' logo.png|, cwd: dir)
+      assert {"", 0} = sh("magick logo.png logo.pdf", cwd: dir)
+      assert "%PDF" <> _ = File.read!(Path.join(dir, "logo.pdf"))
+      assert {"", 0} = sh("magick -density 72 logo.pdf page.png", cwd: dir)
+      assert {"PNG\n", 0} = sh(~S|identify -format '%m\n' page.png|, cwd: dir)
       # An image on standard output, unmixed with messages.
       {png, 0} = sh("magick photo.png -resize 10x10 png:-", cwd: dir)
       assert <<0x89, "PNG", _::binary>> = png

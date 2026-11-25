@@ -135,15 +135,26 @@ defmodule Lepton.Apps do
       gtk: false
     },
     # ImageMagick 7 (`magick`, `convert`, `identify`, ...; Lepton.ImageMagick):
-    # the formats most images come in (Alpine splits them into modules).
-    # SVG and PDF are left out: librsvg and Ghostscript would more than
-    # double it. DejaVu: for text drawn on images.
+    # the formats most images come in (Alpine splits them into modules),
+    # SVG (librsvg) and PDF and PostScript (Ghostscript, which ImageMagick
+    # runs as `gs`: 60 MB of the 140). DejaVu: for text drawn on images.
     "imagemagick" => %{
       title: "ImageMagick",
       summary: "ImageMagick, for magick, convert, identify and mogrify",
-      packages: ~w(imagemagick imagemagick-jpeg imagemagick-webp imagemagick-tiff imagemagick-heic imagemagick-jxl imagemagick-jp2 font-dejavu),
+      packages: ~w(imagemagick imagemagick-jpeg imagemagick-webp imagemagick-tiff imagemagick-heic imagemagick-jxl imagemagick-jp2 imagemagick-svg imagemagick-pdf ghostscript font-dejavu),
       exclude: ~r/^(busybox.*)$/,
       main: "imagemagick",
+      exe: nil,
+      gtk: false
+    },
+    # xz and zstd, for tar's .tar.xz and .tar.zst (Lepton.Archive.Compress;
+    # gzip is Lepton's own, bzip2 and reading xz busybox's).
+    "compressors" => %{
+      title: "Compressors",
+      summary: "xz and zstd, for tar's .tar.xz and .tar.zst",
+      packages: ["xz", "zstd"],
+      exclude: ~r/^(busybox.*)$/,
+      main: "xz",
       exe: nil,
       gtk: false
     },

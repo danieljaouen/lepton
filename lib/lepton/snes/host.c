@@ -14,7 +14,7 @@
  *                                            window, XRGB8888 (bgr0)
  *       'A' samples                          stereo S16_LE at 48 kHz
  *       'M' text                             something to show
- * In:   'K' buttons (u16)                    the pad (libretro joypad bits)
+ * In:   'K' buttons (u16) [player (u8)]      a pad (libretro joypad bits; player 1 or 2: 0, 1)
  *       'S' width (u16) height (u16)         the window's new size
  *       'P' paused (u8)
  *       'R'                                  reset
@@ -77,7 +77,7 @@ static size_t (*r_get_memory_size)(unsigned);
 
 static int pixel_format = 0; /* 0: 0RGB1555, 1: XRGB8888, 2: RGB565 */
 static unsigned out_w = 512, out_h = 448;
-static uint16_t buttons = 0;
+static uint16_t buttons[2] = {0, 0};
 static const char *save_dir = ".";
 static double core_rate = 32040.0;
 
@@ -204,9 +204,9 @@ static size_t audio_batch(const int16_t *s, size_t frames) { audio_push(s, frame
 static void input_poll(void) {}
 
 static int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-  if (port != 0 || device != 1) return 0;         /* the first pad only */
-  if (id == 256) return (int16_t)buttons;          /* JOYPAD_MASK */
-  return id < 16 ? (buttons >> id) & 1 : 0;
+  if (port > 1 || device != 1) return 0;          /* two pads */
+  if (id == 256) return (int16_t)buttons[port];    /* JOYPAD_MASK */
+  return id < 16 ? (buttons[port] >> id) & 1 : 0;
 }
 
 /*
@@ -356,7 +356,7 @@ static int paused = 0, quit = 0;
 static void command(const uint8_t *p, size_t n) {
   if (n == 0) return;
   switch (p[0]) {
-    case 'K': if (n >= 3) buttons = (uint16_t)((p[1] << 8) | p[2]); break;
+    case 'K': if (n >= 3) buttons[n >= 4 && p[3] == 1 ? 1 : 0] = (uint16_t)((p[1] << 8) | p[2]); break;
     case 'S': if (n >= 5) { unsigned w = (p[1] << 8) | p[2], h = (p[3] << 8) | p[4]; if (w >= 16 && h >= 16 && w <= 8192 && h <= 8192) { out_w = w; out_h = h; } } break;
     case 'P': if (n >= 2) paused = p[1]; break;
     case 'R': r_reset(); message("Reset"); break;
@@ -436,6 +436,7 @@ int main(int argc, char **argv) {
   struct retro_game_info game = {argv[2], rom, size, 0};
   if (!r_load_game(&game)) { fprintf(stderr, "lepton-snes: %s couldn't load this ROM\n", sys.library_name ? sys.library_name : "the core"); return 5; }
   r_set_controller(0, 1);
+  r_set_controller(1, 1);
 
   struct retro_system_av_info av;
   memset(&av, 0, sizeof av);

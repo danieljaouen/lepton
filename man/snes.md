@@ -19,6 +19,15 @@ The emulation is bsnes's (the `snes` app: `sudo app install snes`;
 
 Keys are read by their places on the keyboard: the same on every layout.
 
+## GAME CONTROLLERS
+
+USB and Bluetooth gamepads: the first plugged in is player 1 (with the
+keyboard), the second player 2; they're found when plugged in, during a
+game too. Buttons go by place, as on a SNES pad: bottom B, right A, left
+Y, top X; shoulders and triggers L and R; Select, Start. The D-pad or
+the left stick moves. SNES-style USB pads (joysticks with numbered
+buttons) work as laid out.
+
 ## FILES
 
 - `~/.local/share/snes/GAME.srm`: the game's own saves (its battery
