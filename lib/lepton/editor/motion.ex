@@ -343,15 +343,29 @@ defmodule Lepton.Editor.Motion do
 
   defp search_once(buf, {l, c}, re, dir) do
     count = Buffer.line_count(buf)
+    # Blocks of lines are tested whole first, one regex run each (multi-line,
+    # so ^ and $ still match at each line): a search of a 50 MB file was a
+    # run per line, 660,000 of them.
+    block_re = block_regex(re)
 
-    order =
-      if dir > 0,
-        do: Enum.map(0..count, fn i -> rem(l + i, count) end),
-        else: Enum.map(0..count, fn i -> rem(l - i + count * 2, count) end)
+    0..count
+    |> Stream.map(fn i -> {if(dir > 0, do: rem(l + i, count), else: rem(l - i + count * 2, count)), i} end)
+    |> Stream.chunk_every(256)
+    |> Enum.find_value(fn block ->
+      text = Enum.map_join(block, "\n", fn {li, _} -> Buffer.line(buf, li) end)
+      if block_re == nil or Regex.match?(block_re, text), do: Enum.find_value(block, &search_line(buf, &1, c, re, dir, count))
+    end)
+  end
 
-    order
-    |> Enum.with_index()
-    |> Enum.find_value(fn {li, step} ->
+  @doc false
+  def block_regex(re) do
+    case Regex.compile(Regex.source(re), Enum.uniq(Regex.opts(re) ++ [:multiline])) do
+      {:ok, b} -> b
+      _ -> nil
+    end
+  end
+
+  defp search_line(buf, {li, step}, c, re, dir, count) do
       line = Buffer.line(buf, li)
       matches = Regex.scan(re, line, return: :index) |> Enum.map(fn [{s, _} | _] -> String.length(binary_part(line, 0, s)) end)
 
@@ -368,7 +382,6 @@ defmodule Lepton.Editor.Motion do
         nil -> nil
         col -> {li, col}
       end
-    end)
   end
 
   # -- text objects --------------------------------------------------------------------

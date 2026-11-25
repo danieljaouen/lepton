@@ -21,6 +21,9 @@ play song.wav       # play a WAV file (C-c stops it)
 beep 440 500        # a 440 Hz tone for half a second
 ```
 
+MP3, FLAC, Ogg and the rest, videos and internet radio: see
+[Videos, music and radio](media.html) (`play` and `radio`, with FFmpeg).
+
 The volume and mute are remembered, on an installed system across
 restarts too.
 

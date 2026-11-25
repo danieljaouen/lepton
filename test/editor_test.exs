@@ -10,7 +10,7 @@ defmodule Lepton.EditorTest do
     dir = tmp_dir("ed")
     path = Path.join(dir, opts[:name] || "file.ex")
     File.write!(path, text)
-    ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => opts[:home] || dotfiles_home()}, tty: nil}
+    ctx = %Lepton.Ctx{cwd: dir, env: %{"XDG_STATE_HOME" => opts[:state] || tmp_dir("lestate"), "HOME" => opts[:home] || dotfiles_home()}, tty: nil}
     {Editor.init([path], ctx), path}
   end
 
@@ -289,7 +289,7 @@ defmodule Lepton.EditorTest do
       File.mkdir_p!(Path.join(dir, "sub"))
       File.write!(Path.join(dir, "sub/c.txt"), "the foo_id and bar_id\n")
       File.write!(Path.join(dir, "d.txt"), "nothing\n")
-      ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+      ctx = %Lepton.Ctx{cwd: dir, env: %{"XDG_STATE_HOME" => tmp_dir("lestate"), "HOME" => dotfiles_home()}, tty: nil}
       {Editor.init([Path.join(dir, "a.ex")], ctx), dir}
     end
 
@@ -324,7 +324,7 @@ defmodule Lepton.EditorTest do
       files = %{"a.ex" => "foo\n", "node_modules/x.js" => "foo\n", "app.log" => "foo\n", "sub/.gitignore" => "secret.txt\n",
                 "sub/secret.txt" => "foo\n", "sub/ok.txt" => "foo\n", ".formatter.exs" => "foo\n"}
       for {f, text} <- files, do: (File.mkdir_p!(Path.dirname(Path.join(dir, f))); File.write!(Path.join(dir, f), text))
-      ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+      ctx = %Lepton.Ctx{cwd: dir, env: %{"XDG_STATE_HOME" => tmp_dir("lestate"), "HOME" => dotfiles_home()}, tty: nil}
       st = Editor.init([Path.join(dir, "a.ex")], ctx)
 
       st = keys(st, ["SPC", "p", "R"] ++ typed("foo") ++ ["RET"] ++ typed("bar") ++ ["RET", "!", "SPC", "f", "S"])
@@ -352,6 +352,23 @@ defmodule Lepton.EditorTest do
       # Not a directory: says so.
       st = keys(st, ["SPC", "s", "R", "C-u"] ++ typed("/no/such/dir") ++ ["RET"])
       assert st.message =~ "Not a directory"
+    end
+
+    test "! replaces the rest of a buffer in one pass, one undo step: thousands of matches, all undone by u" do
+      dir = tmp_dir("bigreplace")
+      big = Enum.map_join(1..5000, "", fn i -> "foo #{i} foo\nbar #{i}\n" end)
+      File.write!(Path.join(dir, "big.ex"), big)
+      ctx = %Lepton.Ctx{cwd: dir, env: %{"XDG_STATE_HOME" => tmp_dir("lestate"), "HOME" => dotfiles_home()}, tty: nil}
+      st = Editor.init([Path.join(dir, "big.ex")], ctx)
+
+      # The first one asked, the second skipped (n): the cursor partway along line 1; ^ only matches at a line's start.
+      st = keys(st, ["SPC", "s", "%", "C-u"] ++ typed(dir) ++ ["RET"] ++ typed("^foo|foo$") ++ ["RET"] ++ typed("X") ++ ["RET", "y", "n", "!"])
+      assert st.message =~ "Replaced 9999 occurrences in 1 file"
+      assert String.starts_with?(text(st), "X 1 foo\nbar 1\nX 2 X\nbar 2\n")
+      assert text(st) =~ "X 5000 X\nbar 5000\n"
+      # Every one back, in a few u's (not 200 at most of 9,999).
+      st = Enum.reduce(1..5, st, fn _, st -> keys(st, "u") end)
+      assert text(st) == big
     end
 
     test ". replaces this one and stops; q stops; SPC p % takes a regexp and \\1" do
@@ -522,6 +539,76 @@ defmodule Lepton.EditorTest do
     assert st.message =~ "too deeply"
   end
 
+  test "a big buffer: search tests blocks of lines whole, and still finds every match (^, wrapping, backwards)" do
+    lines = for i <- 0..19_999, do: if(rem(i, 7000) == 6999, do: "needle #{i}", else: "hay #{i} needle-free? no: hay")
+    {st, _} = editor(Enum.join(lines, "\n") <> "\n")
+    st = keys(st, "/ ^ n e e d l e RET")
+    assert cursor(st) == {6999, 0}
+    st = keys(st, "n")
+    assert cursor(st) == {13999, 0}
+    # wraps around the end
+    st = keys(st, "n")
+    assert cursor(st) == {6999, 0}
+    st = keys(st, "N")
+    assert cursor(st) == {13999, 0}
+    # A match on the cursor's own line, before or after it.
+    st = keys(st, "G ? h a y SPC 1 9 9 9 9 RET")
+    assert cursor(st) == {19999, 0}
+    # Nothing: the cursor stays.
+    st = keys(st, "g g / z z z RET")
+    assert cursor(st) == {0, 0}
+
+    # Edits deep in it, undone: the text as it was.
+    before = text(st)
+    st = keys(st, "1 2 3 4 5 G d d 5 0 0 G o n e w ESC u u")
+    assert text(st) == before
+  end
+
+  test "macros are kept across sessions: saved when recorded, loaded at start, merged between sessions" do
+    state = tmp_dir("lestate")
+    {st, _} = editor("one\ntwo\n", state: state)
+    st = keys(st, "q a I - SPC ESC j q")
+    assert st.message == "Recorded @a (5 keys)"
+    file = Path.join([state, "le", "macros"])
+    assert Lepton.Editor.Macros.load(file) == %{"a" => st.macros["a"]}
+
+    # A new session plays it.
+    {st2, _} = editor("x\ny\n", state: state)
+    st2 = keys(st2, "@ a")
+    assert text(st2) == "- x\ny\n"
+
+    # Another session's macro: both are kept, and a session started before it finds it when played.
+    {st3, _} = editor("p\n", state: state)
+    st3 = keys(st3, "q b A ! ESC q")
+    assert Map.keys(Lepton.Editor.Macros.load(file)) |> Enum.sort() == ["a", "b"]
+    st = keys(st, "G @ b")
+    assert text(st) =~ "!"
+    _ = st3
+
+    # Recording a register again replaces it (here and in the file); qA
+    # appends to it as last saved, though this session had an older one.
+    _ = keys(st3, "q a A ? ESC q")
+    assert Lepton.Editor.Macros.load(file)["a"] == ["A", "?", "ESC"]
+    st = keys(st, "q A x q")
+    assert st.macros["a"] == ["A", "?", "ESC", "x"]
+    assert Lepton.Editor.Macros.load(file)["a"] == ["A", "?", "ESC", "x"]
+
+    # A line that isn't a macro is skipped; nothing in the file runs.
+    File.write!(file, File.read!(file) <> "c [System.halt()]\nzz nonsense\nd [\"x\", {:paste, \"hi\"}]\n")
+    macros = Lepton.Editor.Macros.load(file)
+    assert Map.keys(macros) |> Enum.sort() == ["a", "b", "d"]
+    assert macros["d"] == ["x", {:paste, "hi"}]
+
+    # Newlines (a paste of several lines), returns, tabs, escapes and bytes
+    # that aren't UTF-8: one line in the file, and back as they were.
+    odd = ["i", {:paste, "line one\nline two\r\n\ttabbed \"quoted\" \\ back\n"}, "\e", <<255, 10>>, "ESC"]
+    Lepton.Editor.Macros.save(file, "e", odd)
+    assert Lepton.Editor.Macros.load(file)["e"] == odd
+    assert length(String.split(String.trim_trailing(File.read!(file)), "\n")) == 1 + 4
+    {st4, _} = editor("x\n", state: state)
+    assert st4.macros["e"] == odd
+  end
+
   test "a macro stops where a motion fails: j past the last line ends it, its count and the macros that called it" do
     # As in Vim: 100@q on a 4-line file wraps each line once, not the last one 97 times.
     {st, _} = editor("one\ntwo\nthree\nfour\n")
@@ -686,7 +773,7 @@ defmodule Lepton.EditorTest do
     repo = Lepton.Git.Repo.init(dir)
     File.write!(Path.join(dir, "words.org"), "* one\n* badinage: light banter\n")
     Lepton.Git.add(repo, [dir])
-    ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+    ctx = %Lepton.Ctx{cwd: dir, env: %{"XDG_STATE_HOME" => tmp_dir("lestate"), "HOME" => dotfiles_home()}, tty: nil}
     st = Editor.init([Path.join(dir, "words.org")], ctx)
 
     st = keys(st, "SPC s p b a d i n a g e RET")
@@ -713,7 +800,7 @@ defmodule Lepton.EditorTest do
     {:ok, _} = Lepton.Git.commit(repo, "one")
     File.write!(Path.join(dir, "new.txt"), "new\n")
     File.write!(Path.join(dir, "b.txt"), "b2\n")
-    ctx = %Lepton.Ctx{cwd: dir, env: %{"HOME" => dotfiles_home()}, tty: nil}
+    ctx = %Lepton.Ctx{cwd: dir, env: %{"XDG_STATE_HOME" => tmp_dir("lestate"), "HOME" => dotfiles_home()}, tty: nil}
     st = Editor.init([Path.join(dir, "words.org")], ctx)
 
     # An edit not saved yet: magit saves it, so it is there to stage.

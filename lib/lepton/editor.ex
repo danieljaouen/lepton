@@ -61,6 +61,8 @@ defmodule Lepton.Editor do
             # keyboard macros: `q` + register records, `@` + register plays
             # (`@@` the last one played); {register, keys} while recording
             macros: %{},
+            # where they're kept across sessions (Lepton.Editor.Macros)
+            macros_file: nil,
             macro_rec: nil,
             macro_pending: nil,
             last_macro: nil,
@@ -121,6 +123,9 @@ defmodule Lepton.Editor do
     vars = Map.put(vars, "line-numbers", vars["display-line-numbers-type"] not in [nil, false])
 
     st = %__MODULE__{km: km, vars: vars, emacs: emacs, ctx: ctx, tty: ctx.tty, size: if(ctx.tty, do: TTY.size(ctx.tty), else: {24, 80})}
+    # The macros recorded in earlier sessions.
+    file = Lepton.Editor.Macros.path(ctx)
+    st = %{st | macros_file: file, macros: Lepton.Editor.Macros.load(file)}
 
     files = if files == [], do: [nil], else: files
 
@@ -625,7 +630,10 @@ defmodule Lepton.Editor do
 
       kind == :record and key =~ ~r/^[A-Z]$/ ->
         reg = String.downcase(key)
-        %{st | macro_rec: {reg, Enum.reverse(Map.get(st.macros, reg, []))}} |> msg("Recording @#{reg} (appending)")
+        # (onto the macro as last saved: another le may have recorded it since)
+        saved = if st.macros_file, do: Lepton.Editor.Macros.load(st.macros_file)[reg]
+        base = saved || Map.get(st.macros, reg, [])
+        %{st | macro_rec: {reg, Enum.reverse(base)}} |> msg("Recording @#{reg} (appending)")
 
       kind == :play and (key =~ ~r/^[a-z0-9]$/ or key =~ ~r/^[A-Z]$/ or key == "@") ->
         reg = if key == "@", do: st.last_macro, else: String.downcase(key)
@@ -640,7 +648,13 @@ defmodule Lepton.Editor do
     {reg, keys} = st.macro_rec
     # The q that stopped it was taken too.
     keys = keys |> tl() |> Enum.reverse()
-    %{st | macro_rec: nil, macros: Map.put(st.macros, reg, keys)} |> msg("Recorded @#{reg} (#{length(keys)} keys)")
+    st = %{st | macro_rec: nil, macros: Map.put(st.macros, reg, keys)}
+
+    # Kept for the next sessions too.
+    case st.macros_file && Lepton.Editor.Macros.save(st.macros_file, reg, keys) do
+      {:error, why} -> msg(st, "Recorded @#{reg} (#{length(keys)} keys), not saved: #{:file.format_error(why)}", true)
+      _ -> msg(st, "Recorded @#{reg} (#{length(keys)} keys)")
+    end
   end
 
   @max_macro_depth 20
@@ -648,6 +662,8 @@ defmodule Lepton.Editor do
   defp play_macro(st, nil, _), do: msg(st, "No macro played yet (@@ repeats the last @x)", true)
 
   defp play_macro(st, reg, count) do
+    st = if st.macros[reg] == nil && st.macros_file, do: %{st | macros: Map.merge(Lepton.Editor.Macros.load(st.macros_file), st.macros)}, else: st
+
     case st.macros[reg] do
       nil ->
         msg(st, "Register #{reg} has no macro (record one with q#{reg} ... q)", true)
@@ -1439,6 +1455,8 @@ defmodule Lepton.Editor do
     {l, c} = cursor(st)
     b = buf(st)
 
+    empty_line? = Buffer.line(b, l) == ""
+
     case reg do
       {:line, lines} ->
         lines = List.duplicate(lines, n) |> List.flatten()
@@ -1454,7 +1472,7 @@ defmodule Lepton.Editor do
       # A block on an empty line (after o, say): its rows as lines of their
       # own there, and the empty line after them, keeping it apart from the
       # lines below. (Vim would put the second row in front of the next line.)
-      {:block, rows} when b.lines |> elem(l) == "" ->
+      {:block, rows} when empty_line? ->
         rows = Enum.map(rows, &String.duplicate(&1, n))
         st |> put_buf(Buffer.insert_lines(b, l, rows)) |> set_cursor({l, 0})
 
@@ -2248,10 +2266,9 @@ defmodule Lepton.Editor do
     if prefix && String.length(prefix) >= 2 do
       words =
         buf(st)
-        |> Buffer.lines()
-        |> Enum.flat_map(&Regex.scan(~r/[\p{L}\p{N}_]{3,}/u, &1))
-        |> Enum.map(&hd/1)
-        |> Enum.filter(&(String.starts_with?(&1, prefix) and &1 != prefix))
+        |> completion_text(l)
+        |> completion_words(prefix)
+        |> Enum.filter(&(&1 != prefix))
         |> Enum.frequencies()
         |> Enum.sort_by(fn {w, n} -> {-n, w} end)
         |> Enum.take(8)
@@ -2264,7 +2281,36 @@ defmodule Lepton.Editor do
   end
 
   defp update_completion(st, action) when action in [:completion_next, :completion_previous], do: st
+
   defp update_completion(st, _), do: %{st | completion: nil}
+
+  # The text completion looks in: the whole buffer, or in a big one, the
+  # lines around the cursor (about 2 MB of them), as dabbrev looks nearest
+  # first. (One search of one binary: a regex per line, every key, made
+  # typing in a 1 MB file take a tenth of a second a character.)
+  @completion_bytes 2_000_000
+  defp completion_text(b, l) do
+    # up to half the bytes above the cursor's line, and the rest below it
+    above = gather(b, l - 1, -1, div(@completion_bytes, 2), [])
+    below = gather(b, l, 1, @completion_bytes - :erlang.iolist_size(above), []) |> Enum.reverse()
+    IO.iodata_to_binary([above | below])
+  end
+
+  defp gather(b, i, dir, left, acc) do
+    if left <= 0 or i < 0 or i >= Buffer.line_count(b) do
+      acc
+    else
+      line = Buffer.line(b, i)
+      gather(b, i + dir, dir, left - byte_size(line) - 1, [line, "\n" | acc])
+    end
+  end
+
+  # Words of three letters or more starting with `prefix` (at a word's start).
+  @doc false
+  def completion_words(text, prefix) do
+    re = Regex.compile!("(?<![\\p{L}\\p{N}_])" <> Regex.escape(prefix) <> "[\\p{L}\\p{N}_]*", "u")
+    for [w] <- Regex.scan(re, text), String.length(w) >= 3, do: w
+  end
 
   defp completion_move(%{completion: nil} = st, dir), do: insert_action(st, if(dir > 0, do: :next_line, else: :previous_line))
 
@@ -2762,20 +2808,30 @@ defmodule Lepton.Editor do
 
   # The first match at or after {line, column}: {line, from, to} in characters.
   defp find_match(b, re, {l, c}) do
-    Enum.find_value(l..(Buffer.line_count(b) - 1)//1, fn n ->
-      line = Buffer.line(b, n)
-      start = if n == l, do: c, else: 0
-      offset = byte_size(String.slice(line, 0, start))
+    # (blocks of lines tested whole first, as a search does)
+    block_re = Motion.block_regex(re)
 
-      case Regex.run(re, line, return: :index, offset: offset) do
-        [{bs, bl} | _] when bs <= byte_size(line) ->
-          a = String.length(binary_part(line, 0, bs))
-          {n, a, a + String.length(binary_part(line, bs, bl))}
-
-        _ ->
-          nil
-      end
+    l..(Buffer.line_count(b) - 1)//1
+    |> Stream.chunk_every(256)
+    |> Enum.find_value(fn block ->
+      text = Enum.map_join(block, "\n", &Buffer.line(b, &1))
+      if block_re == nil or Regex.match?(block_re, text), do: Enum.find_value(block, &match_in_line(b, re, &1, l, c))
     end)
+  end
+
+  defp match_in_line(b, re, n, l, c) do
+    line = Buffer.line(b, n)
+    start = if n == l, do: c, else: 0
+    offset = byte_size(String.slice(line, 0, start))
+
+    case Regex.run(re, line, return: :index, offset: offset) do
+      [{bs, bl} | _] when bs <= byte_size(line) ->
+        a = String.length(binary_part(line, 0, bs))
+        {n, a, a + String.length(binary_part(line, bs, bl))}
+
+      _ ->
+        nil
+    end
   end
 
   defp query_key(%{query: q} = st, key) do
@@ -2817,16 +2873,51 @@ defmodule Lepton.Editor do
   # !: every match left, in this buffer and the remaining files.
   defp replace_rest(%{query: %{at: {l, a, z}}} = st), do: replace_rest(st, past(buf(st), l, a, z))
 
+  # Each buffer in one pass, one edit (one undo step): a match at a time
+  # was 265,000 edits for a 10 MB file, 45 seconds, and more undo steps
+  # than undo keeps, so u couldn't bring it back.
   defp replace_rest(st, from) do
-    case find_match(buf(st), st.query.re, from) do
-      {l, a, z} ->
-        st |> replace_match(l, a, z) |> replace_rest()
+    st = replace_all_from(st, from)
+
+    case st.query.files do
+      [] -> finish_query(st)
+      [path | rest] -> st |> Map.put(:query, %{st.query | files: rest}) |> visit(path) |> replace_rest({0, 0})
+    end
+  end
+
+  # The rest of a line the cursor is partway along: a match at a time (so
+  # that ^ and lookbehinds see the whole line); then the lines below.
+  defp replace_all_from(%{query: q} = st, {l, c}) when c > 0 do
+    case match_in_line(buf(st), q.re, l, l, c) do
+      {_, a, z} ->
+        st = replace_match(st, l, a, z)
+        {_, a2, z2} = st.query.at
+        replace_all_from(st, past(buf(st), l, a2, z2))
 
       nil ->
-        case st.query.files do
-          [] -> finish_query(st)
-          [path | rest] -> st |> Map.put(:query, %{st.query | files: rest}) |> visit(path) |> replace_rest({0, 0})
+        replace_all_from(st, {l + 1, 0})
+    end
+  end
+
+  defp replace_all_from(%{query: q} = st, {l, _}) do
+    b = buf(st)
+    last = Buffer.line_count(b) - 1
+
+    {lines, count} =
+      Buffer.get_lines(b, l, last)
+      |> Enum.map_reduce(0, fn line, count ->
+        case Regex.scan(q.re, line, return: :index) do
+          [] -> {line, count}
+          found -> {Regex.replace(q.re, line, q.to), count + length(found)}
         end
+      end)
+
+    if count == 0 do
+      st
+    else
+      st = snapshot(st)
+      st = put_buf(st, Buffer.replace_lines(buf(st), l, last, lines))
+      %{st | query: %{q | replaced: q.replaced + count, changed: MapSet.put(q.changed, buf(st).id)}}
     end
   end
 

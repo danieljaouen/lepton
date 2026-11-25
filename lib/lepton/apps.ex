@@ -108,6 +108,20 @@ defmodule Lepton.Apps do
       exe: nil,
       gtk: false
     },
+    # Not a program you open: FFmpeg, which decodes what the media player
+    # (`play`) and the radio (`radio`) play; Lepton plays the sound
+    # (Lepton.Sound) and draws the pictures (Lepton.Player.Window) itself.
+    # Mesa's drivers and LLVM stay out (ffmpeg needs neither; mpv, which
+    # links Mesa and through it LLVM, would have been 250 MB more).
+    "ffmpeg" => %{
+      title: "FFmpeg",
+      summary: "FFmpeg, for the media player and the radio",
+      packages: ["ffmpeg"],
+      exclude: ~r/^(mesa-dri.*|mesa-vulkan.*|llvm.*|busybox.*|wireplumber.*|bluez.*)$/,
+      main: "ffmpeg",
+      exe: nil,
+      gtk: false
+    },
     "postgresql" => %{
       title: "PostgreSQL",
       summary: "the PostgreSQL database",

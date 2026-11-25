@@ -142,8 +142,12 @@ defmodule Lepton.Commands.Desktop do
     end
   end
 
-  defcmd "play", "play a sound file (WAV) on the sound card; C-c stops it", usage: "play FILE.wav..." do
-    case args do
+  @doc """
+  `play` with WAV files only: Lepton plays them itself, no FFmpeg needed
+  (the media player, `Lepton.Commands.Media`, sends them here). C-c stops.
+  """
+  def play_wavs(ctx, files) do
+    case files do
       [] ->
         IO.err(ctx, "usage: play FILE.wav...")
         2

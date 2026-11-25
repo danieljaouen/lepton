@@ -5,3 +5,6 @@ exclude = if Lepton.TestHelpers.dotfiles_repo(), do: exclude, else: [:dotfiles |
 # The documentation sources and generator live in the repository only.
 exclude = if File.dir?("docs") and Code.ensure_loaded?(LeptonBuild.Docs), do: exclude, else: [:docs | exclude]
 ExUnit.start(exclude: exclude)
+# An unpacked FFmpeg (no `ffmpeg` app installed): LEPTON_FFMPEG_PREFIX=DIR
+# runs the media player's tests that need it.
+if dir = System.get_env("LEPTON_FFMPEG_PREFIX"), do: Application.put_env(:lepton, :ffmpeg_prefix, dir)

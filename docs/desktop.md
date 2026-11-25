@@ -166,12 +166,13 @@ Photon with a different window manager, styled after Windows 95:
   Firefox, or F11) fills the whole display, over the taskbar, until you
   leave it (Esc)
 - a teal desktop with icons for [Firefox](apps.html), the Terminal, the
-  Text Editor (`le`), the System Monitor (`top`),
+  Text Editor (`le`), the System Monitor (`top`), the
+  [Media Player and Radio](media.html), [Torrents](torrents.html),
   [Passwords](passwords.html) and **Install PostgreSQL** (which sets up
   the [database](postgresql.html) and becomes **PostgreSQL**, opening
   `psql`), and one for each
   [USB drive or SD card](storage.html) that is mounted: double-click one
-  to open it
+  to open it (they fill the left of the screen, then a second column)
 - a **taskbar** with a button for each window (click to bring it to the
   front, click again to minimize it), the Wi-Fi signal (click it to pick
   a network: [Wi-Fi](networking.html#on-the-classic-desktop)), the
@@ -179,7 +180,8 @@ Photon with a different window manager, styled after Windows 95:
   volume's speaker (click it for the volume control: [Sound](sound.html)),
   the emoji picker (below) and a clock
 - the **Start** menu (click Start, or Ctrl+Esc): [Firefox](apps.html),
-  Terminal, Text Editor, System Monitor, [Printers](printing.html) (choose
+  Terminal, Text Editor, System Monitor, [Media Player, Radio](media.html),
+  [Torrents](torrents.html), [Printers](printing.html) (choose
   your default printer), [Passwords](passwords.html) (the password
   manager), Help and Exit Desktop
 

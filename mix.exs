@@ -1,7 +1,7 @@
 defmodule Lepton.MixProject do
   use Mix.Project
 
-  @version "1.26.1"
+  @version "1.27.0"
 
   def project do
     [

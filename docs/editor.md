@@ -56,7 +56,15 @@ The full list of what was loaded is on the
   `qQ` (the capital) adds to macro `q`. As in Vim, a motion that can't
   move (`j` on the last line, `f` without its character) stops the
   macro and its count, so `100@q` with a `j` in it ends at the last
-  line. Macros last until `le` quits;
+  line. Macros are kept across sessions: each one is saved when you stop
+  recording, to `~/.local/state/le/macros` (`$XDG_STATE_HOME/le/macros`
+  if set), and `le` loads them when it starts. Recording a register
+  again replaces its macro there too; `qQ` adds to the one last saved.
+  Other registers are kept, so a macro recorded in
+  another `le` meanwhile is found when you play it. The file holds one
+  macro a line, its register and its keys (`a ["I", "-", " ", "ESC",
+  "j"]`): edit it to change or delete one, or record an empty one
+  (`qaq`);
 - visual block (`C-v`), as in Vim: a rectangle of text, its columns as
   they show (tabs and wide characters too). `d`/`x` delete it, `y` copies
   it (and `p`/`P` put it back as a block beside the lines below, or as
@@ -129,6 +137,8 @@ line, where `j` can't go any further:
 - cherry three
 ```
 
+Macros are saved: quit `le`, start it again, and `@a` is still there.
+
 ### Columns: visual block
 
 `gg`, then `C-v` starts a block; `jj` stretches it over three lines.
@@ -174,6 +184,19 @@ In a terminal window (or tmux, or over SSH from your Mac) a click puts
 the cursor where you click, a drag selects, and the wheel scrolls.
 Ctrl+Shift+V (Cmd-V over SSH) pastes text exactly as you copied it,
 indentation and all, and one `u` takes it back.
+
+## Big files and many buffers
+
+`le` keeps a buffer's lines in chunks: an edit copies the chunk it
+changes, not the file, and undo's 200 steps share the rest. A 50 MB
+file (660,000 lines) opens in a quarter of a second, and typing, `dd`
+and `u` stay at a few milliseconds a key; searching all of it takes
+about a third of a second. Hundreds of buffers are fine too: with
+1,000 files open, keys still take well under a millisecond, and the
+buffer list (`SPC b b`) filters as you type.
+
+Word completion in a big file looks at the two megabytes around the
+cursor, nearest first, rather than at the whole file.
 
 ## Org mode: folding
 

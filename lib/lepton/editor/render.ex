@@ -76,7 +76,6 @@ defmodule Lepton.Editor.Render do
     {cl, cc} = win.cursor
     relative = st.vars["display-line-numbers-type"] == "relative"
     fci = if st.vars["fill-column-indicator"], do: st.vars["display-fill-column-indicator-column"], else: nil
-    hl = highlight_spans(st, b, id)
 
     # The buffer lines shown, top to bottom: folded subtrees (Org) are
     # skipped, and their heading ends in an ellipsis.
@@ -87,6 +86,9 @@ defmodule Lepton.Editor.Render do
         {Fold.visible_lines(b, win.top, text_h), Fold.folded_headings(b)}
       end
 
+    # (for the lines shown only: a search or a selection over all of a big
+    # file, worked out for every line, every redraw, took seconds)
+    hl = highlight_spans(st, b, id, shown)
     row_of = shown |> Enum.with_index() |> Map.new()
     cl_row = Map.get(row_of, cl)
 
@@ -168,7 +170,8 @@ defmodule Lepton.Editor.Render do
   end
 
   # Visual selection and search-in-progress highlights per line: %{line => [{from, to}]}
-  defp highlight_spans(st, b, id) do
+  defp highlight_spans(st, b, id, shown) do
+    {lo, hi} = if shown == [], do: {0, -1}, else: Enum.min_max(shown)
     cond do
       # The match a project replace is asking about.
       id == st.active and match?(%{at: {_, _, _}}, st.query) ->
@@ -180,7 +183,7 @@ defmodule Lepton.Editor.Render do
       id == st.active and st.mode == :visual_block and st.visual_start ->
         blk = Editor.block_columns(st)
 
-        for l <- blk.fl..blk.tl, into: %{} do
+        for l <- max(blk.fl, lo)..min(blk.tl, hi)//1, into: %{} do
           width = Editor.display_col(Buffer.line(b, l), Buffer.line_length(b, l))
           {l, [if(blk.eol, do: {blk.left, max(width, blk.left + 1)}, else: {blk.left, blk.right})]}
         end
@@ -190,7 +193,7 @@ defmodule Lepton.Editor.Render do
         {al, ac} = a
         {zl, zc} = z
 
-        for l <- al..zl, into: %{} do
+        for l <- max(al, lo)..min(zl, hi)//1, into: %{} do
           len = Buffer.line_length(b, l)
 
           span =
@@ -204,7 +207,7 @@ defmodule Lepton.Editor.Render do
       id == st.active and match?(%{kind: {:search, _}, text: t} when t != "", st.minibuffer) ->
         case Regex.compile(st.minibuffer.text) do
           {:ok, re} ->
-            for {line, l} <- Enum.with_index(Buffer.lines(b)), Regex.match?(re, line), into: %{} do
+            for l <- shown, line = Buffer.line(b, l), Regex.match?(re, line), into: %{} do
               spans = for [{s, len}] <- Regex.scan(re, line, return: :index) do
                 start = String.length(binary_part(line, 0, s))
                 {start, start + String.length(binary_part(line, s, len))}

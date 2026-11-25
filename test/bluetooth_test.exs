@@ -142,7 +142,15 @@ defmodule Lepton.BluetoothTest do
 
   test "the classic desktop's Bluetooth applet: devices to pair, connect or disconnect" do
     key = {Bluetooth, :summary}
-    on_exit(fn -> :persistent_term.erase(key) end)
+    # The running Bluetooth service (inside Lepton) would put the real state
+    # (no adapter) over this one: it waits until the test is done.
+    bt = Process.whereis(Bluetooth)
+    if bt, do: :sys.suspend(bt)
+
+    on_exit(fn ->
+      :persistent_term.erase(key)
+      if bt && Process.alive?(bt), do: :sys.resume(bt)
+    end)
 
     devices = [
       device("Headphones", "AA:BB:CC:DD:EE:01", kind: :headphones, paired: true, connected: true),

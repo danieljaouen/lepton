@@ -23,7 +23,8 @@ clipboard, `:reg` lists them), `u` and `C-r`, registers, splits, and
 keyboard macros (`qq` ... `q` records into register q, `@q` plays it,
 `@@` again, `5@q` five times, `qQ` appends; as in Vim, a motion that
 can't move, such as `j` on the last line, stops the macro, so `100@q`
-ends at the end of the file). Ex commands
+ends at the end of the file; macros are saved, so later sessions have
+them too). Ex commands
 include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
 `:sort`, `:!CMD` and `:r !CMD`. Some Spacemacs leader keys:
 
@@ -71,6 +72,11 @@ Options (`-...`) and `+LINE` arguments are accepted and ignored.
 
 - `~/.spacemacs`, `~/.spacemacs.d/*.el`: configuration.
 - `~/.emacs.d/snippets`: yasnippet snippets.
+- `~/.local/state/le/macros` (`$XDG_STATE_HOME/le/macros`): keyboard
+  macros, saved when recorded and loaded at start; one a line, a register
+  and its keys (`a ["I", "-", " ", "ESC", "j"]`; a newline in a key is written `\n`,
+  so each macro stays on its line). Edit it to change or
+  remove one.
 
 ## SEE ALSO
 

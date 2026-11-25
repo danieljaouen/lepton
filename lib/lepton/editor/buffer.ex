@@ -1,14 +1,17 @@
 defmodule Lepton.Editor.Buffer do
   @moduledoc """
-  A text buffer: a tuple of lines (binaries, no trailing newline) plus
+  A text buffer: its lines (binaries, no trailing newline; kept in chunks,
+  `Lepton.Editor.Lines`) plus
   metadata and undo history. Positions are `{line, col}` with 0-based
   line numbers and grapheme columns.
   """
 
+  alias Lepton.Editor.Lines
+
   defstruct id: nil,
             name: "*scratch*",
             path: nil,
-            lines: {""},
+            lines: Lines.new([""]),
             modified: false,
             kind: :file,
             mode: "Text",
@@ -51,29 +54,27 @@ defmodule Lepton.Editor.Buffer do
     new(Path.basename(path), text, path: path)
   end
 
-  defp split(""), do: {{""}, true}
+  defp split(""), do: {Lines.new([""]), true}
 
   defp split(text) do
     text = String.replace(text, "\r\n", "\n")
     nl = String.ends_with?(text, "\n")
     parts = String.split(text, "\n")
     parts = if nl, do: Enum.drop(parts, -1), else: parts
-    {List.to_tuple(parts), nl}
+    {Lines.new(parts), nl}
   end
 
   def text(b) do
-    body = b.lines |> Tuple.to_list() |> Enum.join("\n")
+    body = b.lines |> Lines.to_list() |> Enum.join("\n")
     if b.trailing_newline and body != "", do: body <> "\n", else: body
   end
 
-  def line_count(b), do: tuple_size(b.lines)
-  def line(b, i) when i >= 0 and i < tuple_size(b.lines), do: elem(b.lines, i)
-  def line(_b, _i), do: ""
+  def line_count(b), do: Lines.size(b.lines)
+  def line(b, i), do: Lines.at(b.lines, i) || ""
   def line_length(b, i), do: String.length(line(b, i))
-  def lines(b), do: Tuple.to_list(b.lines)
+  def lines(b), do: Lines.to_list(b.lines)
 
-  def set_lines(b, list) when list == [], do: %{b | lines: {""}, modified: true}
-  def set_lines(b, list), do: %{b | lines: List.to_tuple(list), modified: true}
+  def set_lines(b, list), do: %{b | lines: Lines.new(list), modified: true}
 
   # -- undo -----------------------------------------------------------------------------
 
@@ -122,12 +123,7 @@ defmodule Lepton.Editor.Buffer do
   end
 
   @doc "Replace lines l1..l2 (inclusive) with `new_lines`."
-  def replace_lines(b, l1, l2, new_lines) do
-    all = lines(b)
-    {head, rest} = Enum.split(all, l1)
-    tail = Enum.drop(rest, l2 - l1 + 1)
-    set_lines(b, head ++ new_lines ++ tail)
-  end
+  def replace_lines(b, l1, l2, new_lines), do: %{b | lines: Lines.replace(b.lines, l1, l2, new_lines), modified: true}
 
   @doc "Text between two positions, end exclusive."
   def get_range(b, {l1, c1}, {l2, c2}) do
@@ -149,19 +145,15 @@ defmodule Lepton.Editor.Buffer do
     {replace_lines(b, l1, l2, [first <> last]), text}
   end
 
-  def get_lines(b, l1, l2), do: for(i <- l1..l2//1, do: line(b, i))
+  def get_lines(b, l1, l2), do: Lines.slice(b.lines, l1, l2)
 
   def delete_lines(b, l1, l2) do
     l2 = min(l2, line_count(b) - 1)
     deleted = get_lines(b, l1, l2)
-    remaining = lines(b) |> Enum.with_index() |> Enum.reject(fn {_, i} -> i >= l1 and i <= l2 end) |> Enum.map(&elem(&1, 0))
-    {set_lines(b, remaining), deleted}
+    {replace_lines(b, l1, l2, []), deleted}
   end
 
-  def insert_lines(b, at, new_lines) do
-    {head, tail} = Enum.split(lines(b), at)
-    set_lines(b, head ++ new_lines ++ tail)
-  end
+  def insert_lines(b, at, new_lines), do: replace_lines(b, at, at - 1, new_lines)
 
   # -- files --------------------------------------------------------------------------------
 

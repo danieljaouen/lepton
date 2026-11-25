@@ -210,7 +210,7 @@ defmodule Lepton.Editor.Fold do
     else
       {prefix, suffix, os, ns} = diff(old, new)
 
-      for h <- folds, n = moved(h, prefix, suffix, os, ns), n != nil and level(elem(new, n)) > 0, into: MapSet.new(), do: n
+      for h <- folds, n = moved(h, prefix, suffix, os, ns), n != nil and level(Lepton.Editor.Lines.at(new, n)) > 0, into: MapSet.new(), do: n
     end
   end
 
@@ -247,11 +247,8 @@ defmodule Lepton.Editor.Fold do
 
   # The lines two versions share at the start and at the end.
   defp diff(old, new) do
-    {os, ns} = {tuple_size(old), tuple_size(new)}
-    prefix = Enum.find(0..(min(os, ns) - 1)//1, min(os, ns), &(elem(old, &1) != elem(new, &1)))
-    max_suffix = min(os, ns) - prefix
-    suffix = Enum.find(0..(max_suffix - 1)//1, max_suffix, &(elem(old, os - 1 - &1) != elem(new, ns - 1 - &1)))
-    {prefix, suffix, os, ns}
+    {prefix, suffix} = Lepton.Editor.Lines.common(old, new)
+    {prefix, suffix, Lepton.Editor.Lines.size(old), Lepton.Editor.Lines.size(new)}
   end
 
   # Where line `n` is after the edit, or nil if it was changed.

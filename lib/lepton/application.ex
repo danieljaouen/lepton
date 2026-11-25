@@ -26,7 +26,9 @@ defmodule Lepton.Application do
       {Registry, keys: :unique, name: Lepton.Mux.Registry},
       {Registry, keys: :unique, name: Lepton.VM.Registry},
       {DynamicSupervisor, name: Lepton.VM.Supervisor, strategy: :one_for_one},
-      {DynamicSupervisor, name: Lepton.SessionSupervisor, strategy: :one_for_one}
+      {DynamicSupervisor, name: Lepton.SessionSupervisor, strategy: :one_for_one},
+      {Registry, keys: :unique, name: Lepton.Torrent.Registry},
+      {DynamicSupervisor, name: Lepton.Torrent.Supervisor, strategy: :one_for_one}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Lepton.Supervisor)

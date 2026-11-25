@@ -79,8 +79,10 @@ Phoenix's live reload, and tar, xz and zstd, for building Lepton itself
 only; at the prompt, `git` is still Lepton's own. `claude-code` holds
 what [Claude Code](claude-code.html) needs (bash, git, ripgrep,
 util-linux: about 14 MB), which `sudo claude-code install` installs
-along with Claude Code itself; and `qemu`, QEMU for
-[virtual machines](virtual-machines.html) (about 31 MB).
+along with Claude Code itself; `qemu`, QEMU for
+[virtual machines](virtual-machines.html) (about 31 MB); and `ffmpeg`,
+FFmpeg, which decodes what the [media player and the radio](media.html)
+play (110 packages, about 47 MB to download, 110 MB installed).
 
 ## Updates
 

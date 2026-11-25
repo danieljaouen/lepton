@@ -39,6 +39,9 @@ defmodule Lepton.Photon.WM.Classic do
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
+    {"Media Player", :media, [command: "play", title: "Media Player"]},
+    {"Radio", :radio, [command: "radio", title: "Radio"]},
+    {"Torrents", :torrent, [command: "torrent", title: "Torrents"]},
     {"Printers", :printer, [command: "printers; read -p 'Press Enter to close. ' x", title: "Printers"]},
     {"Passwords", :vault, [vault: true, title: "Passwords"]},
     {"Help", :help, [command: "help | less", title: "Help"]},
@@ -51,6 +54,9 @@ defmodule Lepton.Photon.WM.Classic do
     {"Terminal", :terminal, []},
     {"Text Editor", :editor, [command: "le", title: "Text Editor"]},
     {"System Monitor", :monitor, [command: "top", title: "System Monitor"]},
+    {"Media Player", :media, [command: "play", title: "Media Player"]},
+    {"Radio", :radio, [command: "radio", title: "Radio"]},
+    {"Torrents", :torrent, [command: "torrent", title: "Torrents"]},
     {"Passwords", :vault, [vault: true, title: "Passwords"]}
   ]
 
@@ -158,7 +164,7 @@ defmodule Lepton.Photon.WM.Classic do
   def layers(s, info) do
     icons =
       for {{label, kind, _}, i} <- Enum.with_index(icons()) do
-        {x, y, w, h} = icon_rect(i)
+        {x, y, w, h} = icon_rect(i, s.h)
         selected? = s.selected == i
         bg = Render.rgb(@desktop)
 
@@ -199,7 +205,12 @@ defmodule Lepton.Photon.WM.Classic do
     c |> Canvas.fill(x - 1, y, tw + 2, 16, bg) |> Canvas.text(x, y, text, Render.rgb(@white), bg, max_w: w)
   end
 
-  defp icon_rect(i), do: {12, 12 + i * 76, 112, 56}
+  # Down the left, then (a column full above the taskbar) the next column.
+  @doc false
+  def icon_rect(i, h) do
+    rows = max(div(h - @taskbar - 12, 76), 1)
+    {12 + div(i, rows) * 120, 12 + rem(i, rows) * 76, 112, 56}
+  end
 
   defp layer(%Canvas{} = c, x, y) do
     rows = c.rows
@@ -894,7 +905,7 @@ defmodule Lepton.Photon.WM.Classic do
   def desktop_click(s, _info, {px, py}, double?) do
     hit =
       Enum.find(Enum.with_index(icons()), fn {_, i} ->
-        {x, y, w, h} = icon_rect(i)
+        {x, y, w, h} = icon_rect(i, s.h)
         px >= x and px < x + w and py >= y and py < y + h
       end)
 
@@ -997,6 +1008,50 @@ defmodule Lepton.Photon.WM.Classic do
     |> Canvas.fill(x + 12 * s, y + 7 * s, 2 * s, 1 * s, Render.rgb("#008000"))
     |> Canvas.fill(x + 3 * s, y + 11 * s, 10 * s, 4 * s, Render.rgb(@white))
     |> Canvas.fill(x + 5 * s, y + 12 * s, 6 * s, 1 * s, Render.rgb(@shadow))
+  end
+
+  # A play button on a film frame (the media player).
+  defp icon(c, x, y, :media, size) do
+    s = div(size, 16)
+    dark = Render.rgb(@dark)
+
+    c =
+      c
+      |> Canvas.fill(x, y + 2 * s, 16 * s, 12 * s, dark)
+      |> Canvas.fill(x + 2 * s, y + 4 * s, 12 * s, 8 * s, Render.rgb("#1f4e9c"))
+
+    # the triangle, a column at a time
+    Enum.reduce(0..4, c, fn i, c -> Canvas.fill(c, x + (6 + i) * s, y + (5 + div(i, 2)) * s, s, (6 - 2 * div(i, 2)) * s, Render.rgb(@white)) end)
+  end
+
+  # A radio: a box, its speaker and dial, an aerial.
+  defp icon(c, x, y, :radio, size) do
+    s = div(size, 16)
+    dark = Render.rgb(@dark)
+
+    c
+    |> Canvas.fill(x + 10 * s, y, s, 5 * s, dark)
+    |> Canvas.fill(x, y + 5 * s, 16 * s, 10 * s, dark)
+    |> Canvas.fill(x + 1 * s, y + 6 * s, 14 * s, 8 * s, Render.rgb("#b5651d"))
+    |> Canvas.fill(x + 2 * s, y + 7 * s, 6 * s, 6 * s, dark)
+    |> Canvas.fill(x + 3 * s, y + 8 * s, 4 * s, 4 * s, Render.rgb("#555555"))
+    |> Canvas.fill(x + 10 * s, y + 8 * s, 4 * s, 2 * s, Render.rgb("#f2e394"))
+    |> Canvas.fill(x + 11 * s, y + 11 * s, 2 * s, 2 * s, dark)
+  end
+
+  # An arrow down to a tray (downloads, torrents).
+  defp icon(c, x, y, :torrent, size) do
+    s = div(size, 16)
+    green = Render.rgb("#008000")
+    dark = Render.rgb(@dark)
+
+    c =
+      c
+      |> Canvas.fill(x + 6 * s, y, 4 * s, 7 * s, green)
+      |> Canvas.fill(x, y + 12 * s, 16 * s, 4 * s, dark)
+      |> Canvas.fill(x + 1 * s, y + 13 * s, 14 * s, 2 * s, Render.rgb("#888888"))
+
+    Enum.reduce(0..3, c, fn i, c -> Canvas.fill(c, x + (2 + i) * s, y + (7 + i) * s, (12 - 2 * i) * s, s, green) end)
   end
 
   # A padlock (the password manager).

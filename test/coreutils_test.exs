@@ -86,7 +86,7 @@ defmodule Lepton.CoreutilsTest do
     assert {"2\n", 0} = sh("find sp -type f -print0 | xargs -0 -n 1 echo | wc -l | tr -d ' '", cwd: dir)
     assert {"sp/two words.txt\n", 0} = sh("find sp -name 'two*' -print0 | xargs -0 ls", cwd: dir)
     # Without -0: blanks split, quotes and a backslash keep one together; -I: once a line.
-    assert {"a\nmy file\nit s\n", 0} = sh(~S|printf 'a "my file" it\\ s' \| xargs -n 1 echo|, cwd: dir)
+    assert {"a\nmy file\nit s\n", 0} = sh(~S<printf 'a "my file" it\\ s' | xargs -n 1 echo>, cwd: dir)
     assert {"<one two>\n<three>\n", 0} = sh("printf 'one two\\nthree\\n' | xargs -I @ echo '<@>'", cwd: dir)
     assert {"", 1} = sh("find . -user nosuchuser", cwd: dir)
     assert {out, 0} = sh("tree d", cwd: dir)

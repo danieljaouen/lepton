@@ -104,7 +104,7 @@ More: [The editor](editor.html), [System](system.html).
 `le` does what Vim does, and a few things Spacemacs does:
 
 - **Macros**: `qa` records, `q` stops, `@a` plays (`100@a` stops at the
-  last line by itself).
+  last line by itself). They're saved: the next `le` has them too.
 - **Visual block**: `C-v` selects columns; `I` or `A` types on every
   line at once, `d`, `y`, `p` cut and paste blocks.
 - **Registers**: `"ayy` copies into register a, `"ap` pastes it.
