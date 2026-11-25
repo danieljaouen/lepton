@@ -143,6 +143,24 @@ Elixir:
   pairings, settings, logs) live here. Your home starts with the image's
   dotfiles.
 
+### More room later
+
+To give Lepton more space, make its disk bigger and start it again:
+`LEPTON-DATA` and its file system grow into the new space at boot, your
+files staying as they are.
+
+1. `sudo poweroff`, and in UTM, **clone the VM** first if you'd like a
+   copy to go back to (right-click it → Clone).
+2. In the VM's settings: **Drives** → the disk → **Resize**, and give the
+   new size. (QEMU: `qemu-img resize disk.qcow2 64G`.) A VM's disk only
+   takes room on your Mac as Lepton fills it.
+3. Start Lepton. `df -h /home` shows the new size.
+
+It grows when `LEPTON-DATA` is the last partition on the disk (as the
+installer makes it); a disk shared with another system, whose
+partitions come after Lepton's, is left as it is. The boot option
+`lepton.nogrow=1` skips growing.
+
 With QEMU: `qemu-img create -f qcow2 disk.qcow2 8G`, then
 `mix lepton.qemu --disk disk.qcow2` to install and
 `mix lepton.qemu --no-cd --disk disk.qcow2` to boot the installed system

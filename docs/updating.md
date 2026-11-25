@@ -20,6 +20,9 @@ This works because an installed Lepton has two partitions (see
 | `LEPTON-OS` | GRUB, the kernel and the initramfs: Lepton itself | replaced |
 | `LEPTON-DATA` | `/home`, `/root`, `/var/lib/lepton` | kept, untouched |
 
+A bigger disk is something else again: see
+[More room later](getting-started.html#more-room-later).
+
 The live ISO keeps nothing between starts, so there is nothing to update:
 just start the new ISO.
 

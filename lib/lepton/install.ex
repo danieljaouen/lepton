@@ -45,6 +45,13 @@ defmodule Lepton.Persist do
 
       dev ->
         Lepton.Kmod.modprobe("ext4")
+        # A disk made bigger: the partition and its file system grow into it
+        # (Lepton.Persist.Grow), before they're mounted.
+        if not Sys.cmdline_flag?("lepton.nogrow=1") do
+          for {what, from, to} <- Lepton.Persist.Grow.run(dev) do
+            Logger.info("persist: grew the data #{what} from #{Lepton.Install.Disk.human(from)} to #{Lepton.Install.Disk.human(to)}")
+          end
+        end
 
         case Sys.mount("ext2", dev, "/persist") do
           :ok ->
