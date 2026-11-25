@@ -30,7 +30,7 @@ The live ISO runs entirely from RAM: nothing you do is kept. An
 logs and settings) on its data partition; everything else, including
 `/etc`, resets at boot. It keeps `/var/log` too (see [logs](#logs)).
 
-`df` shows each file system's size and free space (`df -h ~`: the disk your files are on), `du` what files take, `ncdu` lets you browse that, largest first, and delete what you don't need, `free` the memory and `mount` what is mounted.
+`df` shows each file system's size and free space (`df -h ~`: the disk your files are on), `du` what files take, `ncdu` lets you browse that, largest first, and delete what you don't need, `cloc` counts lines of code by language (as cloc does: `cloc --vcs=git .`), `free` the memory and `mount` what is mounted.
 
 ## When memory runs out
 
@@ -162,4 +162,4 @@ message and `help` point here, to <https://trylepton.app/docs/>.
 mounts, drivers, DHCP, the shell, editor, multiplexer, git, packages and
 services. `--only TAG` and file arguments pick tests.
 
-<!-- commands: ps top kill pgrep pkill df du free mount poweroff reboot resize pbcopy pbpaste iex elixir mix help man apropos whatis keys neofetch lepton-test -->
+<!-- commands: ps top kill pgrep pkill df du ncdu cloc free mount poweroff reboot resize pbcopy pbpaste iex elixir mix help man apropos whatis keys neofetch lepton-test -->
