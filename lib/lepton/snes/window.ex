@@ -107,8 +107,9 @@ defmodule Lepton.SNES.Window do
     Lepton.Users.own_new_in_home(save_dir, fn -> File.mkdir_p(save_dir) end)
     Lepton.Users.own_new_in_home(Path.dirname(st.log), fn -> File.mkdir_p(Path.dirname(st.log)) end)
     port = open_host(opts[:host], [Lepton.SNES.core(), opts[:rom], save_dir, "#{w}", "#{h}"], st.log, opts[:user])
-    audio = spawn_link(fn -> audio_loop() end)
-    Map.merge(st, %{port: port, audio: audio})
+    # (sound: the frontend plays it through ALSA; Lepton plays it only if
+    # that can't, when the first of it comes here: see audio/2)
+    Map.merge(st, %{port: port, audio: nil})
   end
 
   # The frontend, as the user (a ROM from their files is read with their
@@ -145,6 +146,7 @@ defmodule Lepton.SNES.Window do
   end
 
   def handle_info({port, {:data, <<?A, samples::binary>>}}, %{port: port} = st) do
+    st = audio(st)
     send(st.audio, {:samples, samples})
     {:noreply, st}
   end
@@ -176,6 +178,7 @@ defmodule Lepton.SNES.Window do
       end
     end
 
+    if st.audio, do: Process.exit(st.audio, :kill)
     Client.close(st.c)
     :ok
   catch
@@ -213,16 +216,31 @@ defmodule Lepton.SNES.Window do
 
   # -- sound ---------------------------------------------------------------------------------
 
-  # Lepton.Sound plays what comes; the window's process isn't held up by
-  # the sound card. More than 0.2 s waiting (the card slower than the
-  # game, or it started late): the oldest is let go.
-  defp audio_loop do
+  # Without ALSA in the frontend: Lepton.Sound plays what comes, in a
+  # process of its own (the window isn't held up by the sound card). It
+  # writes to the card itself, which then plays nothing else, so it's
+  # started only when sound comes this way, and it ends with the window,
+  # however the window ends. (It used to start with every game and
+  # outlive the window: a normal exit doesn't end a linked process, and
+  # the card stayed taken, every other sound silent, until a restart.)
+  # More than 0.2 s waiting (the card slower than the game, or it
+  # started late): the oldest is let go.
+  defp audio(%{audio: nil} = st) do
+    window = self()
+    %{st | audio: spawn(fn -> audio_loop(Process.monitor(window)) end)}
+  end
+
+  defp audio(st), do: st
+
+  defp audio_loop(ref) do
     chunks =
       Stream.resource(
         fn -> :ok end,
         fn :ok ->
           receive do
             {:samples, data} -> {[data | catch_up([])], :ok}
+            # (the card's file closes as this process ends)
+            {:DOWN, ^ref, _, _, _} -> exit(:normal)
           end
         end,
         fn _ -> :ok end
@@ -230,7 +248,7 @@ defmodule Lepton.SNES.Window do
 
     case Lepton.Sound.play(chunks, 48_000, 2) do
       # No sound card: the game plays silently.
-      {:error, _} -> drain()
+      {:error, _} -> drain(ref)
       _ -> :ok
     end
   end
@@ -246,9 +264,10 @@ defmodule Lepton.SNES.Window do
   # 0.2 s of 48 kHz stereo S16: 38,400 bytes.
   defp limit(chunks), do: if(Enum.sum(Enum.map(chunks, &byte_size/1)) > 38_400, do: Enum.take(chunks, -2), else: chunks)
 
-  defp drain do
+  defp drain(ref) do
     receive do
-      _ -> drain()
+      {:DOWN, ^ref, _, _, _} -> :ok
+      _ -> drain(ref)
     end
   end
 

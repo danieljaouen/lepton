@@ -51,7 +51,8 @@ defmodule Lepton.SNES do
   def save_dir(env), do: Path.join([env["HOME"] || "/root", ".local/share/snes"])
 
   @doc "The libraries the core and the frontend load (libstdc++, libgomp)."
-  def env, do: %{"LD_LIBRARY_PATH" => Enum.map_join(["usr/lib", "lib"], ":", &Path.join(prefix(), &1))}
+  # And ALSA's, for its sound: through the mixer, at the system volume, as Firefox's.
+  def env, do: Apps.sound_env(%{"LD_LIBRARY_PATH" => Enum.map_join(["usr/lib", "lib"], ":", &Path.join(prefix(), &1))}, prefix())
 
   @doc """
   The frontend program, compiled (with the app's tcc) if it isn't yet:
@@ -156,6 +157,10 @@ defmodule Lepton.SNES do
   status: 0, or 1 if the game couldn't start).
   """
   def play(ctx, path, opts \\ []) do
+    # Updates, as for Firefox: one downloaded earlier goes in now; a new
+    # definition (alsa-lib, added for the sound) is fetched for next time.
+    if !Application.get_env(:lepton, :snes_prefix), do: Apps.maintain(@app)
+
     with {:ok, exe} <- host(),
          {:ok, win} <- Lepton.SNES.Window.start(rom: path, host: exe, env: ctx.env, user: ctx.user, title: title(path), notify: self()) do
       ref = Process.monitor(win)

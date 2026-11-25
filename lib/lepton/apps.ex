@@ -154,7 +154,8 @@ defmodule Lepton.Apps do
     "snes" => %{
       title: "SNES",
       summary: "the SNES emulator (bsnes), for snes",
-      packages: ["libretro-bsnes", "tcc", "tcc-libs", "tcc-libs-static", "musl-dev"],
+      # alsa-lib: the frontend plays its sound through ALSA's mixer.
+      packages: ["libretro-bsnes", "tcc", "tcc-libs", "tcc-libs-static", "musl-dev", "alsa-lib"],
       exclude: ~r/^(busybox.*|pkgconf)$/,
       main: "libretro-bsnes",
       exe: nil,
@@ -797,6 +798,18 @@ defmodule Lepton.Apps do
 
     want = Enum.uniq(have ++ Enum.map(["usr/lib", "lib"], &Path.join(prefix, &1)))
     if want != have, do: File.write(file, Enum.join(want, "\n") <> "\n"), else: :ok
+  end
+
+  @doc """
+  What a native program of the app in `prefix` (with alsa-lib) needs to
+  play through ALSA's `default`, as Firefox does: the mixer, at the
+  system volume, or Bluetooth headphones. Merged into `env`.
+  """
+  def sound_env(env, prefix) do
+    env
+    |> Map.merge(alsa_env(prefix))
+    |> Map.put_new("LD_LIBRARY_PATH", Path.join(prefix, "usr/lib"))
+    |> bluetooth_libs(nil)
   end
 
   # Sound through alsa-lib (Firefox): its own configuration files, then

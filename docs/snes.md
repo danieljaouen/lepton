@@ -25,8 +25,10 @@ to the cycle, with the cartridges' enhancement chips (Super FX, SA-1 and
 others), at full speed. It's the `snes` app, installed the first
 time you need it: `snes` and the desktop's SNES ask, or run
 `sudo app install snes` (about 5 MB to download, 22 MB installed).
-Lepton draws the pictures and plays the sound itself, as for the
-[media player](media.html).
+Lepton draws the pictures, as for the [media player](media.html). The
+game's sound plays through the same mixer as Firefox's, at the system
+volume (or in Bluetooth headphones), so other sound goes on playing
+while a game runs.
 
 ## Keys
 

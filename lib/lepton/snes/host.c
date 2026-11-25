@@ -209,7 +209,48 @@ static int16_t input_state(unsigned port, unsigned device, unsigned index, unsig
   return id < 16 ? (buttons >> id) & 1 : 0;
 }
 
-/* The frame's sound, at 48 kHz (linear interpolation), as one packet. */
+/*
+ * Sound through alsa-lib's "default": Lepton's ALSA configuration sends
+ * that to the mixer (dmix) at the system volume, or to Bluetooth
+ * headphones, so the game plays alongside everything else rather than
+ * taking the sound card for itself. Non-blocking: when the device is
+ * full (the game a little ahead of the sound card's clock) the rest of a
+ * frame's sound is let go, rather than holding the game up. Without
+ * alsa-lib or a card, the sound goes to Lepton in 'A' packets instead.
+ */
+static void *pcm = 0;
+static long (*a_writei)(void *, const void *, unsigned long);
+static int (*a_recover)(void *, int, int);
+static int (*a_close)(void *);
+
+static void open_sound(void) {
+  void *lib = dlopen("libasound.so.2", RTLD_NOW | RTLD_LOCAL);
+  if (!lib) { fprintf(stderr, "lepton-snes: no alsa-lib (%s): sound through Lepton\n", dlerror()); return; }
+  int (*a_open)(void **, const char *, int, int) = dlsym(lib, "snd_pcm_open");
+  int (*a_set)(void *, int, int, unsigned, unsigned, int, unsigned) = dlsym(lib, "snd_pcm_set_params");
+  *(void **)&a_writei = dlsym(lib, "snd_pcm_writei");
+  *(void **)&a_recover = dlsym(lib, "snd_pcm_recover");
+  *(void **)&a_close = dlsym(lib, "snd_pcm_close");
+  if (!a_open || !a_set || !a_writei || !a_recover || !a_close) return;
+  /* playback (0), non-blocking (1); S16_LE (2), interleaved (3), stereo, 48 kHz, resampled as needed, 80 ms */
+  int e = a_open(&pcm, "default", 0, 1);
+  if (e < 0) { fprintf(stderr, "lepton-snes: ALSA's default device didn't open (%d): sound through Lepton\n", e); pcm = 0; return; }
+  e = a_set(pcm, 2, 3, 2, 48000, 1, 80000);
+  if (e < 0) { fprintf(stderr, "lepton-snes: ALSA didn't take the format (%d): sound through Lepton\n", e); a_close(pcm); pcm = 0; return; }
+  fprintf(stderr, "lepton-snes: sound through ALSA's default device\n");
+}
+
+static void play_sound(const int16_t *s, size_t frames) {
+  for (int tries = 0; frames > 0 && tries < 2; tries++) {
+    long w = a_writei(pcm, s, frames);
+    if (w == -EAGAIN) return;                     /* full: let the rest go */
+    if (w < 0) { if (a_recover(pcm, (int)w, 1) < 0) return; continue; } /* an underrun (paused, or slow): start again */
+    s += w * 2;
+    frames -= (size_t)w;
+  }
+}
+
+/* The frame's sound, at 48 kHz (linear interpolation): to ALSA, or to Lepton as one packet. */
 static void flush_audio(void) {
   if (in_count == 0) return;
   double step = core_rate / 48000.0;
@@ -230,7 +271,7 @@ static void flush_audio(void) {
   last_l = in_audio[(in_count - 1) * 2];
   last_r = in_audio[(in_count - 1) * 2 + 1];
   in_count = 0;
-  packet('A', out, n * 4);
+  if (pcm) play_sound(out, n); else packet('A', out, n * 4);
   free(out);
 }
 
@@ -402,6 +443,7 @@ int main(int argc, char **argv) {
   double fps = av.timing.fps > 1 ? av.timing.fps : 60.0988;
   if (av.timing.sample_rate > 1000) core_rate = av.timing.sample_rate;
   load_sram();
+  open_sound();
 
   uint8_t info[8];
   uint32_t f = (uint32_t)(fps * 1000), sr = 48000;
@@ -424,6 +466,7 @@ int main(int argc, char **argv) {
   }
 
   save_sram(1);
+  if (pcm) a_close(pcm);
   r_unload_game();
   r_deinit();
   return 0;

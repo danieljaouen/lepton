@@ -104,6 +104,13 @@ defmodule Lepton.SNESTest do
       assert_receive {:DOWN, ^ref, _, _, _}, 5000
       assert <<0x80, 0, _::binary>> = File.read!(Path.join(home, ".local/share/snes/pad.srm"))
       refute_received {:snes_failed, _, _}
+      # The sound went one way or the other (ALSA's mixer, or Lepton's own
+      # when that can't open), and nothing of the window is left after it:
+      # a sound process holding the card kept every other sound silent.
+      assert File.read!(Path.join(home, ".cache/lepton/snes.log")) =~ ~r/sound through (ALSA|Lepton)/
+      Process.sleep(100)
+      left = for p <- Process.list(), {:current_function, {Window, _, _}} <- [Process.info(p, :current_function)], do: p
+      assert left == []
     end
   end
 
