@@ -904,6 +904,8 @@ defmodule Lepton.Commands.System do
   @doc "Run a native Linux executable through an Erlang port (stdin/stdout piped)."
   def run_native(path, args, ctx) do
     port = Port.open({:spawn_executable, path}, [:binary, :exit_status, :stderr_to_stdout, :use_stdio, args: args, cd: ctx.cwd, env: Enum.map(ctx.env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)])
+    # (stopped with this command: a service stopped, Ctrl-C)
+    Lepton.Sys.guard(port)
     native_loop(port, ctx)
   end
 

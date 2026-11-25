@@ -53,7 +53,9 @@ defmodule Lepton.Postgres.Psql do
   defp open(args, ctx) do
     exe = Postgres.bin("psql")
     env = Enum.map(env(ctx.env), fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
-    Port.open({:spawn_executable, exe}, [:binary, :exit_status, :use_stdio, :stderr_to_stdout, args: args, cd: ctx.cwd, env: env])
+    port = Port.open({:spawn_executable, exe}, [:binary, :exit_status, :use_stdio, :stderr_to_stdout, args: args, cd: ctx.cwd, env: env])
+    Lepton.Sys.guard(port)
+    port
   end
 
   defp direct(args, ctx), do: ctx |> then(&open(args, &1)) |> drain(ctx)

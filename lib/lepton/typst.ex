@@ -76,6 +76,7 @@ defmodule Lepton.Typst do
       {exe, argv} = Lepton.RunAs.command(user, program(), ["compile", "--diagnostic-format", "human", path, out])
       env = for {k, v} <- env(ctx), is_binary(v), do: {String.to_charlist(k), String.to_charlist(v)}
       port = Port.open({:spawn_executable, exe}, [:binary, :exit_status, :stderr_to_stdout, :use_stdio, args: argv, cd: Path.dirname(path), env: env])
+      Lepton.Sys.guard(port)
       {status, output} = collect(port, [])
 
       if status == 0, do: {:ok, out, output}, else: {:error, output, where(output)}

@@ -234,9 +234,9 @@ virtual machine of its own. With nested virtualization (`mix lepton.qemu
 --nested` on an M3 or later Mac) the guest has KVM and the suite takes
 about as long as on the Mac; see docs/virtual-machines.md.
 
-Current results: 447 tests, 0 failures inside the VM (run from the live
+Current results: 449 tests, 0 failures inside the VM (run from the live
 ISO; the 21 `:docs` tests, for the docs, site tags and build tasks, are
-host-only), and 438 passing plus 27 excluded (native/network) on the host.
+host-only), and 440 passing plus 27 excluded (native/network) on the host.
 
 ## Version updates
 

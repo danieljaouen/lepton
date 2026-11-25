@@ -71,7 +71,9 @@ Other keys are ignored, and `svc status` lists them.
   `svc NAME`, and the service's command under it (`svc cron`, then
   `crond`).
   Stopping a service ends the whole tree (a terminate signal, then a kill
-  after `TimeoutStopSec`).
+  after `TimeoutStopSec`), and with it what the tree started: native
+  Linux programs it ran (they get SIGTERM, then SIGKILL 10 seconds
+  later) and servers' listening ports, so a restart finds its port free.
 - A clean exit leaves the service `inactive`; a non-zero exit or a kill
   marks it `failed`, and `Restart=` decides whether it comes back. The
   restarts stop after 5 starts in 10 seconds, as in systemd; a manual

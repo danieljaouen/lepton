@@ -54,6 +54,8 @@ defmodule Lepton.FFmpeg do
       args: argv,
       env: Enum.map(env, fn {k, v} -> {~c"#{k}", ~c"#{v}"} end)
     ])
+    # (stopped with the process that started it: the player's sound, the window)
+    |> tap(&Lepton.Sys.guard/1)
   end
 
   @doc """

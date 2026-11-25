@@ -142,28 +142,7 @@ defmodule Lepton.MixVM do
   Stop OS process `os_pid` when Lepton process `owner` ends, however it
   ends: SIGTERM, then SIGKILL after `grace` ms. Nothing if it has exited.
   """
-  def guard(os_pid, owner, grace \\ 10_000) do
-    spawn(fn ->
-      ref = Process.monitor(owner)
-
-      receive do
-        {:DOWN, ^ref, _, _, _} ->
-          if alive?(os_pid) do
-            Lepton.Sys.shim("kill", ["-TERM", to_string(os_pid)])
-            Enum.find(1..div(grace, 100), fn _ -> not alive?(os_pid) || (Process.sleep(100) && false) end)
-            if alive?(os_pid), do: Lepton.Sys.shim("kill", ["-KILL", to_string(os_pid)])
-          end
-      end
-    end)
-  end
-
-  # Running, and not a zombie (its parent, the port's helper, reaps it).
-  defp alive?(os_pid) do
-    case File.read("/proc/#{os_pid}/stat") do
-      {:ok, stat} -> not String.contains?(stat, ") Z ")
-      _ -> false
-    end
-  end
+  def guard(os_pid, owner, grace \\ 10_000), do: Lepton.Sys.guard(os_pid, owner, grace)
 
   defp charlists(env), do: Enum.map(env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
 end

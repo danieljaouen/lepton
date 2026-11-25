@@ -111,6 +111,47 @@ defmodule Lepton.Sys do
     end
   end
 
+  @doc """
+  Stop a native program when the Lepton process that started it ends,
+  however it ends (`svc stop`, Ctrl-C, killed): `what` is its port or OS
+  pid. SIGTERM, then SIGKILL after `grace` ms; nothing if it has exited.
+  A port's closing alone only closes the program's input, which a
+  server, say, may never read: it would go on running, holding its port.
+  """
+  def guard(what, owner \\ self(), grace \\ 10_000)
+
+  def guard(port, owner, grace) when is_port(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} -> guard(os_pid, owner, grace)
+      nil -> :ok
+    end
+  end
+
+  def guard(os_pid, owner, grace) when is_integer(os_pid) do
+    spawn(fn ->
+      ref = Process.monitor(owner)
+
+      receive do
+        {:DOWN, ^ref, _, _, _} ->
+          if os_alive?(os_pid) do
+            shim("kill", ["-TERM", to_string(os_pid)])
+            Enum.find(1..div(grace, 100)//1, fn _ -> not os_alive?(os_pid) || (Process.sleep(100) && false) end)
+            if os_alive?(os_pid), do: shim("kill", ["-KILL", to_string(os_pid)])
+          end
+      end
+    end)
+
+    :ok
+  end
+
+  # Running, and not a zombie (its parent, the port's helper, reaps it).
+  defp os_alive?(os_pid) do
+    case File.read("/proc/#{os_pid}/stat") do
+      {:ok, stat} -> not String.contains?(stat, ") Z ")
+      _ -> false
+    end
+  end
+
   @doc "Unmount `target`; `lazy: true` detaches it even while busy (a device that is gone)."
   def umount(target, opts \\ []) do
     case shim("umount", if(opts[:lazy], do: ["-l", target], else: [target])) do
