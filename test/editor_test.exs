@@ -686,6 +686,27 @@ defmodule Lepton.EditorTest do
       assert keys(st, "j TAB").buffers == keys(st, "j").buffers
     end
 
+    test "a closed fold is one line to Vd, dd and yy: the heading and everything under it" do
+      two = "* Two\nbody two\n"
+      {st, _} = editor(@org, name: "notes.org")
+      # Vd on the folded first heading: the whole subtree goes, and comes back with u.
+      st = keys(st, "TAB V d")
+      assert text(st) == two
+      assert text(keys(st, "u")) == @org
+      # dd too; and yy takes it all (p puts it all back after Two's body).
+      {st, _} = editor(@org, name: "notes.org")
+      assert text(keys(st, "TAB d d")) == two
+      st = keys(st, "TAB y y G p")
+      assert text(st) == @org <> String.replace(@org, two, "")
+      # A folded child, inside an open parent (TAB twice: children): just that child.
+      {st, _} = editor(@org, name: "notes.org")
+      st = keys(st, "TAB TAB j j V d")
+      assert text(st) == "* One\nbody one\n** One B\ntext b\n" <> two
+      # Not folded: only the line.
+      {st, _} = editor(@org, name: "notes.org")
+      assert text(keys(st, "V d")) == String.replace(@org, "* One\n", "", global: false)
+    end
+
     test "zm folds every heading, zr reveals everything" do
       {st, _} = editor(@org, name: "notes.org")
       st = keys(st, "z m")

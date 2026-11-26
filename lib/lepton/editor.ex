@@ -873,12 +873,32 @@ defmodule Lepton.Editor do
 
   defp reset_op(st), do: %{st | operator: nil, pending: [], count: nil, op_count: nil, recording: nil}
 
+  # The last line of what's hidden right under line `l` (nested folds and
+  # all), or `l` when nothing is.
+  defp through_folds(%{folds: folds} = b, l) do
+    if MapSet.size(folds) == 0 do
+      l
+    else
+      case Enum.find(Fold.hidden(b), &(&1.first == l + 1)) do
+        nil -> l
+        r -> through_folds(b, r.last)
+      end
+    end
+  end
+
+  defp through_folds(_b, l), do: l
+
   defp order(a, b) when a <= b, do: {a, b}
   defp order(a, b), do: {b, a}
 
   # Ranges: :linewise uses whole lines from..to; :inclusive includes `to`;
   # :exclusive excludes it; :exclusive_range is an already-exclusive end.
   defp apply_operator(st, {fl, fc} = from, {tl, tc} = to, kind) do
+    # A closed fold is one line to a linewise operator, as in Vim: ending
+    # on a folded heading takes the lines hidden under it too (`Vd`, `dd`,
+    # `yy`, `>>` on a folded org heading act on the whole subtree; before,
+    # only the heading's line went, and its body was left behind).
+    {tl, to} = if kind == :linewise, do: (fn t -> {t, {t, tc}} end).(through_folds(buf(st), tl)), else: {tl, to}
     op = st.operator
     st = %{st | operator: nil, pending: [], count: nil, op_count: nil}
     # Take the undo snapshot before reading the buffer we modify.

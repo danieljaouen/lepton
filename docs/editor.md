@@ -226,6 +226,9 @@ as you edit above or below them; they last until the file is closed.
 `o` on a folded heading opens a line below its subtree; `O` opens one
 above, at the end of the entry before it, which stays folded. Lines you
 add while something is folded show until you fold again (`zm`, `TAB`).
+As in Vim, a folded heading counts as one line to commands that work on
+whole lines: `dd`, `Vd`, `yy`, `>>` on it take the heading and
+everything folded under it (`u` brings it all back).
 
 Bindings that name commands `le` doesn't implement are listed as "not
 supported" by `keys` and `SPC h d b`, never silently dropped.
