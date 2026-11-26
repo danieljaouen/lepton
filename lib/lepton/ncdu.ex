@@ -134,6 +134,16 @@ defmodule Lepton.Ncdu do
     sort(dir(st).children || [], by, if(by == :name, do: flip(d), else: d))
   end
 
+  # What the list shows: inside a directory, ".." (up a level) first.
+  @parent %{name: "..", type: :parent, size: 0, items: 0, children: nil, flag: " "}
+
+  defp listing(%{path: []} = st), do: entries(st)
+  defp listing(st), do: [@parent | entries(st)]
+
+  # The first real entry's place in the list (after "..").
+  defp first(%{path: []}), do: 0
+  defp first(st), do: if(entries(st) == [], do: 0, else: 1)
+
   defp flip(:asc), do: :desc
   defp flip(:desc), do: :asc
 
@@ -150,7 +160,7 @@ defmodule Lepton.Ncdu do
 
   def key(st, k) do
     st = %{st | msg: nil, info: false}
-    n = length(entries(st))
+    n = length(listing(st))
 
     case k do
       k when k in ["j", "<down>", "C-n"] -> move(st, 1, n)
@@ -167,7 +177,7 @@ defmodule Lepton.Ncdu do
       "g" -> %{st | graph: next_graph(st.graph)}
       "d" -> ask_delete(st)
       "r" -> %{st | rescan: dir_path(st)}
-      "i" -> if(selected(st), do: %{st | info: true}, else: st)
+      "i" -> if(entry(st), do: %{st | info: true}, else: st)
       "?" -> %{st | help: true}
       k when k in ["q", "C-c", "ESC"] -> %{st | quit: true}
       _ -> st
@@ -176,11 +186,20 @@ defmodule Lepton.Ncdu do
 
   defp move(st, d, n), do: %{st | sel: (st.sel + d) |> min(n - 1) |> max(0)}
 
-  defp selected(st), do: Enum.at(entries(st), st.sel)
+  defp selected(st), do: Enum.at(listing(st), st.sel)
+
+  # The selection, unless it's "..".
+  defp entry(st) do
+    case selected(st) do
+      %{type: :parent} -> nil
+      e -> e
+    end
+  end
 
   defp enter(st) do
     case selected(st) do
-      %{type: :directory, flag: f, name: name} when f not in ["<", "!"] -> %{st | path: st.path ++ [name], sel: 0, top: 0}
+      %{type: :parent} -> up(st)
+      %{type: :directory, flag: f, name: name} when f not in ["<", "!"] -> st = %{st | path: st.path ++ [name], sel: 0, top: 0}; %{st | sel: first(st)}
       %{type: :directory} -> %{st | msg: "Not scanned (another file system, or the kernel's)"}
       _ -> st
     end
@@ -191,7 +210,7 @@ defmodule Lepton.Ncdu do
   defp up(st) do
     name = List.last(st.path)
     st = %{st | path: Enum.drop(st.path, -1), top: 0}
-    %{st | sel: Enum.find_index(entries(st), &(&1.name == name)) || 0}
+    %{st | sel: Enum.find_index(listing(st), &(&1.name == name and &1.type != :parent)) || 0}
   end
 
   # The same key again turns the order around.
@@ -203,7 +222,7 @@ defmodule Lepton.Ncdu do
         _ -> {by, :desc}
       end
 
-    %{st | sort: sort, sel: 0, top: 0}
+    %{st | sort: sort, sel: first(st), top: 0}
   end
 
   defp next_graph(:graph), do: :percent
@@ -212,7 +231,7 @@ defmodule Lepton.Ncdu do
   defp next_graph(:none), do: :graph
 
   defp ask_delete(st) do
-    case selected(st) do
+    case entry(st) do
       nil -> st
       e -> %{st | confirm: e.name}
     end
@@ -224,7 +243,7 @@ defmodule Lepton.Ncdu do
     case File.rm_rf(path) do
       {:ok, _} ->
         st = %{st | tree: remove(st.tree, st.path, name), msg: "Deleted #{name}"}
-        %{st | sel: min(st.sel, max(length(entries(st)) - 1, 0))}
+        %{st | sel: min(st.sel, max(length(listing(st)) - 1, 0))}
 
       {:error, reason, file} ->
         %{st | msg: "Can't delete #{Path.relative_to(file, dir_path(st))}: #{:file.format_error(reason)}"}
@@ -247,7 +266,8 @@ defmodule Lepton.Ncdu do
   @doc "Replace the directory shown with a new scan of it (after `r`)."
   def replace_dir(st, fresh) do
     tree = put_dir(st.tree, st.path, %{fresh | name: dir(st).name})
-    %{st | tree: tree, rescan: nil, sel: 0, top: 0}
+    st = %{st | tree: tree, rescan: nil, sel: 0, top: 0}
+    %{st | sel: first(st)}
   end
 
   defp put_dir(_node, [], fresh), do: fresh
@@ -273,12 +293,13 @@ defmodule Lepton.Ncdu do
     d = dir(st)
     all = entries(st)
     largest = all |> Enum.map(& &1.size) |> Enum.max(fn -> 0 end)
+    shown = listing(st)
 
     head = inverse(fit(" ncdu (Lepton) ~ arrows or hjkl to move, ? for help, q to quit", cols))
     title = fit("--- #{dir_path(st)} " <> String.duplicate("-", cols), cols)
 
     lines =
-      all
+      shown
       |> Enum.drop(top)
       |> Enum.take(list_rows)
       |> Enum.with_index(top)
@@ -297,6 +318,12 @@ defmodule Lepton.Ncdu do
     screen = if st.help, do: overlay(screen, help_lines(), cols), else: screen
     screen = if st.info, do: overlay(screen, info_lines(st), cols), else: screen
     {screen, st}
+  end
+
+  # "..": blank where the size and bar would be, the name where names are.
+  defp entry_line(%{type: :parent}, _total, _largest, graph) do
+    blank = entry_line(%{@parent | type: :regular, name: ""}, 0, 0, graph)
+    String.duplicate(" ", String.length(blank)) <> ".."
   end
 
   defp entry_line(e, total, largest, graph) do
@@ -323,7 +350,7 @@ defmodule Lepton.Ncdu do
       "",
       "  up/down j/k     move          PgUp/PgDn  a page",
       "  right/l/Enter   open directory",
-      "  left/h/Bksp     back up",
+      "  left/h/Bksp     back up (or Enter on ..)",
       "  s n C           sort by size, name, items (again: reverse)",
       "  g               bars, percentages, both, neither",
       "  d               delete (asks first)",
@@ -340,7 +367,7 @@ defmodule Lepton.Ncdu do
   end
 
   defp info_lines(st) do
-    e = selected(st)
+    e = entry(st)
     type = case e.type do
       :directory -> "directory"
       :regular -> "file"

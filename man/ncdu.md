@@ -22,6 +22,7 @@ first, and the total.
 
 - `↑` `↓` (or `k` `j`), Page Up, Page Down, Home, End (`G`): move.
 - `→` `l` Enter: open the directory; `←` `h` Backspace: back up.
+  Inside a directory the list starts with `..`: Enter on it backs up too.
 - `s`, `n`, `C`: sort by size, by name, by number of items; the same key
   again reverses the order.
 - `g`: bars, percentages, both, or neither.

@@ -48,8 +48,23 @@ defmodule Lepton.NcduTest do
     st = Ncdu.key(st, "l")
     assert Ncdu.dir_path(st) == Path.join(dir, "big")
     {screen, _} = Ncdu.render(st, 12, 70)
-    assert Enum.at(text(screen), 2) =~ "data.bin"
+    # ".." first, the largest entry selected.
+    assert Enum.at(text(screen), 2) =~ ~r/^\s+\.\.\s*$/
+    assert Enum.at(text(screen), 3) =~ "data.bin" and st.sel == 1
     st = Ncdu.key(st, "h")
+    assert st.path == [] and st.sel == 0
+    {screen, _} = Ncdu.render(st, 12, 70)
+    refute Enum.any?(text(screen), &(&1 =~ ~r/^\s+\.\.\s*$/))
+
+    # Enter on "..": up a level, back on the directory left.
+    st = st |> Ncdu.key("l") |> Ncdu.key("j") |> Ncdu.key("l") |> Ncdu.key("k")
+    assert st.path == ["big", "sub"] and st.sel == 0
+    st = Ncdu.key(st, "RET")
+    assert st.path == ["big"] and Enum.at(text(elem(Ncdu.render(st, 12, 70), 0)), 2 + st.sel) =~ "sub/"
+    # d and i do nothing on "..".
+    st = st |> Ncdu.key("<home>") |> Ncdu.key("d")
+    assert st.confirm == nil and not Ncdu.key(st, "i").info
+    st = st |> Ncdu.key("RET")
     assert st.path == [] and st.sel == 0
 
     # By name: a to z (directories first); n again: z to a.
