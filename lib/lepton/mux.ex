@@ -79,7 +79,8 @@ defmodule Lepton.Mux do
 
   defp new_session(ctx, name, command, opts \\ %{}) do
     cond do
-      Map.has_key?(ctx.env, "TMUX") && !opts["d"] ->
+      # (an empty $TMUX is no tmux, as tmux has it: TMUX= tmux nests)
+      ctx.env["TMUX"] not in [nil, ""] && !opts["d"] ->
         IO.err(ctx, "sessions should be nested with care, unset $TMUX to force")
         1
 

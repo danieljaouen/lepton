@@ -76,7 +76,14 @@ defmodule Lepton.Shell.Builtins do
   defp do_run("set", ["--" | args], shell), do: {0, %{shell | positional: args}}
   defp do_run("set", args, shell), do: {0, %{shell | positional: args}}
 
-  defp do_run("unset", args, shell), do: {0, put_in(shell.ctx.env, Map.drop(shell.ctx.env, args))}
+  # (-v: variables, the default; a name that isn't one, as with
+  # `unset $X`, is an error, as in bash)
+  defp do_run("unset", args, shell) do
+    names = Enum.reject(args, &(&1 == "-v"))
+    {good, bad} = Enum.split_with(names, &Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_]*$/, &1))
+    for b <- bad, do: IO.err(shell.ctx, "lsh: unset: `#{b}': not a valid identifier")
+    {if(bad == [], do: 0, else: 1), put_in(shell.ctx.env, Map.drop(shell.ctx.env, good))}
+  end
 
   defp do_run("alias", [], shell) do
     for {k, v} <- Enum.sort(shell.aliases), do: IO.puts(shell.ctx, "#{k}='#{v}'")

@@ -36,6 +36,10 @@ editor and `pbcopy`.
 Closing a pane (`kill-pane`) ends its shell and everything started in
 it.
 
+Inside a session (`$TMUX` set), a new session in the same terminal is
+refused, as in tmux; `TMUX= tmux` (or `unset TMUX`) nests one anyway,
+and `tmux new -d` is always allowed.
+
 With `set -g mouse on`, a click selects the pane under it, and programs
 that ask for the mouse (`le`) get clicks, drags and the wheel in their
 pane. A click on a window's name in the status line selects that

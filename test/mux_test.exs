@@ -189,6 +189,18 @@ defmodule Lepton.MuxTest do
   end
 
   describe "sessions" do
+    test "inside tmux a new session is refused, unless $TMUX is unset or empty (TMUX= tmux)" do
+      inside = %{"TMUX" => "/tmp/tmux-0/default,1,x"}
+      nested = "sessions should be nested with care"
+      {out, _} = sh("tmux new true 2>&1", env: inside)
+      assert out =~ nested
+      # (Without a terminal these then fail to attach, but not for nesting.)
+      {out, _} = sh("TMUX= tmux new true 2>&1", env: inside)
+      refute out =~ nested
+      {out, _} = sh("unset TMUX; tmux new true 2>&1", env: inside)
+      refute out =~ nested
+    end
+
     test "a session runs a shell in a pane and survives detach" do
       ctx = %Lepton.Ctx{cwd: tmp_dir("mux"), env: %{"HOME" => dotfiles_home(), "NO_COLOR" => "1"}}
       {:ok, pid} = DynamicSupervisor.start_child(Lepton.SessionSupervisor, {Lepton.Mux.Server, name: "t#{System.unique_integer([:positive])}", ctx: ctx, size: {24, 80}, command: "echo pane-ok; read"})

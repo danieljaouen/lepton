@@ -44,6 +44,11 @@ defmodule Lepton.ShellTest do
       assert {"default\n", 0} = sh("echo ${UNSET:-default}")
       assert {"3\n", 0} = sh("X=abc; echo ${#X}")
       assert {"inner\n", 0} = sh("echo $(echo inner)")
+      # unset: gone from the shell and what it runs; `unset $X` (a value, not a name) is an error.
+      assert {"[]\n", _} = sh("unset TMUX; echo \"[$TMUX]\"; env | grep TMUX", env: %{"TMUX" => "x"})
+      t = %{"TMUX" => "/tmp/tmux-0/default,1,main"}
+      assert {"1 [/tmp/tmux-0/default,1,main]\n", 0} = sh("unset $TMUX 2>/dev/null; echo \"$? [$TMUX]\"", env: t)
+      assert {"lsh: unset: `/tmp/tmux-0/default,1,main': not a valid identifier\n", _} = sh("unset $TMUX 2>&1", env: t)
       assert {"a b c\n", 0} = sh("for i in a b c; do printf \"$i \"; done; echo | tr -d '\\n'; echo") |> then(fn {o, s} -> {String.trim_leading(o) |> String.replace(" \n", "\n"), s} end)
     end
 

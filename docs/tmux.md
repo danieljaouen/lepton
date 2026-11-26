@@ -31,6 +31,13 @@ Sessions keep running after you detach with `prefix d`. Reattach with
 `kill-pane` ends the pane's shell and everything running in it,
 background jobs too; `kill-session` does that for every pane.
 
+Inside a session, `tmux` won't start another one in the same terminal
+("sessions should be nested with care"), as tmux won't. To nest one on
+purpose, run `TMUX= tmux` (or `unset TMUX` first); `tmux new -d` (in the
+background) is always allowed. With the same prefix at both levels,
+press it twice for the inner session (`C-t C-t c`), when your
+`~/.tmux.conf` binds the prefix to `send-prefix`.
+
 ## Copy mode
 
 `prefix [` enters vi copy mode: move with the vi keys (`{` and `}` by

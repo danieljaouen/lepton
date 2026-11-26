@@ -22,7 +22,8 @@ directory, variables, aliases or jobs. `man NAME` shows one of them;
   variable.
 - `local [NAME[=VALUE]...]`: the same as `export` (lsh has no
   functions).
-- `unset NAME...`: remove variables.
+- `unset NAME...`: remove variables (`unset TMUX`, not `unset $TMUX`: a
+  name that isn't a variable's is an error).
 - `alias [NAME[=VALUE]...]`: define aliases, words replaced by VALUE
   when they start a command (`alias ll='ls -l'`). `alias NAME` prints
   one alias; with no arguments, print them all, including those from
