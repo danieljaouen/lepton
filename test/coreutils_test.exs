@@ -45,8 +45,9 @@ defmodule Lepton.CoreutilsTest do
     assert File.read!(Path.join(dir, "plain.txt")) =~ "cherry"
     assert File.read_link!(Path.join(dir, "t2/l")) == "../fruits.txt"
     assert {_, 1} = sh("cp t nodir", cwd: dir, stderr: StringIO.open("") |> elem(1))
-    # Space: nothing fits in a full file system; the error says so.
-    assert Lepton.Copy.fits(dir, 1 <<< 62) == {:error, :enospc}
+    # Space: nothing fits in a full file system; the error says so. (Linux
+    # only: the check reads /proc/mounts, which a Mac doesn't have.)
+    if Lepton.Sys.mounts() != [], do: assert(Lepton.Copy.fits(dir, 1 <<< 62) == {:error, :enospc})
     assert Lepton.Copy.fits(dir, 1) == :ok
     assert Lepton.Copy.size(Path.join(dir, "t2")) == 0
     assert Lepton.Copy.size(dir) >= byte_size(big) * 2

@@ -30,7 +30,7 @@ pre-built, unmodified substrate that is downloaded at build time
 | Linux kernel + modules + Wi-Fi firmware | Alpine `linux-lts` (v3.24), only the modules Lepton uses | the BEAM needs a kernel |
 | `wpa_supplicant` (+ `hostapd` for the self-tests) | Alpine (musl, in `/usr/lib/musl`) | WPA authentication for Wi-Fi |
 | Firefox and its libraries (GTK, fonts) | Alpine, downloaded when first used (`Lepton.Apps`, `Lepton.Alpine`) | a complete web browser |
-| ERTS / OTP 29.1.2 | Hex.pm prebuilt for arm64 | "Erlang, and so on down the line" |
+| ERTS / OTP 29.1.3 | Hex.pm prebuilt for arm64 | "Erlang, and so on down the line" |
 | glibc, libstdc++, zlib, libtinfo, libcrypto (OpenSSL 3.5, for ML-KEM) | Ubuntu 26.04 arm64 | ERTS links against them |
 | GRUB EFI | Debian `grub-efi-arm64-unsigned` | firmware → kernel loader |
 | CA certificates | Alpine | TLS trust roots |
