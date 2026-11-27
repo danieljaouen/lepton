@@ -80,7 +80,8 @@ starts. Space stops it, and plays again.
 `/` searches [Radio Browser](https://www.radio-browser.info)'s directory
 of about 50,000 stations, by name and by genre: try `jazz`, `bbc` or
 `lofi`. Tab switches between your stations and what was found; `a` adds
-the one chosen to yours, `d` removes one of yours.
+the one chosen to yours, `d` removes one of yours. What happened shows
+on the bottom line for a few seconds, then the keys are back.
 
 From the command line:
 

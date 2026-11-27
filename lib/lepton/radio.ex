@@ -158,7 +158,7 @@ defmodule Lepton.Radio do
   end
 
   defp ui_loop(ctx, tty, st) do
-    st = drain(st)
+    st = st |> drain() |> expire(System.monotonic_time(:millisecond))
     TTY.write(tty, ["\e[H\e[2J", Enum.join(screen(st, TTY.size(tty)), "\r\n")])
 
     case TTY.read_key(tty, 500) do
@@ -180,6 +180,21 @@ defmodule Lepton.Radio do
   end
 
   defp drain(st), do: st
+
+  # A message (added, removed, found, an error) shows for a few seconds,
+  # then the keys come back. (`shown`: the message on screen and since when.)
+  @message_ms 4000
+
+  @doc false
+  def expire(%{message: nil} = st, _now), do: Map.put(st, :shown, nil)
+
+  def expire(%{message: m} = st, now) do
+    case Map.get(st, :shown) do
+      {^m, t} when now - t >= @message_ms -> %{st | message: nil} |> Map.put(:shown, nil)
+      {^m, _} -> st
+      _ -> Map.put(st, :shown, {m, now})
+    end
+  end
 
   defp list(st), do: if(st.view == :mine, do: Enum.map(st.mine, fn {n, u} -> %{name: n, url: u, country: "", codec: "", bitrate: 0, tags: ""} end), else: st.found)
 
@@ -222,7 +237,7 @@ defmodule Lepton.Radio do
       "a" when st.view == :found and n > 0 ->
         s = Enum.at(items, st.sel)
         add(ctx, s.name, s.url)
-        %{st | mine: stations(ctx), message: "Added #{s.name} to your stations"}
+        %{st | mine: stations(ctx), message: "Added #{s.name} to your stations"} |> Map.put(:shown, nil)
 
       "d" when st.view == :mine and n > 0 ->
         s = Enum.at(items, st.sel)
@@ -230,7 +245,7 @@ defmodule Lepton.Radio do
         # (removing the last of the defaults leaves the file, empty: no defaults again)
         if stations(ctx) == @defaults and not File.exists?(file(ctx)), do: save(ctx, [])
         mine = stations(ctx)
-        %{st | mine: mine, sel: min(st.sel, max(length(mine) - 1, 0)), message: "Removed #{s.name}"}
+        %{st | mine: mine, sel: min(st.sel, max(length(mine) - 1, 0)), message: "Removed #{s.name}"} |> Map.put(:shown, nil)
 
       _ -> st
     end

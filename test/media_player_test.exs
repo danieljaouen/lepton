@@ -116,6 +116,16 @@ defmodule Lepton.MediaPlayerTest do
     st = Radio.ui_key(ctx, %{st | search: ""}, "j")
     assert st.search == "j"
     assert Radio.ui_key(ctx, %{st | search: nil}, "TAB").view == :mine
+
+    # a adds the station; the message goes after a few seconds, and the keys come back.
+    st = Radio.ui_key(ctx, %{st | search: nil}, "a") |> Radio.expire(0)
+    assert st.message =~ "Added Jazz FM to your stations"
+    assert Radio.expire(st, 3000).message =~ "Added Jazz FM"
+    st = Radio.expire(st, 4000)
+    assert st.message == nil and List.last(Radio.screen(st, {24, 80})) =~ "Enter: play"
+    # Adding again shows it afresh.
+    st = Radio.ui_key(ctx, Radio.ui_key(ctx, st, "a") |> Radio.expire(5000), "a") |> Radio.expire(8000)
+    assert Radio.expire(st, 11000).message =~ "Added"
   end
 
   test "radio streams: playlists" do
