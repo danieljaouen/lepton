@@ -23,7 +23,7 @@ including inside `with-eval-after-load`.
 | `C-h/j/k/l` → `evil-window-*` | window navigation; with the **tmux layer**, at an edge it moves to the neighbouring tmux pane |
 | `,w` → `delete-trailing-whitespace` | normal state |
 | `,q` → `sort-lines`, `,ah` → `align-repeat` | visual state (your `align-repeat` defun is implemented) |
-| insert `C-h` backspace, `C-w` delete word, `C-n`/`C-p` lines | insert state |
+| insert `C-h` backspace, `C-w` delete word, `C-n`/`C-p` lines | insert state (and Emacs's `M-t`: the words around the cursor change places) |
 | `C-y` unbound, `C-y ,` → `my-tab-command` | indent + yasnippet expansion (snippets from `~/.emacs.d/snippets`) |
 | evilified `/ ? n N`, `Buffer-menu` `k` | magit, dired, help and list buffers |
 | company `C-n/C-p/C-w/C-h`, `C-d o`/`C-d t` (EEx tags) | completion popup |

@@ -29,6 +29,17 @@ defmodule Lepton.EditorTest do
     assert text(st) == "hello world\n!\n"
   end
 
+  test "insert state: M-t swaps the words around the cursor, as Emacs does" do
+    {st, _} = editor("git commit now\n")
+    # (i after the 3rd character: in "git", so as at its end)
+    st = keys(st, "l l i M-t")
+    assert text(st) == "commit git now\n" and cursor(st) == {0, 10}
+    st = keys(st, "M-t")
+    assert text(st) == "commit now git\n"
+    st = keys(st, "ESC")
+    assert st.mode == :normal
+  end
+
   # The terminal reports clicks at cells from 0; the line numbers take 4
   # columns here (relative, in the user's editing.el) and the size is 24x80.
   test "the mouse: a click moves the cursor, a drag selects, the wheel scrolls, a click picks the window" do

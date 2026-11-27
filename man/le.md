@@ -26,7 +26,9 @@ can't move, such as `j` on the last line, stops the macro, so `100@q`
 ends at the end of the file; macros are saved, so later sessions have
 them too). Ex commands
 include `:w`, `:q`, `:wq`, `:e FILE`, `:sp`, `:vsp`, `:s/A/B/g`,
-`:sort`, `:!CMD` and `:r !CMD`. Some Spacemacs leader keys:
+`:sort`, `:!CMD` and `:r !CMD`. In insert state, `C-a`, `C-e` and `C-k`
+work as in Emacs, and `M-t` swaps the words before and after the cursor.
+Some Spacemacs leader keys:
 
 - `SPC f f` open a file, `SPC f s` save, `SPC f S` (or `C-x s`, `:wa`)
   save every changed file.

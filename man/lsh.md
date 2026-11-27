@@ -14,7 +14,7 @@ and write scripts in. It also answers to `sh`, `zsh` and `bash`.
 ## LINE EDITING
 
 Emacs-style keys, as in oh-my-zsh: `C-a`/`C-e` start and end of line,
-`C-b`/`C-f` and `M-b`/`M-f` move, `C-k` and `C-u` kill, `C-w` kills a
+`C-b`/`C-f` and `M-b`/`M-f` move, `M-t` swaps the words around the cursor, `C-k` and `C-u` kill, `C-w` kills a
 word, `C-y` yanks, `Tab` completes commands and paths, `C-x C-e` edits
 the line in `$EDITOR`, `C-l` clears the screen. Esc, then a key, is that
 key with Alt (`M-`), as in zsh.

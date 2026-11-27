@@ -228,7 +228,8 @@ defmodule Lepton.Editor.Keymap do
     {"C-j", :newline}, {"DEL", :backspace}, {"<deletechar>", :delete_forward}, {"TAB", :indent},
     {"<left>", :left}, {"<right>", :right}, {"<up>", :previous_line}, {"<down>", :next_line},
     {"<home>", :bol}, {"<end>", :eol}, {"C-a", :bol}, {"C-e", :eol}, {"C-o", :normal_one},
-    {"C-t", :indent_line}, {"C-v", :quoted_insert}, {"C-x C-s", :save}, {"C-x s", :save_all}, {"C-k", :kill_eol}
+    {"C-t", :indent_line}, {"C-v", :quoted_insert}, {"C-x C-s", :save}, {"C-x s", :save_all}, {"C-k", :kill_eol},
+    {"M-t", :transpose_words}
   ]
 
   @special [

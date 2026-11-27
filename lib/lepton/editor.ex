@@ -2358,6 +2358,13 @@ defmodule Lepton.Editor do
         {b, _} = Buffer.delete_range(b, {l, c}, {l, Buffer.line_length(b, l)})
         put_buf(st, b)
 
+      # M-t: the words before and after the cursor change places (Emacs's transpose-words).
+      :transpose_words ->
+        case Lepton.Transpose.words(Buffer.line(b, l), c) do
+          {line, c2} -> st |> put_buf(Buffer.replace_lines(b, l, l, [line])) |> set_cursor({l, c2})
+          :none -> st
+        end
+
       :indent -> self_insert(st, Buffer.indent_unit(b))
       :indent_line -> st |> put_buf(Buffer.replace_lines(b, l, l, [Buffer.indent_unit(b) <> Buffer.line(b, l)])) |> set_cursor({l, c + String.length(Buffer.indent_unit(b))})
       :tab_command -> tab_command(st)

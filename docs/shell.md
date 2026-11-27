@@ -21,6 +21,7 @@ The line editor follows oh-my-zsh's emacs bindings (`bindkey -e`):
 - fzf's keys ([Fuzzy finding](fzf.html)): `C-r` chooses a command from
   history, `C-t` puts in files and folders, `M-c` (Esc, then `c`) goes
   to a folder;
+- `M-t` swaps the words before and after the cursor, as in Emacs;
 - `Tab` completes commands and paths, and
   `C-x C-e` edits the line in `$EDITOR`; names with spaces or quotes
   complete as the shell reads them: `cat My\ Do`, Tab, gives

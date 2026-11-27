@@ -40,6 +40,7 @@ defmodule Lepton.Shell.LineEditor do
     {"C-w", :backward_kill_word},
     {"M-DEL", :backward_kill_word},
     {"M-d", :kill_word},
+    {"M-t", :transpose_words},
     {"C-y", :yank},
     {"C-t", :fzf_file},
     {"C-l", :clear_screen},
@@ -215,6 +216,14 @@ defmodule Lepton.Shell.LineEditor do
 
   defp act(s, :yank), do: insert(s, s.kill)
   defp act(s, :newline), do: insert(s, "\n")
+
+  # M-t: the words before and after the cursor change places (Emacs's transpose-words).
+  defp act(s, :transpose_words) do
+    case Lepton.Transpose.words(s.buf, s.pos) do
+      {buf, pos} -> %{s | buf: buf, pos: pos}
+      :none -> s
+    end
+  end
 
   defp act(s, :transpose_chars) do
     len = String.length(s.buf)
