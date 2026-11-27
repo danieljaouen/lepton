@@ -15,8 +15,15 @@ and write scripts in. It also answers to `sh`, `zsh` and `bash`.
 
 Emacs-style keys, as in oh-my-zsh: `C-a`/`C-e` start and end of line,
 `C-b`/`C-f` and `M-b`/`M-f` move, `C-k` and `C-u` kill, `C-w` kills a
-word, `C-y` yanks, `C-r` searches history, `Tab` completes commands and
-paths, `C-x C-e` edits the line in `$EDITOR`, `C-l` clears the screen.
+word, `C-y` yanks, `Tab` completes commands and paths, `C-x C-e` edits
+the line in `$EDITOR`, `C-l` clears the screen. Esc, then a key, is that
+key with Alt (`M-`), as in zsh.
+
+fzf's key bindings (fzf(1)): `C-r` chooses a command from history (what
+is typed starts the search; the command chosen replaces the line, to run
+with Return), `C-t` puts in files and folders from under the current
+folder (Tab marks several), `M-c` goes to a folder under it.
+`$FZF_CTRL_T_COMMAND` and `$FZF_ALT_C_COMMAND` list them instead, if set.
 A dim suggestion from history is accepted with Right, `C-f` or `C-e`.
 Each command name (the first, and each after `|`, `&&`, `||` or `;`)
 turns green when it exists and red when it does not.
@@ -63,4 +70,4 @@ The status of the last command run.
 
 ## SEE ALSO
 
-builtins(1), test(1), keys(1), https://trylepton.app/docs/shell.html
+builtins(1), test(1), keys(1), fzf(1), https://trylepton.app/docs/shell.html

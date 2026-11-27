@@ -208,70 +208,20 @@ defmodule Lepton.SNES do
       IO.err(ctx, "usage: snes ROM")
       2
     else
-      alias Lepton.TTY
-      TTY.set_mode(tty, :raw)
-      TTY.write(tty, "\e[?1049h\e[?25l")
-
-      try do
-        browse(ctx, tty, %{dir: dir, sel: 0, top: 0, message: nil})
-      after
-        TTY.write(tty, "\e[0m\e[?25h\e[?1049l")
-        TTY.set_mode(tty, :cooked)
-      end
-    end
-  end
-
-  defp browse(ctx, tty, st) do
-    alias Lepton.TTY
-    {rows, cols} = TTY.size(tty)
-    list = [{:dir, ".."} | entries(st.dir)]
-    sel = st.sel |> max(0) |> min(length(list) - 1)
-    height = max(rows - 4, 1)
-
-    top =
-      cond do
-        sel < st.top -> sel
-        sel >= st.top + height -> sel - height + 1
-        true -> st.top
-      end
-
-    st = %{st | sel: sel, top: top}
-    head = "\e[1m SNES\e[0m  #{Ctx.tildify(ctx, st.dir)}"
-
-    body =
-      for {{kind, name}, i} <- list |> Enum.with_index() |> Enum.slice(top, height) do
-        label = (if kind == :dir, do: name <> "/", else: name) |> String.slice(0, cols - 3)
-        if i == sel, do: "\e[7m #{String.pad_trailing(label, cols - 2)}\e[0m", else: " #{label}"
-      end
-
-    none = if length(list) == 1, do: ["", " (no games here: .sfc or .smc files)"], else: []
-    foot = st.message || "Enter: play or open   Backspace: up   q: quit"
-    screen = [head, "" | body ++ none] ++ List.duplicate("", max(height - length(body) - length(none), 0)) ++ ["\e[2m" <> String.slice(foot, 0, cols) <> "\e[0m"]
-    TTY.write(tty, ["\e[H\e[2J", Enum.join(screen, "\r\n")])
-
-    case TTY.read_key(tty) do
-      k when k in ["q", "ESC", "C-c"] -> 0
-      k when k in ["<down>", "j", "C-n"] -> browse(ctx, tty, %{st | sel: sel + 1, message: nil})
-      k when k in ["<up>", "k", "C-p"] -> browse(ctx, tty, %{st | sel: sel - 1, message: nil})
-      k when k in ["<next>", "C-v"] -> browse(ctx, tty, %{st | sel: sel + height, message: nil})
-      k when k in ["<prior>", "M-v"] -> browse(ctx, tty, %{st | sel: sel - height, message: nil})
-      k when k in ["DEL", "h", "<left>"] -> browse(ctx, tty, %{st | dir: Path.dirname(st.dir), sel: 0, top: 0, message: nil})
-
-      k when k in ["RET", "l", "<right>"] ->
-        case Enum.at(list, sel) do
-          {:dir, ".."} -> browse(ctx, tty, %{st | dir: Path.dirname(st.dir), sel: 0, top: 0})
-          {:dir, d} -> browse(ctx, tty, %{st | dir: Path.join(st.dir, d), sel: 0, top: 0})
-
-          {:file, f} ->
-            TTY.write(tty, ["\e[H\e[2J", "\e[1m SNES\e[0m  #{f}\r\n\r\n", keys_help() |> String.replace("\n", "\r\n"), "\r\n"])
-            {:ok, err} = StringIO.open("")
-            status = play(%{ctx | stderr: err}, Path.join(st.dir, f), quiet: true)
-            {:ok, {_, why}} = StringIO.close(err)
-            browse(ctx, tty, %{st | message: if(status != 0, do: String.trim(why))})
+      Lepton.FileBrowser.run(ctx, dir,
+        title: "SNES",
+        entries: &entries/1,
+        only: &rom?/1,
+        empty: "(no games here: .sfc or .smc files)",
+        foot: "Enter: play or open   /: find   Backspace: up   q: quit",
+        open: fn _dir, [file | _] ->
+          Lepton.TTY.write(tty, ["\e[H\e[2J", "\e[1m SNES\e[0m  #{Path.basename(file)}\r\n\r\n", keys_help() |> String.replace("\n", "\r\n"), "\r\n"])
+          {:ok, err} = StringIO.open("")
+          status = play(%{ctx | stderr: err}, file, quiet: true)
+          {:ok, {_, why}} = StringIO.close(err)
+          if status != 0, do: String.trim(why)
         end
-
-      _ ->
-        browse(ctx, tty, st)
+      )
     end
   end
 

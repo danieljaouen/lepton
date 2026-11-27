@@ -38,6 +38,9 @@ with their song titles; playlists; HLS) and decoded by FFmpeg, an app:
 - `9`, `0` (or `-`, `+`): the volume; `m`: mute.
 - `q`: quit (the radio stops).
 
+The mouse: a click selects a station, a double click plays it, the wheel
+moves, and a click on a tab (Your stations, Found) shows it.
+
 The bottom line shows these keys; a message there (a station added,
 removed or found) gives way to them after a few seconds.
 

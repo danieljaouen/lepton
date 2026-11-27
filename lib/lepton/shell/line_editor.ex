@@ -10,8 +10,10 @@ defmodule Lepton.Shell.LineEditor do
     * **zsh-syntax-highlighting** - each command word (also after `|`, `&&`, `||`, `;`) is green when it
       resolves (alias, builtin, program) and red otherwise; quoted strings
       are yellow
-    * `C-r` incremental history search, `TAB` completion (commands, then
-      paths), `M-.` insert last argument, `C-x C-e` edit in `$EDITOR`
+    * fzf's key bindings (`~/.fzf.zsh`): `C-r` chooses from history, `C-t`
+      inserts files and folders, `M-c` goes to a folder, with `Lepton.Fzf`
+    * `TAB` completion (commands, then paths), `M-.` insert last
+      argument, `C-x C-e` edit in `$EDITOR`
   """
 
   alias Lepton.{Keys, Style, TTY}
@@ -39,13 +41,14 @@ defmodule Lepton.Shell.LineEditor do
     {"M-DEL", :backward_kill_word},
     {"M-d", :kill_word},
     {"C-y", :yank},
-    {"C-t", :transpose_chars},
+    {"C-t", :fzf_file},
     {"C-l", :clear_screen},
     {"C-p", :up_history},
     {"<up>", :up_history},
     {"C-n", :down_history},
     {"<down>", :down_history},
-    {"C-r", :history_search},
+    {"C-r", :fzf_history},
+    {"M-c", :fzf_cd},
     {"TAB", :complete},
     {"RET", :accept_line},
     # Shift+Enter (sent as Alt+Enter, ESC RET) or Alt+Enter: a newline in
@@ -106,6 +109,15 @@ defmodule Lepton.Shell.LineEditor do
     end
   end
 
+  # Esc, then a key: that key with Alt, as in zsh (Alt+c types ç while the
+  # accent keys are on: Esc c is M-c then).
+  defp dispatch("ESC", state) do
+    case TTY.read_key(state.shell.ctx.tty) do
+      k when is_binary(k) and k != "ESC" -> if(List.keyfind(@bindings, "M-" <> k, 0), do: dispatch("M-" <> k, state), else: loop(state))
+      _ -> loop(state)
+    end
+  end
+
   defp dispatch(key, state) do
     action = List.keyfind(@bindings, key, 0)
 
@@ -123,6 +135,19 @@ defmodule Lepton.Shell.LineEditor do
       {_, :delete_char_or_eof} when state.buf == "" ->
         finish(state)
         :eof
+
+      # M-c: cd to the folder chosen, run as a command (as fzf's widget does).
+      {_, :fzf_cd} ->
+        case fzf(state, fzf_source(state, "FZF_ALT_C_COMMAND", dirs: true), prompt: "cd> ") do
+          {:ok, [dir], _} ->
+            line = "cd " <> quote_text(dir, nil, state.shell.options[:plain])
+            state = %{state | buf: line, pos: String.length(line)} |> redraw()
+            finish(state)
+            {:ok, line}
+
+          _ ->
+            state |> redraw() |> loop()
+        end
 
       {_, :prefix_ctrl_x} ->
         case TTY.read_key(state.shell.ctx.tty) do
@@ -239,8 +264,33 @@ defmodule Lepton.Shell.LineEditor do
   end
 
   defp act(s, :history_search), do: history_search(s, "", 0)
+
+  # C-r: history, newest first, narrowed by what's typed; the line chosen replaces it.
+  defp act(s, :fzf_history) do
+    case fzf(s, Enum.uniq(s.hist), query: s.buf, tiebreak: :index, prompt: "> ") do
+      {:ok, [line], _} -> %{s | buf: line, pos: String.length(line), hist_idx: -1}
+      _ -> s
+    end
+  end
+
+  # C-t: files and folders under here (Tab marks several), put in at the cursor.
+  defp act(s, :fzf_file) do
+    case fzf(s, fzf_source(s, "FZF_CTRL_T_COMMAND", dirs: :also), multi: true) do
+      {:ok, paths, _} -> insert(s, Enum.map_join(paths, " ", &quote_text(&1, nil, s.shell.options[:plain])) <> " ")
+      _ -> s
+    end
+  end
   defp act(s, :complete), do: complete(s)
   defp act(s, _), do: s
+
+  defp fzf(s, source, opts), do: Lepton.Fzf.select(s.shell.ctx, source, opts)
+
+  defp fzf_source(s, var, walk) do
+    case s.shell.ctx.env[var] do
+      cmd when cmd not in [nil, ""] -> {:command, cmd}
+      _ -> {:walk, s.shell.ctx.cwd, walk}
+    end
+  end
 
   defp history_matches(s) do
     prefix = if s.hist_idx == -1, do: s.buf, else: s.saved

@@ -74,7 +74,7 @@ history | tail
 ```
 
 Press **Tab** to complete commands and file names, **↑** for history,
-and **C-r** to search it. Your aliases come from your `~/.zshrc`.
+and **C-r** to search it (as fzf: type parts of a command, Enter brings it back). Your aliases come from your `~/.zshrc`.
 
 More: [The shell](shell.html).
 

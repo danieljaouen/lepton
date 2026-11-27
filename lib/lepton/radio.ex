@@ -140,26 +140,29 @@ defmodule Lepton.Radio do
   (`/`), the station playing and its song. Enter plays, Space stops or
   starts again, `a` adds a found station to yours, `d` removes one of
   yours, Tab switches between yours and what was found, `9`/`0` the
-  volume, `q` quits.
+  volume, `q` quits. A click selects a station, a double click plays it,
+  the wheel moves, and a click on a tab shows it.
   """
   def ui(ctx) do
     tty = ctx.tty
     TTY.set_mode(tty, :raw)
-    TTY.write(tty, "\e[?1049h\e[?25l")
+    TTY.write(tty, "\e[?1049h\e[?25l" <> Lepton.ListMouse.on())
 
     st = %{view: :mine, mine: stations(ctx), found: [], sel: 0, top: 0, player: nil, playing: nil, status: nil, message: nil, search: nil}
 
     try do
       ui_loop(ctx, tty, st)
     after
-      TTY.write(tty, "\e[0m\e[?25h\e[?1049l")
+      TTY.write(tty, Lepton.ListMouse.off() <> "\e[0m\e[?25h\e[?1049l")
       TTY.set_mode(tty, :cooked)
     end
   end
 
   defp ui_loop(ctx, tty, st) do
-    st = st |> drain() |> expire(System.monotonic_time(:millisecond))
-    TTY.write(tty, ["\e[H\e[2J", Enum.join(screen(st, TTY.size(tty)), "\r\n")])
+    size = TTY.size(tty)
+    st = st |> drain() |> expire(System.monotonic_time(:millisecond)) |> Map.put(:size, size)
+    st = %{st | top: list_top(st, size)}
+    TTY.write(tty, ["\e[H\e[2J", Enum.join(screen(st, size), "\r\n")])
 
     case TTY.read_key(tty, 500) do
       :timeout -> ui_loop(ctx, tty, st)
@@ -234,6 +237,7 @@ defmodule Lepton.Radio do
       k when k in ["0", "+", "="] -> Sound.change(5); st
       k when k in ["9", "-"] -> Sound.change(-5); st
       "m" -> Sound.mute(:toggle); st
+      {:mouse, _, _, _, _, _} = m -> mouse(ctx, st, m, items)
       "a" when st.view == :found and n > 0 ->
         s = Enum.at(items, st.sel)
         add(ctx, s.name, s.url)
@@ -248,6 +252,35 @@ defmodule Lepton.Radio do
         %{st | mine: mine, sel: min(st.sel, max(length(mine) - 1, 0)), message: "Removed #{s.name}"} |> Map.put(:shown, nil)
 
       _ -> st
+    end
+  end
+
+  # The list's lines start on row 2, under the tabs; rows 3 to 7 from the bottom are the rest.
+  defp list_height({rows, _}), do: max(rows - 7, 1)
+  defp list_top(st, size), do: Lepton.ListMouse.top(st.sel, st.top, list_height(size))
+
+  # The tabs on row 0: " Radio  " then " Your stations " and " Found ".
+  @tab_mine 8..22
+  @tab_found 24..30
+
+  defp mouse(ctx, st, {:mouse, :press, :left, x, 0, _}, _items) do
+    cond do
+      x in @tab_mine and st.view != :mine -> %{st | view: :mine, sel: 0, top: 0}
+      x in @tab_found and st.view != :found -> %{st | view: :found, sel: 0, top: 0}
+      true -> _ = ctx; st
+    end
+  end
+
+  defp mouse(ctx, st, m, items) do
+    size = Map.get(st, :size, {24, 80})
+    n = length(items)
+    view = %{first: 2, height: list_height(size), top: list_top(st, size), n: n}
+
+    case Lepton.ListMouse.action(m, view, Map.get(st, :last)) do
+      {:select, i, last} -> Map.put(%{st | sel: i}, :last, last)
+      {:open, i} -> start(ctx, Map.put(%{st | sel: i}, :last, nil), Enum.at(items, i))
+      {:move, d} -> %{st | sel: (st.sel + d) |> min(n - 1) |> max(0)}
+      :none -> st
     end
   end
 

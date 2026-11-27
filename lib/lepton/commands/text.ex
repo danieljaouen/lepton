@@ -677,6 +677,11 @@ defmodule Lepton.Commands.Text do
     Lepton.Archive.Zip.cli(args, ctx)
   end
 
+  defcmd "fzf", "a fuzzy finder: choose lines (or files) by typing parts of them, as fzf",
+    usage: "fzf [-m] [-q QUERY] [-e] [-i | +i] [--reverse] [--prompt STR] [--header STR] [--tac] [--no-sort] [-1] [-0] [--print-query] [-f QUERY]" do
+    Lepton.Fzf.cli(args, ctx)
+  end
+
   @shasum_algos %{"1" => :sha, "224" => :sha224, "256" => :sha256, "384" => :sha384, "512" => :sha512, "512224" => :sha512_224, "512256" => :sha512_256}
 
   defcmd "shasum", "print or check SHA checksums (SHA-1, -224, -256, -384, -512, -512/224, -512/256), as macOS's shasum",

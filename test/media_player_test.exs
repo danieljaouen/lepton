@@ -117,6 +117,14 @@ defmodule Lepton.MediaPlayerTest do
     assert st.search == "j"
     assert Radio.ui_key(ctx, %{st | search: nil}, "TAB").view == :mine
 
+    # The mouse: a click on a station selects it (the list starts on row 2), the wheel
+    # moves, a click on a tab shows it.
+    mine = %{st | view: :mine, search: nil, sel: 0} |> Map.put(:size, {24, 80})
+    assert Radio.ui_key(ctx, mine, {:mouse, :press, :left, 5, 3, ""}).sel == 1
+    assert Radio.ui_key(ctx, mine, {:mouse, :press, :wheel_down, 5, 3, ""}).sel == 3
+    assert Radio.ui_key(ctx, mine, {:mouse, :press, :left, 26, 0, ""}).view == :found
+    assert Radio.ui_key(ctx, %{mine | view: :found}, {:mouse, :press, :left, 10, 0, ""}).view == :mine
+
     # a adds the station; the message goes after a few seconds, and the keys come back.
     st = Radio.ui_key(ctx, %{st | search: nil}, "a") |> Radio.expire(0)
     assert st.message =~ "Added Jazz FM to your stations"

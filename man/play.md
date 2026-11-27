@@ -12,9 +12,11 @@ them itself, one after another, at the current volume (Ctrl-C stops). Lepton pla
 format plays: MP4, MKV, WebM, MOV, AVI; MP3, AAC, FLAC, Ogg, Opus, WAV.
 
 With no files and a terminal, `play` lists the folders and media in the
-current folder (or `~/Videos`, or `~/Music`) to choose from: Enter plays
-a file and those after it, or opens a folder; Backspace goes up. This is
-the desktop's Media Player.
+current folder (or `~/Videos`, or `~/Music`) to choose from: Enter (or a
+double click) plays a file and those after it, or opens a folder;
+Backspace goes up; a click selects and the wheel scrolls. `/` finds media
+in every folder below by typing parts of the name (fzf(1)); Tab there
+marks several to play just those. This is the desktop's Media Player.
 
 ## OPTIONS
 
@@ -56,4 +58,4 @@ mistake in the command, 130 if WAV files were stopped with Ctrl-C.
 
 ## SEE ALSO
 
-radio(1), volume(1), beep(1), sound(1), app(1), https://trylepton.app/docs/media.html
+radio(1), fzf(1), volume(1), beep(1), sound(1), app(1), https://trylepton.app/docs/media.html

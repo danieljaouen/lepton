@@ -18,7 +18,9 @@ snes                      # choose a game from your files
 
 On the [classic desktop](desktop.html), **SNES** is on the Start menu
 and the desktop: it lists your folders and games to choose from
-(Enter plays one, Backspace goes up a folder, q quits).
+(Enter or a double click plays one, Backspace goes up a folder, the
+mouse wheel scrolls, `/` finds a game in any folder below by typing parts
+of its name, as [fzf](fzf.html) does, and q quits).
 
 The emulation is [bsnes](https://github.com/bsnes-emu/bsnes)'s: accurate
 to the cycle, with the cartridges' enhancement chips (Super FX, SA-1 and

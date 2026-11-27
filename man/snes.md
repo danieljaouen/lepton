@@ -2,8 +2,10 @@
 
 Play a Super Nintendo (Super Famicom) game from its ROM file (`.sfc`,
 `.smc`) in a window on the desktop. Without a ROM, choose one from your
-files: Enter plays a game or opens a folder, Backspace goes up, `q`
-quits. This is what the desktop's SNES (Start menu and icon) opens.
+files: Enter (or a double click) plays a game or opens a folder,
+Backspace goes up, a click selects, the wheel scrolls, `/` finds a game
+in any folder below by typing parts of its name (fzf(1)), `q` quits.
+This is what the desktop's SNES (Start menu and icon) opens.
 
 The emulation is bsnes's (the `snes` app: `sudo app install snes`;
 `snes` offers to install it when it's missing). It needs the desktop
@@ -49,4 +51,4 @@ option.
 
 ## SEE ALSO
 
-open(1), app(1), https://trylepton.app/docs/snes.html
+open(1), fzf(1), app(1), https://trylepton.app/docs/snes.html

@@ -47,8 +47,11 @@ music), a line shows what plays:
 
 Several files play one after another; a folder plays the media in it.
 `play` alone, in a terminal, lists the folders and media files where
-you are (or in `~/Videos`, or `~/Music`): Enter plays one and those
-after it. That's what the Start menu's Media Player opens.
+you are (or in `~/Videos`, or `~/Music`): Enter (or a double click)
+plays one and those after it, a click selects, the wheel scrolls. `/`
+finds media in every folder below by typing parts of a name, as
+[fzf](fzf.html) does; Tab there marks several to play. That's what the
+Start menu's Media Player opens.
 
 <!-- commands: play -->
 
@@ -80,7 +83,9 @@ starts. Space stops it, and plays again.
 `/` searches [Radio Browser](https://www.radio-browser.info)'s directory
 of about 50,000 stations, by name and by genre: try `jazz`, `bbc` or
 `lofi`. Tab switches between your stations and what was found; `a` adds
-the one chosen to yours, `d` removes one of yours. What happened shows
+the one chosen to yours, `d` removes one of yours. The mouse works too: a
+click selects a station, a double click plays it, the wheel scrolls, and
+a click on a tab shows it. What happened shows
 on the bottom line for a few seconds, then the keys are back.
 
 From the command line:
