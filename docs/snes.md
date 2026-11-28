@@ -55,7 +55,7 @@ And for the emulator:
 | F5, F9 | save the game's state, load it back |
 | 1 to 9 | choose the state's slot first (slot 1 to start with) |
 | F11 (or a double click) | full screen, and back |
-| Esc | close |
+| Esc | leave full screen; in a window, close |
 
 ## Saves
 
@@ -89,5 +89,11 @@ and Series pads, and Nintendo's, aren't supported yet.
 ## Limits
 
 The games themselves are yours to bring: Lepton doesn't come with any.
+
+Full screen, or a window much bigger than the first one, shows fewer
+pictures a second (about 33 on a 1280x800 screen) while the game itself
+runs at full speed: a virtual machine's display copies every changed
+line to its window on your computer, and more than that made it fall
+behind until the whole picture hung.
 
 <!-- commands: snes -->

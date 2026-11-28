@@ -38,6 +38,13 @@ defmodule Lepton.SNES.Window do
   @key_p 25
   @pause 119
   @watchdog_ms 3000
+  # Screen lines a second the window may change: what a 2x window (448
+  # lines) at 60 frames takes. A virtual machine's display copies every
+  # changed line out to its window on the host; past what it keeps up
+  # with, the host falls behind and the whole picture hangs while the
+  # machine runs on (a full screen, 800 lines at 60, did that in UTM).
+  # Bigger than 2x, the game shows fewer pictures a second instead.
+  @lines_per_second 27_000
 
   require Logger
   @key_r 19
@@ -92,6 +99,9 @@ defmodule Lepton.SNES.Window do
       pending_size: nil,
       buffer: nil,
       busy: false,
+      shown: nil,
+      last_draw: nil,
+      draw_timer: nil,
       frame: nil,
       drawn: false,
       buttons: 0,
@@ -188,6 +198,7 @@ defmodule Lepton.SNES.Window do
   def handle_info({:snes_pad_removed, player}, st), do: {:noreply, show(st, "player #{player + 1}'s pad unplugged")}
 
   def handle_info(:title, st), do: {:noreply, %{st | c: Client.request(st.c, st.ids.top, :set_title, [title(st)])}}
+  def handle_info(:draw, st), do: {:noreply, draw(%{st | draw_timer: nil})}
 
   # The emulator sends 50 or 60 pictures a second while the game runs:
   # none for a while (not paused) means it's stuck, which is logged
@@ -195,8 +206,15 @@ defmodule Lepton.SNES.Window do
   def handle_info(:watchdog, st) do
     Process.send_after(self(), :watchdog, @watchdog_ms)
 
+    now = System.monotonic_time(:millisecond)
+
     cond do
-      st.frames > st.frames_seen -> {:noreply, %{st | frames_seen: st.frames, stalled: false}}
+      # Pictures come, none goes to the screen: what the window waits for.
+      st.frames > st.frames_seen and st.last_draw != nil and now - st.last_draw > @watchdog_ms and !st.stalled ->
+        Logger.warning("snes: pictures come but none drawn for #{div(now - st.last_draw, 1000)} s (waiting for: #{if st.busy, do: "the buffer back", else: ""}#{if st.shown, do: " the last one shown", else: ""}; #{st.w}x#{st.h}#{if st.fullscreen, do: ", full screen", else: ""})")
+        {:noreply, %{st | frames_seen: st.frames, stalled: true}}
+
+      st.frames > st.frames_seen -> {:noreply, %{st | frames_seen: st.frames, stalled: st.stalled and st.last_draw != nil and now - st.last_draw > @watchdog_ms}}
       st.paused or !st.started or st.stalled -> {:noreply, st}
       true ->
         {:memory, mem} = Process.info(self(), :memory)
@@ -360,6 +378,8 @@ defmodule Lepton.SNES.Window do
   end
 
   defp event({id, "wl_buffer", :release, _}, %{buffer: %{id: id}} = st), do: draw(%{st | busy: false})
+  # The compositor has put the last picture on the screen: the next may go.
+  defp event({id, "wl_callback", :done, _}, %{shown: id} = st), do: draw(%{st | shown: nil})
   defp event(_event, st), do: st
 
   defp create_input(st, req, iface, key) do
@@ -391,6 +411,8 @@ defmodule Lepton.SNES.Window do
       {:pad, bit, false} -> set_buttons(st, band(st.buttons, bnot(bsl(1, bit))))
       {:ctrl, true} -> %{st | ctrl: MapSet.put(st.ctrl, code)}
       {:ctrl, false} -> %{st | ctrl: MapSet.delete(st.ctrl, code)}
+      # (Esc in full screen: back to the window, as everywhere; in the window, close)
+      :close when st.fullscreen -> fullscreen(st, false)
       :close -> (send(self(), {:wl_closed, st.c.sock}); st)
       :pause -> pause(st, !st.paused)
       :reset -> (send_host(st, <<?R>>); st)
@@ -417,6 +439,7 @@ defmodule Lepton.SNES.Window do
   end
 
   defp fullscreen(st, on) do
+    Logger.info("snes: full screen #{if on, do: "on", else: "off"} (window #{st.w}x#{st.h})")
     c = if on, do: Client.request(st.c, st.ids.top, :set_fullscreen, [0]), else: Client.request(st.c, st.ids.top, :unset_fullscreen, [])
     %{st | c: c, fullscreen: on}
   end
@@ -425,26 +448,50 @@ defmodule Lepton.SNES.Window do
   defp resized(st) do
     free_buffer(st)
     send_host(st, <<?S, st.w::16, st.h::16>>)
-    %{st | frame: nil, buffer: nil, busy: false, drawn: false}
+    %{st | frame: nil, buffer: nil, busy: false, shown: nil, drawn: false}
   end
 
   # -- drawing -------------------------------------------------------------------------------
 
   defp draw(%{configured: false} = st), do: st
   defp draw(%{busy: true} = st), do: st
+  # Paced by the compositor: a picture goes when the last one has been
+  # shown (its frame callback), not merely taken. A full screen on a slow
+  # display (a virtual machine's, copied out to its window) took pictures
+  # faster than it could show them, the compositor busy with nothing else
+  # and the whole desktop stuck; now the game shows fewer of them.
+  defp draw(%{shown: id} = st) when id != nil, do: st
   # Nothing new since the last (black, until the first frame comes).
   defp draw(%{frame: nil, drawn: true} = st), do: st
 
-  defp draw(st) do
+  defp draw(%{frame: frame, last_draw: last} = st) when frame != nil and last != nil do
+    wait = interval(st.h) - (System.monotonic_time(:millisecond) - last)
+
+    cond do
+      wait <= 0 -> really_draw(st)
+      st.draw_timer -> st
+      true -> %{st | draw_timer: Process.send_after(self(), :draw, wait)}
+    end
+  end
+
+  defp draw(st), do: really_draw(st)
+
+  defp really_draw(st) do
     st = ensure_buffer(st)
     picture = st.frame || :binary.copy(<<0, 0, 0, 0xFF>>, st.w * st.h)
     :ok = :file.pwrite(st.buffer.file, 0, picture)
     c = Client.request(st.c, st.ids.surface, :damage_buffer, [0, 0, st.w, st.h])
     c = Client.request(c, st.ids.surface, :attach, [st.buffer.id, 0, 0])
+    {c, shown} = Client.create(c, st.ids.surface, :frame, "wl_callback")
     c = Client.request(c, st.ids.surface, :commit, [])
-    # (drawn: the next frame waits for the compositor to let this buffer go)
-    %{st | c: c, busy: true, frame: nil, drawn: true}
+    # (the next frame waits for the compositor to let this buffer go, and to show this one)
+    %{st | c: c, busy: true, shown: shown, frame: nil, drawn: true, last_draw: System.monotonic_time(:millisecond)}
   end
+
+  @doc false
+  # The least time between pictures `h` lines tall: 60 a second up to 448
+  # lines, fewer above (a full screen of 800: about 33).
+  def interval(h), do: max(div(1000 * h, @lines_per_second), 16)
 
   defp ensure_buffer(%{buffer: nil} = st) do
     {c, pool, file} = Client.shm_pool(st.c, st.ids.shm, st.w * st.h * 4, st.dir)

@@ -120,6 +120,7 @@ defmodule Lepton.Photon do
     damage: [],
     repaint: nil,
     frame_callbacks: [],
+    slow_logged: nil,
     place: 0,
     started: 0,
     owner: nil,
@@ -1516,8 +1517,11 @@ defmodule Lepton.Photon do
     layers = below ++ windows ++ above ++ top ++ shot_layers(st)
     cursor = if st.hide_cursor, do: nil, else: cursor(st)
 
+    t0 = System.monotonic_time(:millisecond)
     rows = Enum.flat_map(merge(st.damage), &Render.compose(&1, st.background, layers, cursor))
+    t1 = System.monotonic_time(:millisecond)
     if rows != [], do: Screen.write(st.output, rows)
+    st = slow_repaint(st, t0, t1, System.monotonic_time(:millisecond), length(rows))
 
     now = System.monotonic_time(:millisecond) - st.started
     st = Enum.reduce(st.frame_callbacks, st, fn {sock, cb}, st ->
@@ -1530,6 +1534,20 @@ defmodule Lepton.Photon do
     end)
 
     %{st | damage: [], frame_callbacks: [], repaint: nil}
+  end
+
+  # A repaint over 200 ms (the desktop stops answering for that long) is
+  # logged, at most every 10 s: how long composing and writing to the
+  # displays took, and how many rows changed.
+  defp slow_repaint(st, t0, t1, t2, rows) do
+    last = st.slow_logged
+
+    if t2 - t0 > 200 and (last == nil or t2 - last > 10_000) do
+      Logger.warning("photon: a repaint took #{t2 - t0} ms (composing #{t1 - t0} ms, writing to the displays #{t2 - t1} ms; #{rows} rows)")
+      %{st | slow_logged: t2}
+    else
+      st
+    end
   end
 
   # The window manager's own surfaces are redrawn when what they show changes.

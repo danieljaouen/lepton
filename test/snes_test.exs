@@ -85,6 +85,13 @@ defmodule Lepton.SNESTest do
     assert Pads.devices(sys) == ["/dev/input/event1", "/dev/input/event2"]
   end
 
+  test "pictures a second: 60 up to a 2x window, fewer for a full screen (a virtual machine's display keeps up)" do
+    assert Window.interval(448) == 16
+    assert Window.interval(224) == 16
+    assert Window.interval(800) in 28..34
+    assert Window.interval(1080) > Window.interval(800)
+  end
+
   test "XInput pads (an F310 on X, Xbox 360 pads): found on USB, their reports as the SNES's buttons" do
     alias Lepton.SNES.Pads
     # A report: type 0, length 20, buttons (two bytes), triggers, sticks.
@@ -205,9 +212,9 @@ defmodule Lepton.SNESTest do
       Process.sleep(500)
       for _ <- 1..2, do: (Photon.input(ph, {:button, 0x110, true}); Photon.input(ph, {:button, 0x110, false}))
       assert eventually(fn -> match?([%{fullscreen: true}], Photon.info(ph).windows) end, 30)
-      # (F11 back; the game still drawn, keys still played)
-      Photon.input(ph, {:key, 87, true})
-      Photon.input(ph, {:key, 87, false})
+      # (Esc: back to the window, not closed; the game still drawn, keys still played)
+      Photon.input(ph, {:key, 1, true})
+      Photon.input(ph, {:key, 1, false})
       assert eventually(fn -> match?([%{fullscreen: false, width: 512}], Photon.info(ph).windows) end, 30)
       [%{x: x, y: y}] = Photon.info(ph).windows
       {cx, cy} = Render.content_origin(x, y)

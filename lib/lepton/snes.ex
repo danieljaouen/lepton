@@ -245,7 +245,7 @@ defmodule Lepton.SNES do
     """
     Pad:  arrows: D-pad   X: A   Z: B   S: X   A: Y   Q: L   W: R
           Enter: Start   Right Shift (or Backspace): Select
-    Game: P (or Pause): pause   Ctrl+R: reset   F11 (or a double click): full screen
+    Game: P (or Pause): pause   Ctrl+R: reset   F11 (or a double click): full screen (Esc leaves it)
           F5: save state   F9: load state   (1-9 pick the slot first)   Esc: close
     """
   end
