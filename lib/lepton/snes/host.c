@@ -16,6 +16,7 @@
  *       'M' text                             something to show
  * In:   'K' buttons (u16) [player (u8)]      a pad (libretro joypad bits; player 1 or 2: 0, 1)
  *       'S' width (u16) height (u16)         the window's new size
+ *       'C' width (u16) height (u16)         the most the picture may be (0: no limit)
  *       'P' paused (u8)
  *       'R'                                  reset
  *       'W' slot (u8)  /  'L' slot (u8)      save / load a state
@@ -77,6 +78,7 @@ static size_t (*r_get_memory_size)(unsigned);
 
 static int pixel_format = 0; /* 0: 0RGB1555, 1: XRGB8888, 2: RGB565 */
 static unsigned out_w = 512, out_h = 448;
+static unsigned cap_w = 0, cap_h = 0; /* the picture's largest size ('C'), 0: none */
 static uint16_t buttons[2] = {0, 0};
 static const char *save_dir = ".";
 static double core_rate = 32040.0;
@@ -166,6 +168,7 @@ static void video(const void *data, unsigned w, unsigned h, size_t pitch) {
 
   unsigned dw = out_w, dh = (unsigned)((uint64_t)out_w * 224 / 256);
   if (dh > out_h) { dh = out_h; dw = (unsigned)((uint64_t)out_h * 256 / 224); }
+  if (cap_w && cap_h && (dw > cap_w || dh > cap_h)) { dw = cap_w; dh = cap_h; }
   if (dw == 0 || dh == 0) return;
   unsigned ox = (out_w - dw) / 2, oy = (out_h - dh) / 2;
   memset(out, 0, pixels * 4);
@@ -357,6 +360,7 @@ static void command(const uint8_t *p, size_t n) {
   if (n == 0) return;
   switch (p[0]) {
     case 'K': if (n >= 3) buttons[n >= 4 && p[3] == 1 ? 1 : 0] = (uint16_t)((p[1] << 8) | p[2]); break;
+    case 'C': if (n >= 5) { cap_w = (p[1] << 8) | p[2]; cap_h = (p[3] << 8) | p[4]; } break;
     case 'S': if (n >= 5) { unsigned w = (p[1] << 8) | p[2], h = (p[3] << 8) | p[4]; if (w >= 16 && h >= 16 && w <= 8192 && h <= 8192) { out_w = w; out_h = h; } } break;
     case 'P': if (n >= 2) paused = p[1]; break;
     case 'R': r_reset(); message("Reset"); break;

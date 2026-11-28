@@ -38,6 +38,7 @@ defmodule Lepton.SNES.Window do
   @key_p 25
   @pause 119
   @watchdog_ms 3000
+  @vm_picture {768, 672}
   # Screen lines a second the window may change: what a 2x window (448
   # lines) at 60 frames takes. A virtual machine's display copies every
   # changed line out to its window on the host; past what it keeps up
@@ -129,7 +130,14 @@ defmodule Lepton.SNES.Window do
     # buttons go with the keyboard's.
     pads = if opts[:pads] != false, do: Lepton.SNES.Pads.start(self())
     Process.send_after(self(), :watchdog, @watchdog_ms)
-    Map.merge(st, %{port: port, audio: nil, pads: pads, pad: %{0 => 0, 1 => 0}})
+    # In a virtual machine, the picture is at most 3x (768x672), in a
+    # bigger window or full screen black around it: UTM's display (SPICE)
+    # stopped showing a bigger moving picture (914x800, full screen at
+    # 1280x800) while smaller ones played on. On a computer of its own,
+    # as big as the window.
+    cap = Keyword.get_lazy(opts, :max_picture, fn -> if Lepton.Sys.qemu?(), do: @vm_picture end)
+    if cap, do: (fn {cw, ch} -> Port.command(port, <<?C, cw::16, ch::16>>) end).(cap)
+    Map.merge(st, %{port: port, audio: nil, pads: pads, pad: %{0 => 0, 1 => 0}, cap: cap})
   end
 
   # The frontend, as the user (a ROM from their files is read with their
@@ -465,7 +473,8 @@ defmodule Lepton.SNES.Window do
   defp draw(%{frame: nil, drawn: true} = st), do: st
 
   defp draw(%{frame: frame, last_draw: last} = st) when frame != nil and last != nil do
-    wait = interval(st.h) - (System.monotonic_time(:millisecond) - last)
+    # (the lines that change: the picture's, not the black around it)
+    wait = interval(elem(picture(st.w, st.h, st.cap), 3)) - (System.monotonic_time(:millisecond) - last)
 
     cond do
       wait <= 0 -> really_draw(st)
@@ -480,7 +489,9 @@ defmodule Lepton.SNES.Window do
     st = ensure_buffer(st)
     picture = st.frame || :binary.copy(<<0, 0, 0, 0xFF>>, st.w * st.h)
     :ok = :file.pwrite(st.buffer.file, 0, picture)
-    c = Client.request(st.c, st.ids.surface, :damage_buffer, [0, 0, st.w, st.h])
+    # (after the first at this size, the black around the picture stays: only the picture changes)
+    {dx, dy, dw, dh} = if st.drawn and st.frame, do: picture(st.w, st.h, st.cap), else: {0, 0, st.w, st.h}
+    c = Client.request(st.c, st.ids.surface, :damage_buffer, [dx, dy, dw, dh])
     c = Client.request(c, st.ids.surface, :attach, [st.buffer.id, 0, 0])
     {c, shown} = Client.create(c, st.ids.surface, :frame, "wl_callback")
     c = Client.request(c, st.ids.surface, :commit, [])
@@ -491,7 +502,20 @@ defmodule Lepton.SNES.Window do
   @doc false
   # The least time between pictures `h` lines tall: 60 a second up to 448
   # lines, fewer above (a full screen of 800: about 33).
-  def interval(h), do: max(div(1000 * h, @lines_per_second), 16)
+  def interval(h), do: max(div(1000 * h, Application.get_env(:lepton, :snes_lines_per_second, @lines_per_second)), 16)
+
+  @doc false
+  # Where the frontend puts the picture in a `w` by `h` window: the
+  # SNES's 8:7, as big as fits (and `cap` allows), centred. `{x, y, w, h}`.
+  def picture(w, h, cap) do
+    {dw, dh} = if div(w * 224, 256) <= h, do: {w, div(w * 224, 256)}, else: {div(h * 256, 224), h}
+    {dw, dh} = case cap do
+      {cw, ch} when dw > cw or dh > ch -> {cw, ch}
+      _ -> {dw, dh}
+    end
+
+    {div(w - dw, 2), div(h - dh, 2), dw, dh}
+  end
 
   defp ensure_buffer(%{buffer: nil} = st) do
     {c, pool, file} = Client.shm_pool(st.c, st.ids.shm, st.w * st.h * 4, st.dir)

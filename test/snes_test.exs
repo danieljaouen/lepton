@@ -241,6 +241,34 @@ defmodule Lepton.SNESTest do
     end
   end
 
+  test "the picture's largest size (in a virtual machine, 3x): full screen, black around it, only it redrawn" do
+    assert Window.picture(1280, 800, {768, 672}) == {256, 64, 768, 672}
+    assert Window.picture(1280, 800, nil) == {183, 0, 914, 800}
+    assert Window.picture(512, 448, {768, 672}) == {0, 0, 512, 448}
+
+    if SNES.installed?() do
+      Application.put_env(:lepton, :snes_build_dir, tmp_dir("snes-build"))
+      on_exit(fn -> Application.delete_env(:lepton, :snes_build_dir) end)
+      {:ok, exe} = SNES.host()
+      dir = runtime_dir()
+      out = Output.file(Path.join(dir, "fb"), 1280, 800)
+      {:ok, ph} = Photon.start(output: out, socket: Path.join(dir, "wayland-0"))
+      on_exit(fn -> if Process.alive?(ph), do: Photon.stop(ph) end)
+      env = %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0", "HOME" => tmp_dir("snes-home")}
+      {:ok, win} = Window.start(rom: @rom, host: exe, env: env, title: "cap", notify: self(), pads: false, max_picture: {768, 672})
+      assert eventually(fn -> match?([%{title: "cap"}], Photon.info(ph).windows) end, 50)
+      Photon.input(ph, {:key, 87, true})
+      Photon.input(ph, {:key, 87, false})
+      assert eventually(fn -> match?([%{fullscreen: true}], Photon.info(ph).windows) end, 30)
+      rgb = fn x, y -> binary_part(Output.read(out, x, y, 1, 1), 0, 3) end
+      send(win, {:snes_pad, 0, 0b1001})
+      # The picture (256..1023 x 64..735) coloured; above it and beside it, black. (Not in the middle: the pointer is there.)
+      assert eventually(fn -> rgb.(500, 300) != <<0, 0, 0>> end, 50)
+      assert rgb.(500, 30) == <<0, 0, 0>> and rgb.(150, 300) == <<0, 0, 0>> and rgb.(1100, 300) == <<0, 0, 0>>
+      GenServer.stop(win)
+    end
+  end
+
   test "a ROM that can't be read: the window says why and closes" do
     if SNES.installed?() do
       Application.put_env(:lepton, :snes_build_dir, tmp_dir("snes-build2"))

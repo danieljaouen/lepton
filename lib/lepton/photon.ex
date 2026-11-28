@@ -1058,11 +1058,23 @@ defmodule Lepton.Photon do
           end
 
         emit(st, sock, bid, "wl_buffer", :release, [])
-        {st, %{s | content: content, w: b.w, h: b.h}, if(resized, do: :all, else: {0, y0, b.w, y1 - y0})}
+        {st, %{s | content: content, w: b.w, h: b.h}, if(resized, do: :all, else: damaged_area(damage, b.w, y0, y1))}
 
       _ ->
         {st, s, nil}
     end
+  end
+
+  # The part of the surface its damage covers: the rows read, and only as
+  # wide as the damage (a game's picture in the middle of a full screen
+  # redraws that, not the black around it). No damage given: all of it.
+  defp damaged_area([], w, y0, y1), do: {0, y0, w, y1 - y0}
+
+  defp damaged_area(damage, w, y0, y1) do
+    xs = Enum.flat_map(damage, fn {x, _y, dw, _h} -> [x |> max(0) |> min(w), (x + dw) |> max(0) |> min(w)] end)
+    x0 = Enum.min(xs)
+    x1 = Enum.max(xs)
+    if x1 > x0, do: {x0, y0, x1 - x0, y1 - y0}, else: {0, y0, w, y1 - y0}
   end
 
   defp pad_to(data, n) when byte_size(data) >= n, do: data

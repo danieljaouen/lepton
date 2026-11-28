@@ -18,6 +18,7 @@ The emulation is bsnes's (the `snes` app: `sudo app install snes`;
 - P or Pause: pause and go on. Ctrl+R: reset.
 - F5: save the state; F9: load it. 1 to 9: choose the slot first.
 - F11 or a double click: full screen. Esc: leave full screen; in a window, close.
+  (In a virtual machine the picture is at most 3x, 768x672, black around it.)
 
 Keys are read by their places on the keyboard: the same on every layout.
 

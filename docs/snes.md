@@ -90,10 +90,12 @@ and Series pads, and Nintendo's, aren't supported yet.
 
 The games themselves are yours to bring: Lepton doesn't come with any.
 
-Full screen, or a window much bigger than the first one, shows fewer
-pictures a second (about 33 on a 1280x800 screen) while the game itself
-runs at full speed: a virtual machine's display copies every changed
-line to its window on your computer, and more than that made it fall
-behind until the whole picture hung.
+In a virtual machine the picture is at most three times the SNES's
+(768x672): full screen, or a bigger window, shows it that size in the
+middle, black around it. UTM's display stopped showing a bigger moving
+picture (the screen kept its old one while the game played on); on a
+computer of its own, the picture fills the screen. A picture bigger than
+the first window's also comes fewer times a second (about 40 at 3x),
+while the game itself runs at full speed.
 
 <!-- commands: snes -->
