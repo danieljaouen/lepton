@@ -1009,10 +1009,10 @@ defmodule Lepton.Photon do
       case {area, root(st, sock, sid)} do
         {nil, _} -> st
         {:all, {^sid, _}} -> st |> redecorate(key) |> keep_in_work_area(key) |> damage_window(key)
-        {{x, y, w, h}, {^sid, _}} -> damage_content(st, key, {x, y, w, h})
+        {rects, {^sid, _}} when is_list(rects) -> Enum.reduce(rects, st, &damage_content(&2, key, &1))
+        {rects, {root_sid, {dx, dy}}} when is_list(rects) -> Enum.reduce(rects, st, fn {x, y, w, h}, st -> damage_content(st, {sock, root_sid}, {dx + x, dy + y, w, h}) end)
         # A subsurface: damage its part of the window (all of it when its size changed).
         {:all, {root_sid, {dx, dy}}} -> damage_content(st, {sock, root_sid}, {dx, dy, max(s.w, old.w), max(s.h, old.h)})
-        {{x, y, w, h}, {root_sid, {dx, dy}}} -> damage_content(st, {sock, root_sid}, {dx + x, dy + y, w, h})
       end
 
     st = role_commit(st, sock, sid, s)
@@ -1058,23 +1058,27 @@ defmodule Lepton.Photon do
           end
 
         emit(st, sock, bid, "wl_buffer", :release, [])
-        {st, %{s | content: content, w: b.w, h: b.h}, if(resized, do: :all, else: damaged_area(damage, b.w, y0, y1))}
+        {st, %{s | content: content, w: b.w, h: b.h}, if(resized, do: :all, else: damaged_areas(damage, b.w, b.h, y0, y1))}
 
       _ ->
         {st, s, nil}
     end
   end
 
-  # The part of the surface its damage covers: the rows read, and only as
-  # wide as the damage (a game's picture in the middle of a full screen
-  # redraws that, not the black around it). No damage given: all of it.
-  defp damaged_area([], w, y0, y1), do: {0, y0, w, y1 - y0}
+  # The parts of the surface its damage covers, each rectangle on its own
+  # (a video in the middle of a full screen and its bar at the bottom are
+  # two, not the whole width from one to the other: UTM's display stopped
+  # showing a moving area that big). No damage given: all the rows read.
+  defp damaged_areas([], w, _h, y0, y1), do: [{0, y0, w, y1 - y0}]
 
-  defp damaged_area(damage, w, y0, y1) do
-    xs = Enum.flat_map(damage, fn {x, _y, dw, _h} -> [x |> max(0) |> min(w), (x + dw) |> max(0) |> min(w)] end)
-    x0 = Enum.min(xs)
-    x1 = Enum.max(xs)
-    if x1 > x0, do: {x0, y0, x1 - x0, y1 - y0}, else: {0, y0, w, y1 - y0}
+  defp damaged_areas(damage, w, h, _y0, _y1) do
+    for {x, y, dw, dh} <- damage,
+        x0 = x |> max(0) |> min(w),
+        x1 = (x + dw) |> max(0) |> min(w),
+        ya = y |> max(0) |> min(h),
+        yb = (y + dh) |> max(0) |> min(h),
+        x1 > x0 and yb > ya,
+        do: {x0, ya, x1 - x0, yb - ya}
   end
 
   defp pad_to(data, n) when byte_size(data) >= n, do: data

@@ -29,6 +29,15 @@ defmodule Lepton.MediaPlayerTest do
     assert Window.initial_size(nil) == {640, 390}
   end
 
+  test "the window: a click pauses, a double click fills the screen; a first click is never a double one" do
+    now = System.monotonic_time(:millisecond)
+    # (the clock starts far below 0: a first click measured from 0 looked like a double one)
+    refute Window.double?(nil, now)
+    refute Window.double?(nil, -576_460_752_303)
+    assert Window.double?(now - 200, now)
+    refute Window.double?(now - 600, now)
+  end
+
   test "the window's bar: a row of pixels for each line, the window's width" do
     st = %{w: 480, status: %{state: :playing, position: 10.0, duration: 100.0, title: "Film", now_playing: nil, error: nil, live: false}}
     rows = Window.bar(st)
@@ -269,6 +278,52 @@ defmodule Lepton.MediaPlayerTest do
   end
 
   @tag timeout: 120_000
+  test "the window's picture: all of the video area, or (in a virtual machine) at most 768x672 in the middle" do
+    assert Window.box(1280, 770, nil) == {0, 0, 1280, 770}
+    assert Window.box(1280, 770, {768, 672}) == {256, 49, 768, 672}
+    assert Window.box(640, 360, {768, 672}) == {0, 0, 640, 360}
+    # A wide video: just its shape (the black above and below isn't redrawn).
+    assert Window.box(1280, 770, {768, 672}, {1280, 720}) == {256, 169, 768, 432}
+    assert Window.box(1280, 770, {768, 672}, {640, 480}) == {256, 97, 768, 576}
+  end
+
+  @tag timeout: 120_000
+  test "with FFmpeg: a video in the window, full screen, the picture capped in the middle and only it redrawn" do
+    if FFmpeg.installed?() do
+      dir = tmp_dir("media-win")
+      file = Path.join(dir, "red.mp4")
+      {_, 0} = System.cmd(FFmpeg.program("ffmpeg"), ~w(-hide_banner -loglevel error -f lavfi -i color=c=red:s=320x240:d=20 -pix_fmt yuv420p #{file}), env: Enum.to_list(FFmpeg.env()))
+      run = "/tmp/lmw-#{System.unique_integer([:positive])}"
+      File.mkdir_p!(run)
+      on_exit(fn -> File.rm_rf(run) end)
+      out = Lepton.Photon.Output.file(Path.join(run, "fb"), 1280, 800)
+      {:ok, ph} = Lepton.Photon.start(output: out, socket: Path.join(run, "wayland-0"))
+      on_exit(fn -> if Process.alive?(ph), do: Lepton.Photon.stop(ph) end)
+      env = %{"XDG_RUNTIME_DIR" => run, "WAYLAND_DISPLAY" => "wayland-0", "HOME" => dir}
+      {:ok, win} = Window.start(env: env, title: "red", max_picture: {768, 672})
+      assert eventually(fn -> match?([%{title: "red"}], Lepton.Photon.info(ph).windows) end)
+      Lepton.Photon.input(ph, {:key, 33, true})
+      Lepton.Photon.input(ph, {:key, 33, false})
+      assert eventually(fn -> match?([%{fullscreen: true}], Lepton.Photon.info(ph).windows) end)
+      send(win, {:start_video, file, 0.0, false})
+      rgb = fn x, y -> binary_part(Lepton.Photon.Output.read(out, x, y, 1, 1), 0, 3) end
+      # (B, G, R: red. Not in the middle: the pointer is there.)
+      assert eventually(fn -> match?(<<b, g, r>> when r > 200 and g < 60 and b < 60, rgb.(500, 300)) end)
+      # Black around the picture (x 256..1023, y 49..720), the bar under it.
+      assert rgb.(100, 300) == <<0, 0, 0>> and rgb.(1200, 300) == <<0, 0, 0>> and rgb.(500, 20) == <<0, 0, 0>>
+      assert rgb.(1200, 790) != <<0, 0, 0>>
+      GenServer.stop(win)
+    end
+  end
+
+  defp eventually(fun, tries \\ 100) do
+    cond do
+      fun.() -> true
+      tries == 0 -> false
+      true -> Process.sleep(100); eventually(fun, tries - 1)
+    end
+  end
+
   test "with FFmpeg: a generated file played to its end; seeking; pausing keeps the place" do
     if FFmpeg.installed?() do
       dir = tmp_dir("media")

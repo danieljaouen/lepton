@@ -13,6 +13,12 @@ defmodule Lepton.Player.Window do
   (`{:start_video, url, seconds, live}`, `:stop_video`) and sends its
   status for the bar; keys and clicks go back to it.
 
+  In a virtual machine the picture is at most 768x672, black around it in
+  a bigger window or full screen, and only it (and the bar) is redrawn:
+  UTM's display stopped showing a bigger moving picture (see
+  `Lepton.SNES.Window`). Each picture goes once the compositor has shown
+  the last (its frame callback).
+
   Keys: Space (or a click on the picture) pauses, Left/Right seek 5
   seconds, Up/Down a minute, `9`/`0` (or `-`/`+`) the volume, `m` mutes,
   `f` (or a double click) fills the screen, `q` or Esc closes.
@@ -27,6 +33,7 @@ defmodule Lepton.Player.Window do
   alias Lepton.Wayland.{Client, Keymap}
 
   @bar 30
+  @vm_picture {768, 672}
   @bg <<0x2B, 0x2B, 0x2B, 0xFF>>
   @fg <<0xEE, 0xEE, 0xEE, 0xFF>>
   @dim <<0x99, 0x99, 0x99, 0xFF>>
@@ -93,8 +100,16 @@ defmodule Lepton.Player.Window do
       mods: 0,
       group: 0,
       pointer: {0, 0},
-      last_click: 0,
+      last_click: nil,
       fullscreen: false,
+      cap: Keyword.get_lazy(opts, :max_picture, fn -> if Lepton.Sys.qemu?(), do: @vm_picture end),
+      cleared: false,
+      shown: nil,
+      last_bar: nil,
+      dims: (case opts[:video] do
+        %{w: vw, h: vh} when is_integer(vw) and is_integer(vh) and vw > 0 and vh > 0 -> {vw, vh}
+        _ -> nil
+      end),
       dir: env["XDG_RUNTIME_DIR"] || System.tmp_dir!(),
       user: opts[:user],
       log: Path.join([env["HOME"] || "/root", ".cache", "lepton", "ffmpeg.log"])
@@ -151,10 +166,33 @@ defmodule Lepton.Player.Window do
   # -- video ---------------------------------------------------------------------------------
 
   defp video_size(st), do: {st.w, max(st.h - @bar, 2)}
-  defp frame_size(st), do: (fn {w, h} -> w * h * 4 end).(video_size(st))
+  defp frame_size(st), do: (fn {_, _, w, h} -> w * h * 4 end).(box(st))
+  defp box(st), do: (fn {w, h} -> box(w, h, st.cap, st.dims) end).(video_size(st))
+
+  @doc """
+  Where the pictures go in a `w` by `h` video area: `{x, y, w, h}`, all of
+  it, or (`cap`, in a virtual machine) at most that big, in the middle,
+  and then (`dims`, the video's size) just the video's shape: the black
+  above and below a wide video isn't redrawn with every picture.
+  """
+  def box(w, h, cap, dims \\ nil)
+  def box(w, h, nil, _dims), do: {0, 0, w, h}
+
+  def box(w, h, {cw, ch}, dims) do
+    {bw, bh} = {min(w, cw), min(h, ch)}
+
+    {bw, bh} =
+      case dims do
+        {vw, vh} -> if bw * vh <= bh * vw, do: {bw, div(bw * vh, vw)}, else: {div(bh * vw, vh), bh}
+        nil -> {bw, bh}
+      end
+
+    {bw, bh} = {max(even(bw), 2), max(even(bh), 2)}
+    {div(w - bw, 2), div(h - bh, 2), bw, bh}
+  end
 
   defp start_video(st, url, start, live) do
-    {w, h} = video_size(st)
+    {_, _, w, h} = box(st)
     Lepton.Users.own_new_in_home(Path.dirname(st.log), fn -> File.mkdir_p(Path.dirname(st.log)) end)
     port = FFmpeg.open("ffmpeg", FFmpeg.video_args(url, w, h, start: start, live: live), log: st.log, user: st.user)
     %{st | port: port, buf: <<>>, video: {url, live}}
@@ -181,7 +219,7 @@ defmodule Lepton.Player.Window do
 
   # A new size: the pictures again, at the new size, from where it is.
   defp resized(st) do
-    st = %{st | frame: nil, buffer: free_buffer(st), busy: false, dirty: true}
+    st = %{st | frame: nil, buffer: free_buffer(st), busy: false, dirty: true, cleared: false, shown: nil}
 
     case {st.port, st.video} do
       {nil, _} -> st
@@ -229,6 +267,7 @@ defmodule Lepton.Player.Window do
   end
 
   defp event({id, "wl_buffer", :release, _}, %{buffer: %{id: id}} = st), do: %{st | busy: false}
+  defp event({id, "wl_callback", :done, _}, %{shown: id} = st), do: %{st | shown: nil}
   defp event(_event, st), do: st
 
   defp create_input(st, req, iface, key) do
@@ -271,6 +310,16 @@ defmodule Lepton.Player.Window do
     %{st | c: c, fullscreen: on}
   end
 
+  @doc """
+  Is a click at `now` (milliseconds, the monotonic clock) the second of a
+  double click, the last one at `last` (nil: none, or it ended a double
+  click)? A first click never is: the VM's monotonic clock starts far
+  below 0, so measured from 0 it always was, and one click filled the
+  screen.
+  """
+  def double?(nil, _now), do: false
+  def double?(last, now), do: now - last < 400
+
   # The bar: a click on the progress line seeks there; on the picture,
   # pause (a double click: fill the screen).
   defp click(st, x, y) do
@@ -288,8 +337,8 @@ defmodule Lepton.Player.Window do
             st
         end
 
-      now - st.last_click < 400 ->
-        fullscreen(%{st | last_click: 0}, !st.fullscreen)
+      double?(st.last_click, now) ->
+        fullscreen(%{st | last_click: nil}, !st.fullscreen)
 
       true ->
         if st.player, do: Player.toggle(st.player)
@@ -336,16 +385,50 @@ defmodule Lepton.Player.Window do
   defp draw(%{configured: false} = st), do: st
   defp draw(%{busy: true} = st), do: st
   defp draw(%{dirty: false} = st), do: st
+  defp draw(%{shown: id} = st) when id != nil, do: st
 
-  defp draw(st) do
+  # Nothing new: no picture since the last, the bar as it was.
+  defp draw(%{cleared: true, frame: nil, buffer: b} = st) when b != nil do
+    if IO.iodata_to_binary(bar(st)) == st.last_bar, do: %{st | dirty: false}, else: paint(st)
+  end
+
+  defp draw(st), do: paint(st)
+
+  defp paint(st) do
     st = ensure_buffer(%{st | dirty: false})
     {w, vh} = video_size(st)
-    picture = st.frame || :binary.copy(<<0, 0, 0, 0xFF>>, w * vh)
-    :ok = :file.pwrite(st.buffer.file, 0, [picture | bar(st)])
-    c = Client.request(st.c, st.ids.surface, :damage_buffer, [0, 0, st.w, st.h])
+    {bx, by, bw, bh} = box(st)
+    black = <<0, 0, 0, 0xFF>>
+
+    # The picture's rows where the box is (the whole area, without a cap),
+    # the bar under it; the first time at a size, black around the box.
+    rows =
+      case st.frame do
+        # (none yet: the black of the first time at this size)
+        nil -> []
+        f when bw == w -> [{by * w * 4, f}]
+        f -> for r <- 0..(bh - 1)//1, do: {((by + r) * w + bx) * 4, binary_part(f, r * bw * 4, bw * 4)}
+      end
+
+    clear = if st.cleared, do: [], else: [{0, :binary.copy(black, w * vh)}]
+    # (the bar only when what it shows changed: about once a second)
+    bar = IO.iodata_to_binary(bar(st))
+    new_bar = !st.cleared or bar != st.last_bar
+    :ok = :file.pwrite(st.buffer.file, clear ++ rows ++ if(new_bar, do: [{w * vh * 4, bar}], else: []))
+
+    c =
+      if st.cleared do
+        c = if st.frame, do: Client.request(st.c, st.ids.surface, :damage_buffer, [bx, by, bw, bh]), else: st.c
+        if new_bar, do: Client.request(c, st.ids.surface, :damage_buffer, [0, vh, st.w, st.h - vh]), else: c
+      else
+        Client.request(st.c, st.ids.surface, :damage_buffer, [0, 0, st.w, st.h])
+      end
+
     c = Client.request(c, st.ids.surface, :attach, [st.buffer.id, 0, 0])
+    {c, shown} = Client.create(c, st.ids.surface, :frame, "wl_callback")
     c = Client.request(c, st.ids.surface, :commit, [])
-    %{st | c: c, busy: true}
+    # (the picture is in the buffer now: drawn again only when a new one comes)
+    %{st | c: c, busy: true, cleared: true, shown: shown, last_bar: bar, frame: nil}
   end
 
   defp ensure_buffer(%{buffer: nil} = st) do

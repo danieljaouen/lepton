@@ -36,7 +36,8 @@ In the terminal and in the window:
 
 In the window, also: `f` or a double click fills the screen (Esc
 returns); a click on the picture pauses; a click on the bar's progress
-line goes there.
+line goes there. In a virtual machine the picture is at most 768x672,
+black around it.
 
 ## EXAMPLES
 
