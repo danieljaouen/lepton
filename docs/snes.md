@@ -77,6 +77,15 @@ the top one X; the shoulder buttons (and triggers) are L and R; Select
 and Start are Select and Start. The D-pad, or the left stick, moves.
 The USB pads made to look like a SNES pad work as they're laid out.
 
+Which pads: those that are ordinary USB or Bluetooth game controllers
+(most, including PlayStation pads, the F310 with its switch on D, and
+the SNES-style ones), and XInput pads: Xbox 360 pads and the many made
+like them, such as Logitech's F310 and F710 with their switch on X and
+8BitDo's in X mode. Linux has a driver for XInput pads that Lepton's
+kernel doesn't include, so Lepton reads them from USB itself (built
+with the snes app's compiler, like the emulator's frontend). Xbox One
+and Series pads, and Nintendo's, aren't supported yet.
+
 ## Limits
 
 The games themselves are yours to bring: Lepton doesn't come with any.

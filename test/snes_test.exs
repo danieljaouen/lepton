@@ -2,6 +2,7 @@ defmodule Lepton.SNESTest do
   use ExUnit.Case
   import Lepton.TestHelpers
 
+  import Bitwise
   alias Lepton.{Photon, SNES}
   alias Lepton.Photon.{Output, Render}
   alias Lepton.SNES.Window
@@ -84,6 +85,51 @@ defmodule Lepton.SNESTest do
     assert Pads.devices(sys) == ["/dev/input/event1", "/dev/input/event2"]
   end
 
+  test "XInput pads (an F310 on X, Xbox 360 pads): found on USB, their reports as the SNES's buttons" do
+    alias Lepton.SNES.Pads
+    # A report: type 0, length 20, buttons (two bytes), triggers, sticks.
+    report = fn b1, b2, lt, rt, lx, ly -> <<0, 20, b1, b2, lt, rt, lx::little-signed-16, ly::little-signed-16, 0::32, 0::48>> end
+    assert Pads.xinput_mask(report.(0, 0, 0, 0, 0, 0)) == 0
+    # By place: A (bottom) B, B (right) A, X (left) Y, Y (top) X.
+    assert Pads.xinput_mask(report.(0, 0x10, 0, 0, 0, 0)) == 1
+    assert Pads.xinput_mask(report.(0, 0x20, 0, 0, 0, 0)) == 1 <<< 8
+    assert Pads.xinput_mask(report.(0, 0x40, 0, 0, 0, 0)) == 1 <<< 1
+    assert Pads.xinput_mask(report.(0, 0x80, 0, 0, 0, 0)) == 1 <<< 9
+    # Bumpers and triggers L, R; Back Select, Start Start.
+    assert Pads.xinput_mask(report.(0, 0x01, 0, 0, 0, 0)) == 1 <<< 10
+    assert Pads.xinput_mask(report.(0, 0, 0, 255, 0, 0)) == 1 <<< 11
+    assert Pads.xinput_mask(report.(0x20, 0, 0, 0, 0, 0)) == 1 <<< 2
+    assert Pads.xinput_mask(report.(0x10, 0, 0, 0, 0, 0)) == 1 <<< 3
+    # The D-pad (up, down, left, right), and the stick (up is positive): a little off the middle is nothing.
+    assert Enum.map([1, 2, 4, 8], &Pads.xinput_mask(report.(&1, 0, 0, 0, 0, 0))) == [16, 32, 64, 128]
+    assert Pads.xinput_mask(report.(0, 0, 0, 0, 3000, -3000)) == 0
+    assert Pads.xinput_mask(report.(0, 0, 0, 0, -30000, 30000)) == 16 + 64
+    # Other reports (the LEDs', a rumble's) aren't buttons.
+    assert Pads.xinput_mask(<<1, 3, 6>>) == nil
+
+    # Found by interface (class ff, subclass 5d, protocol 01), with its device node and endpoints.
+    usb = tmp_dir("pads-usb")
+    put = fn path, text -> File.mkdir_p!(Path.dirname(Path.join(usb, path))); File.write!(Path.join(usb, path), text <> "\n") end
+    for {f, v} <- [{"busnum", "3"}, {"devnum", "2"}, {"product", "Gamepad F310"}], do: put.("3-1/" <> f, v)
+    for {f, v} <- [{"bInterfaceClass", "ff"}, {"bInterfaceSubClass", "5d"}, {"bInterfaceProtocol", "01"}, {"bInterfaceNumber", "00"},
+                   {"ep_81/direction", "in"}, {"ep_81/type", "Interrupt"}, {"ep_81/bEndpointAddress", "81"},
+                   {"ep_02/direction", "out"}, {"ep_02/type", "Interrupt"}, {"ep_02/bEndpointAddress", "02"}],
+        do: put.("3-1:1.0/" <> f, v)
+    # (a keyboard's interface: not a pad)
+    for {f, v} <- [{"bInterfaceClass", "03"}, {"bInterfaceSubClass", "01"}, {"bInterfaceProtocol", "01"}], do: put.("1-3:1.0/" <> f, v)
+    assert [%{key: "usb:3-1:1.0", device: "/dev/bus/usb/003/002", interface: 0, in: "81", out: "02", name: "Gamepad F310"}] = Pads.xinput(usb)
+
+    # The reader builds with the snes app's tcc.
+    if SNES.installed?() do
+      Application.put_env(:lepton, :snes_build_dir, tmp_dir("xinput-build"))
+      on_exit(fn -> Application.delete_env(:lepton, :snes_build_dir) end)
+      assert {:ok, exe} = SNES.xinput_reader()
+      # (no device: it says so)
+      assert {out, 1} = System.cmd(exe, ["/nonexistent", "0", "81", "02"], stderr_to_stdout: true)
+      assert out =~ "lepton-xinput: /nonexistent"
+    end
+  end
+
   test "the chooser lists folders and games; open sends games to the emulator" do
     dir = tmp_dir("snes")
     File.mkdir_p!(Path.join(dir, "Games"))
@@ -121,7 +167,7 @@ defmodule Lepton.SNESTest do
       home = tmp_dir("snes-home")
       env = %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0", "HOME" => home}
 
-      {:ok, win} = Window.start(rom: @rom, host: exe, env: env, title: "pad", notify: self())
+      {:ok, win} = Window.start(rom: @rom, host: exe, env: env, title: "pad", notify: self(), pads: false)
       ref = Process.monitor(win)
       assert eventually(fn -> match?([%{title: "pad"}], Photon.info(ph).windows) end, 50)
       [%{x: x, y: y}] = Photon.info(ph).windows
@@ -146,6 +192,29 @@ defmodule Lepton.SNESTest do
       send(win, {:snes_pad, 0, 0b1001})
       assert eventually(fn -> rgb.() != black end, 50)
       send(win, {:snes_pad, 0, 0})
+      assert eventually(fn -> rgb.() == black end, 50)
+
+      # A click in the game is just a click; a double click is full screen
+      # (one click used to be: a first click counted as a second one).
+      Photon.input(ph, {:motion, -4000, -4000})
+      Photon.input(ph, {:motion, cx + 100, cy + 100})
+      Photon.input(ph, {:button, 0x110, true})
+      Photon.input(ph, {:button, 0x110, false})
+      Process.sleep(500)
+      assert [%{fullscreen: false}] = Photon.info(ph).windows
+      Process.sleep(500)
+      for _ <- 1..2, do: (Photon.input(ph, {:button, 0x110, true}); Photon.input(ph, {:button, 0x110, false}))
+      assert eventually(fn -> match?([%{fullscreen: true}], Photon.info(ph).windows) end, 30)
+      # (F11 back; the game still drawn, keys still played)
+      Photon.input(ph, {:key, 87, true})
+      Photon.input(ph, {:key, 87, false})
+      assert eventually(fn -> match?([%{fullscreen: false, width: 512}], Photon.info(ph).windows) end, 30)
+      [%{x: x, y: y}] = Photon.info(ph).windows
+      {cx, cy} = Render.content_origin(x, y)
+      rgb = fn -> binary_part(Output.read(fb, cx + 100, cy + 224, 1, 1), 0, 3) end
+      for k <- [44, 30, 28], do: Photon.input(ph, {:key, k, true})
+      assert eventually(fn -> rgb.() != black end, 50)
+      for k <- [44, 30, 28], do: Photon.input(ph, {:key, k, false})
       assert eventually(fn -> rgb.() == black end, 50)
 
       # Hold B, close: what the game wrote to its battery RAM is saved.
@@ -177,7 +246,7 @@ defmodule Lepton.SNESTest do
       # (gone between choosing it and starting)
       bad = Path.join(tmp_dir("snes-bad"), "gone.sfc")
       env = %{"XDG_RUNTIME_DIR" => dir, "WAYLAND_DISPLAY" => "wayland-0", "HOME" => tmp_dir("snes-home2")}
-      {:ok, win} = Window.start(rom: bad, host: exe, env: env, notify: self())
+      {:ok, win} = Window.start(rom: bad, host: exe, env: env, notify: self(), pads: false)
       assert_receive {:snes_failed, ^win, why}, 10_000
       assert why =~ "can't read"
     end

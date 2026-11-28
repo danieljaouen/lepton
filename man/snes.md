@@ -28,7 +28,10 @@ keyboard), the second player 2; they're found when plugged in, during a
 game too. Buttons go by place, as on a SNES pad: bottom B, right A, left
 Y, top X; shoulders and triggers L and R; Select, Start. The D-pad or
 the left stick moves. SNES-style USB pads (joysticks with numbered
-buttons) work as laid out.
+buttons) work as laid out. XInput pads (Xbox 360 pads, Logitech's F310
+and F710 on X, 8BitDo's in X mode) are read from USB by Lepton, the
+kernel having no driver for them; Xbox One and Series pads, and
+Nintendo's, aren't supported.
 
 ## FILES
 

@@ -18,6 +18,12 @@ defmodule Lepton.SNES.Pads do
   way). The cheap USB pads made to look like a SNES pad report as
   joysticks with numbered buttons: those get the mapping they commonly
   use (1 X, 2 A, 3 B, 4 Y, 5 L, 6 R, 9 Select, 10 Start).
+
+  XInput pads (Xbox 360 pads, and the many made like them: Logitech's
+  F310 and F710 with their switch on X, 8BitDo's in X mode) have no driver
+  in Lepton's kernel, so no input device: they're read straight from USB
+  by `lepton-xinput` (`xinput.c`, built with the snes app's tcc), found
+  by their interface (vendor class 0xff, subclass 0x5d, protocol 1).
   """
 
   import Bitwise
@@ -48,11 +54,50 @@ defmodule Lepton.SNES.Pads do
   @doc "The joypad bit a button (evdev code) presses, or nil."
   def button(code), do: Map.get(@buttons, code)
 
-  @doc "The gamepads plugged in: their device paths, in order."
+  @doc "The gamepads plugged in: their input devices' paths, in order."
   def devices(sys \\ "/sys/class/input") do
     for dir <- Path.wildcard(Path.join(sys, "event*")) |> Enum.sort_by(&number/1),
         gamepad?(Path.join(dir, "device/capabilities")),
         do: "/dev/input/" <> Path.basename(dir)
+  end
+
+  @doc """
+  The XInput pads plugged in (no driver, no input device): `%{key, device,
+  interface, in, out, name}` each, `device` its `/dev/bus/usb` node, `in`
+  and `out` its endpoints (hex).
+  """
+  def xinput(usb \\ "/sys/bus/usb/devices", dev \\ "/dev/bus/usb") do
+    for dir <- Path.wildcard(Path.join(usb, "*:*")) |> Enum.sort(),
+        attr(dir, "bInterfaceClass") == "ff" and attr(dir, "bInterfaceSubClass") == "5d" and attr(dir, "bInterfaceProtocol") == "01",
+        parent = Path.join(usb, dir |> Path.basename() |> String.split(":") |> hd()),
+        {bus, ""} <- [Integer.parse(attr(parent, "busnum") || "")],
+        {num, ""} <- [Integer.parse(attr(parent, "devnum") || "")],
+        ep_in = endpoint(dir, "in"),
+        ep_in != nil do
+      %{
+        key: "usb:" <> Path.basename(dir),
+        device: Path.join(dev, :io_lib.format("~3..0B/~3..0B", [bus, num]) |> to_string()),
+        interface: attr(dir, "bInterfaceNumber") |> to_string() |> Integer.parse(16) |> elem(0),
+        in: ep_in,
+        out: endpoint(dir, "out") || "0",
+        name: attr(parent, "product") || "an XInput pad"
+      }
+    end
+  end
+
+  defp attr(dir, name) do
+    case File.read(Path.join(dir, name)) do
+      {:ok, v} -> String.trim(v)
+      _ -> nil
+    end
+  end
+
+  # An interrupt endpoint of the interface going `dir` ("in" or "out"): its address, hex.
+  defp endpoint(dir, way) do
+    Path.wildcard(Path.join(dir, "ep_*"))
+    |> Enum.find_value(fn ep ->
+      if attr(ep, "direction") == way and attr(ep, "type") == "Interrupt", do: attr(ep, "bEndpointAddress")
+    end)
   end
 
   defp number(path), do: path |> Path.basename() |> String.trim_leading("event") |> Integer.parse() |> elem(0)
@@ -78,43 +123,55 @@ defmodule Lepton.SNES.Pads do
   Returns the watcher's pid; it, and its readers, end with `target`, or
   when killed.
   """
-  def start(target), do: spawn(fn -> watch(target, Process.monitor(target), %{}) end)
+  def start(target), do: spawn(fn -> watch(target, Process.monitor(target), %{}, MapSet.new()) end)
 
   @rescan 1_000
+  # A reader that ends this soon couldn't read its pad (the device went
+  # wrong, or it can't be opened): the pad is left alone, not tried again
+  # every second, until it's plugged in again.
+  @failed_ms 2_000
 
-  defp watch(target, ref, readers) do
+  defp watch(target, ref, readers, failed) do
+    found =
+      Enum.map(devices(), fn path -> {path, Lepton.Photon.Input.name(path) || "a gamepad", fn p, me -> read(path, p, target, me) end} end) ++
+        Enum.map(xinput(), fn x -> {x.key, x.name, fn p, me -> read_xinput(x, p, target, me) end} end)
+
+    # (unplugged: tried again when it comes back)
+    failed = MapSet.intersection(failed, MapSet.new(found, &elem(&1, 0)))
+
     readers =
-      Enum.reduce(devices(), readers, fn path, readers ->
-        free = Enum.find([0, 1], fn p -> not Enum.any?(readers, fn {_, {_, _, q}} -> q == p end) end)
+      Enum.reduce(found, readers, fn {key, name, reader}, readers ->
+        free = Enum.find([0, 1], fn p -> not Enum.any?(readers, fn {_, r} -> r.player == p end) end)
 
         cond do
-          Map.has_key?(readers, path) or free == nil ->
+          Map.has_key?(readers, key) or free == nil or MapSet.member?(failed, key) ->
             readers
 
           true ->
             me = self()
-            {pid, mref} = spawn_monitor(fn -> read(path, free, target, me) end)
-            send(target, {:snes_pad_added, free, Lepton.Photon.Input.name(path) || "a gamepad"})
-            Map.put(readers, path, {pid, mref, free})
+            {pid, mref} = spawn_monitor(fn -> reader.(free, me) end)
+            send(target, {:snes_pad_added, free, name})
+            Map.put(readers, key, %{pid: pid, ref: mref, player: free, since: System.monotonic_time(:millisecond)})
         end
       end)
 
     receive do
       {:DOWN, ^ref, _, _, _} ->
-        Enum.each(readers, fn {_, {pid, _, _}} -> Process.exit(pid, :kill) end)
+        Enum.each(readers, fn {_, r} -> Process.exit(r.pid, :kill) end)
 
       {:DOWN, mref, _, _, _} ->
-        case Enum.find(readers, fn {_, {_, r, _}} -> r == mref end) do
-          {path, {_, _, player}} ->
-            send(target, {:snes_pad, player, 0})
-            send(target, {:snes_pad_removed, player})
-            watch(target, ref, Map.delete(readers, path))
+        case Enum.find(readers, fn {_, r} -> r.ref == mref end) do
+          {key, r} ->
+            send(target, {:snes_pad, r.player, 0})
+            send(target, {:snes_pad_removed, r.player})
+            quick = System.monotonic_time(:millisecond) - r.since < @failed_ms
+            watch(target, ref, Map.delete(readers, key), if(quick, do: MapSet.put(failed, key), else: failed))
 
           nil ->
-            watch(target, ref, readers)
+            watch(target, ref, readers, failed)
         end
     after
-      @rescan -> watch(target, ref, readers)
+      @rescan -> watch(target, ref, readers, failed)
     end
   end
 
@@ -130,6 +187,52 @@ defmodule Lepton.SNES.Pads do
         :ok
     end
   end
+
+  # An XInput pad, through lepton-xinput: its reports, as they come.
+  defp read_xinput(x, player, target, watcher) do
+    Process.link(watcher)
+
+    with {:ok, exe} <- Lepton.SNES.xinput_reader() do
+      port = Port.open({:spawn_executable, exe}, [:binary, {:packet, 4}, :exit_status, args: [x.device, "#{x.interface}", x.in, x.out]])
+      xinput_loop(port, player, target, 0)
+    end
+  end
+
+  defp xinput_loop(port, player, target, sent) do
+    receive do
+      {^port, {:data, report}} ->
+        case xinput_mask(report) do
+          nil -> xinput_loop(port, player, target, sent)
+          ^sent -> xinput_loop(port, player, target, sent)
+          now -> send(target, {:snes_pad, player, now}); xinput_loop(port, player, target, now)
+        end
+
+      {^port, {:exit_status, _}} ->
+        :ok
+    end
+  end
+
+  @doc """
+  An XInput report's buttons, as the SNES's (libretro's bits), or nil for
+  a report that isn't the buttons. By place, as on a SNES pad: A (the
+  bottom button) is B, B is A, X is Y, Y is X; the bumpers and triggers L
+  and R; Back Select, Start Start; the D-pad, or the left stick past a
+  quarter of its way.
+  """
+  def xinput_mask(<<0, len, b1, b2, lt, rt, lx::little-signed-16, ly::little-signed-16, _::binary>>) when len >= 14 do
+    bit = fn byte, n, to -> if (byte >>> n &&& 1) == 1, do: 1 <<< to, else: 0 end
+    up = (b1 &&& 1) != 0 or ly > 8192
+    down = (b1 &&& 2) != 0 or ly < -8192
+    left = (b1 &&& 4) != 0 or lx < -8192
+    right = (b1 &&& 8) != 0 or lx > 8192
+
+    bit.(b2, 4, 0) ||| bit.(b2, 5, 8) ||| bit.(b2, 6, 1) ||| bit.(b2, 7, 9) |||
+      bit.(b2, 0, 10) ||| bit.(b2, 1, 11) ||| if(lt > 128, do: 1 <<< 10, else: 0) ||| if(rt > 128, do: 1 <<< 11, else: 0) |||
+      bit.(b1, 5, 2) ||| bit.(b1, 4, 3) |||
+      if(up, do: 1 <<< 4, else: 0) ||| if(down, do: 1 <<< 5, else: 0) ||| if(left, do: 1 <<< 6, else: 0) ||| if(right, do: 1 <<< 7, else: 0)
+  end
+
+  def xinput_mask(_), do: nil
 
   # EVIOCGABS(axis): {minimum, maximum}, or nil.
   defp range(f, axis) do

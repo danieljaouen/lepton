@@ -28,6 +28,11 @@ defmodule Lepton.SNES do
   @external_resource @source_path
   @source File.read!(@source_path)
   @hash :crypto.hash(:sha256, @source) |> Base.encode16(case: :lower) |> binary_part(0, 12)
+  # The XInput pads' reader (Lepton.SNES.Pads), built the same way.
+  @xinput_path Path.join(__DIR__, "snes/xinput.c")
+  @external_resource @xinput_path
+  @xinput File.read!(@xinput_path)
+  @xinput_hash :crypto.hash(:sha256, @xinput) |> Base.encode16(case: :lower) |> binary_part(0, 12)
 
   @roms ~w(.sfc .smc .swc .fig)
 
@@ -65,6 +70,16 @@ defmodule Lepton.SNES do
     if File.exists?(exe), do: {:ok, exe}, else: build(exe)
   end
 
+  @doc """
+  The XInput pads' reader (`xinput.c`: Xbox 360 pads and those made like
+  them, which the kernel has no driver for), compiled if it isn't yet:
+  `{:ok, path}` or `{:error, message}`.
+  """
+  def xinput_reader do
+    exe = Path.join(build_dir(), "lepton-xinput-" <> @xinput_hash)
+    if File.exists?(exe), do: {:ok, exe}, else: build(exe, @xinput, "the gamepad reader (lepton-xinput)")
+  end
+
   defp build_dir do
     run = "/run/lepton/snes"
 
@@ -76,14 +91,14 @@ defmodule Lepton.SNES do
   end
 
   @doc false
-  def build(exe) do
+  def build(exe, source \\ @source, what \\ "the SNES frontend (lepton-snes)") do
     p = prefix()
     tcc = Path.join(p, "usr/bin/tcc")
     lib = Path.join(p, "usr/lib")
     File.mkdir_p!(Path.dirname(exe))
     src = exe <> ".c"
     tmp = exe <> ".tmp"
-    File.write!(src, @source)
+    File.write!(src, source)
 
     # tcc's own folders are Alpine's (/usr/lib, /usr/include): everything
     # is named here instead, from the app's folder.
@@ -100,10 +115,10 @@ defmodule Lepton.SNES do
 
       {out, _} ->
         File.rm(tmp)
-        {:error, "couldn't build the SNES frontend (lepton-snes): " <> String.trim(out)}
+        {:error, "couldn't build #{what}: " <> String.trim(out)}
     end
   rescue
-    e -> {:error, "couldn't build the SNES frontend: " <> Exception.message(e)}
+    e -> {:error, "couldn't build #{what}: " <> Exception.message(e)}
   end
 
   # -- the command ----------------------------------------------------------------------------

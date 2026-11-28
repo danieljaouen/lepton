@@ -418,9 +418,8 @@ defmodule Lepton.VaultTest do
       Photon.input(ph, {:button, 0x110, true})
       Photon.input(ph, {:button, 0x110, false})
       assert eventually(fn -> Lepton.Vault.App.ui(app).mode == :new end)
-      Photon.sync(ph)
-      # The form's white title field is on the screen.
-      assert Photon.Output.read(out, x + dx + 400, y + dy + 108, 1, 1) == Photon.Render.rgb("#ffffff")
+      # The form's white title field is on the screen (once the app has drawn it: a slow machine, a while).
+      assert eventually(fn -> Photon.sync(ph); Photon.Output.read(out, x + dx + 400, y + dy + 108, 1, 1) == Photon.Render.rgb("#ffffff") end)
     end
   end
 

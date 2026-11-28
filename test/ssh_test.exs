@@ -497,7 +497,8 @@ defmodule Lepton.SSHTest do
     assert Task.await(session, 5000) == 3
   end
 
-  defp eventually(fun, tries \\ 100) do
+  # (5 s: an emulated machine, a while)
+  defp eventually(fun, tries \\ 250) do
     cond do
       fun.() -> true
       tries == 0 -> false

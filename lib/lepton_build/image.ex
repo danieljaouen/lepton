@@ -35,12 +35,16 @@ defmodule LeptonBuild.Image do
   # a hub or dock; Lepton.USB): display adapters (DisplayLink's older
   # DL-1x0/1x5 chips, and Generic USB Display gadgets), the Ethernet ports
   # of docks and adapters, and keyboards, mice, touchpads and tablets that
-  # need more than hid-generic.
+  # need more than hid-generic, and PlayStation pads (DualShock 3 and 4,
+  # DualSense: their buttons by place, for the SNES emulator). The kernel
+  # has no XInput (xpad) driver: those pads are read from USB by
+  # Lepton.SNES.Pads.
   @usb_modules ~w(
     udl gud
     r8152 ax88179_178a cdc_ether cdc_ncm asix
     hid-apple hid-magicmouse hid-logitech-dj hid-logitech-hidpp hid-microsoft
     hid-multitouch hid-lenovo hid-cherry hid-asus hid-elan wacom
+    hid-playstation hid-sony
   )
 
   # Built-in touchpads and touchscreens of laptops, which sit on an I2C

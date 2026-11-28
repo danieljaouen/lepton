@@ -37,6 +37,9 @@ defmodule Lepton.SNES.Window do
   @esc 1
   @key_p 25
   @pause 119
+  @watchdog_ms 3000
+
+  require Logger
   @key_r 19
   @f5 63
   @f9 67
@@ -96,7 +99,10 @@ defmodule Lepton.SNES.Window do
       paused: false,
       slot: 1,
       fullscreen: false,
-      last_click: 0,
+      last_click: nil,
+      frames: 0,
+      frames_seen: 0,
+      stalled: false,
       notify: opts[:notify],
       started: false,
       dir: env["XDG_RUNTIME_DIR"] || System.tmp_dir!(),
@@ -112,6 +118,7 @@ defmodule Lepton.SNES.Window do
     # Game controllers: players 1 and 2 (Lepton.SNES.Pads); player 1's
     # buttons go with the keyboard's.
     pads = if opts[:pads] != false, do: Lepton.SNES.Pads.start(self())
+    Process.send_after(self(), :watchdog, @watchdog_ms)
     Map.merge(st, %{port: port, audio: nil, pads: pads, pad: %{0 => 0, 1 => 0}})
   end
 
@@ -143,7 +150,12 @@ defmodule Lepton.SNES.Window do
   def handle_info({:wl_closed, _}, st), do: {:stop, :normal, st}
   def handle_info({:DOWN, _, :process, pid, _}, %{notify: pid} = st), do: {:stop, :normal, st}
 
-  def handle_info({port, {:data, <<?V, w::16, h::16, pixels::binary>>}}, %{port: port} = st) do
+  def handle_info({port, {:data, <<?V, _::binary>> = frame}}, %{port: port} = st) do
+    # Only the newest frame is drawn: any older still waiting are let go,
+    # so a window that can't keep up (a big one, a busy machine) shows
+    # fewer pictures rather than falling behind, minutes of them queued.
+    <<?V, w::16, h::16, pixels::binary>> = newest(port, frame)
+    st = %{st | frames: st.frames + 1}
     # (a frame made before the last resize is the wrong size: left out)
     if {w, h} == {st.w, st.h}, do: {:noreply, draw(%{st | frame: pixels})}, else: {:noreply, st}
   end
@@ -176,6 +188,23 @@ defmodule Lepton.SNES.Window do
   def handle_info({:snes_pad_removed, player}, st), do: {:noreply, show(st, "player #{player + 1}'s pad unplugged")}
 
   def handle_info(:title, st), do: {:noreply, %{st | c: Client.request(st.c, st.ids.top, :set_title, [title(st)])}}
+
+  # The emulator sends 50 or 60 pictures a second while the game runs:
+  # none for a while (not paused) means it's stuck, which is logged
+  # (once), with how much memory the window holds, for finding out why.
+  def handle_info(:watchdog, st) do
+    Process.send_after(self(), :watchdog, @watchdog_ms)
+
+    cond do
+      st.frames > st.frames_seen -> {:noreply, %{st | frames_seen: st.frames, stalled: false}}
+      st.paused or !st.started or st.stalled -> {:noreply, st}
+      true ->
+        {:memory, mem} = Process.info(self(), :memory)
+        {:message_queue_len, q} = Process.info(self(), :message_queue_len)
+        Logger.warning("snes: no picture from the emulator for #{div(@watchdog_ms, 1000)} s (window: #{div(mem, 1024)} KiB, #{q} messages waiting; #{st.w}x#{st.h}#{if st.fullscreen, do: ", full screen", else: ""})")
+        {:noreply, %{st | stalled: true}}
+    end
+  end
   def handle_info(_msg, st), do: {:noreply, st}
 
   @impl true
@@ -211,6 +240,14 @@ defmodule Lepton.SNES.Window do
       "lepton-snes: " <> why -> why
       nil -> "the emulator stopped (#{status})"
       line -> "the emulator stopped (#{status}): #{line}"
+    end
+  end
+
+  defp newest(port, frame) do
+    receive do
+      {^port, {:data, <<?V, _::binary>> = later}} -> newest(port, later)
+    after
+      0 -> frame
     end
   end
 
@@ -313,8 +350,11 @@ defmodule Lepton.SNES.Window do
   defp event({_, "wl_keyboard", :leave, _}, st), do: set_buttons(%{st | ctrl: MapSet.new()}, 0)
 
   defp event({_, "wl_pointer", :button, [_serial, _time, 0x110, 1]}, st) do
+    # (no click before: not a double one. The VM's monotonic clock starts
+    # far below 0, so a first click measured from 0 always was one, and a
+    # single click went to full screen.)
     now = System.monotonic_time(:millisecond)
-    double? = now - st.last_click < 400
+    double? = st.last_click != nil and now - st.last_click < 400
     st = %{st | last_click: now}
     if double?, do: fullscreen(st, !st.fullscreen), else: st
   end
